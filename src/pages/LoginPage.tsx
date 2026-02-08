@@ -3,10 +3,7 @@ import AuthLayout from "@/layouts/AuthLayout";
 
 export default function LoginPage() {
     return (
-        <AuthLayout
-            imageUrl=""
-            imageAlt=""
-        >
+        <AuthLayout title="Welcome back" description="Enter your email to sign in to your account.">
             <LoginForm />
         </AuthLayout>
     );

@@ -1,28 +1,42 @@
-import React from 'react';
+import type { ReactNode } from "react";
 
 interface AuthLayoutProps {
-    children: React.ReactNode;
-    imageUrl: string;
-    imageAlt: string;
-    overlayContent?: React.ReactNode;
+    children: ReactNode;
+    title?: string;
+    description?: string;
 }
 
-export default function AuthLayout({
-    children,
-
-}: AuthLayoutProps) {
+export default function AuthLayout({ children, title, description }: AuthLayoutProps) {
     return (
-        <div className="min-h-screen flex flex-col bg-white">
-
-            {/* Main Content */}
-            <div className="flex-1 flex items-center justify-center px-6 md:px-10 py-8">
-                <div className="w-full max-w-md">
-                    {children}
+        <div className="grid min-h-svh lg:grid-cols-2">
+            <div className="flex flex-col gap-4 p-6 md:p-10">
+                <div className="flex flex-1 items-center justify-center">
+                    <div className="w-full max-w-xs">
+                        {(title || description) && (
+                            <div className="mb-6">
+                                {title && (
+                                    <h1 className="text-2xl font-bold tracking-tight">
+                                        {title}
+                                    </h1>
+                                )}
+                                {description && (
+                                    <p className="text-muted-foreground mt-2 text-sm">
+                                        {description}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                        {children}
+                    </div>
                 </div>
             </div>
-
-            {/* Footer */}
-
+            <div className="bg-muted relative hidden lg:block">
+                <img
+                    src="/placeholder.svg"
+                    alt="Image"
+                    className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
+                />
+            </div>
         </div>
     );
 }
