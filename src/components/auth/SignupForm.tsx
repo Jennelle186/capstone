@@ -21,6 +21,7 @@ export default function SignupForm() {
       email: "",
       password: "",
       passwordConfirm: "",
+      agree: false,
     },
   });
 
@@ -90,6 +91,42 @@ export default function SignupForm() {
                   type="password"
                   placeholder="Re-enter your password"
                 />
+                {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+              </Field>
+            )}
+          />
+
+          <Controller
+            name="agree"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field>
+                <div className="flex items-start gap-3">
+                  <input
+                    id="form-signup-agree"
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                    checked={field.value}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                  />
+                  <div className="space-y-1 text-sm text-slate-700">
+                    <label htmlFor="form-signup-agree" className="font-medium text-slate-900">
+                      I agree to the Terms and Conditions and Privacy Policy
+                    </label>
+                    <p className="text-xs text-slate-600">
+                      By signing up, you consent to processing under the Data Privacy Act of 2012
+                      (RA 10173).{" "}
+                      <a
+                        href="/terms"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline underline-offset-4 text-primary"
+                      >
+                        Read Terms &amp; Privacy
+                      </a>
+                    </p>
+                  </div>
+                </div>
                 {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
               </Field>
             )}

@@ -46,6 +46,11 @@ export const signupSchema = z
     email: z.email(),
     password: passwordSchema,
     passwordConfirm: z.string(),
+    agree: z
+      .boolean()
+      .refine((val) => val === true, {
+        message: "You must agree to the Terms and Privacy Policy",
+      }),
   })
   .superRefine((data, ctx) => {
     if (data.password !== data.passwordConfirm) {
