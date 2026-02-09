@@ -13,7 +13,7 @@ export default function HomePage() {
 
   return (
     <div className="bg-white">
-      <section className="relative overflow-hidden bg-gradient-to-b from-slate-50 via-white to-white">
+      <section className="relative overflow-hidden bg-linear-to-b from-slate-50 via-white to-white">
         <motion.div
           style={{ y: ySlow }}
           className="pointer-events-none absolute -top-28 right-0 h-72 w-72 rounded-full bg-emerald-100/50 blur-3xl"
@@ -24,15 +24,15 @@ export default function HomePage() {
         />
         <motion.div
           style={{ y: yFast }}
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,_rgba(15,23,42,0.06),_transparent_45%)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(15,23,42,0.06),transparent_45%)]"
         />
         <motion.div
           style={{ y: ySlow }}
-          className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,_rgba(148,163,184,0.12)_0%,_transparent_40%,_rgba(226,232,240,0.6)_100%)]"
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(148,163,184,0.12)_0%,transparent_40%,rgba(226,232,240,0.6)_100%)]"
         />
         <motion.div
           style={{ y: yMedium }}
-          className="pointer-events-none absolute inset-0 opacity-60 [mask-image:radial-gradient(circle_at_center,rgba(0,0,0,1),rgba(0,0,0,0))] bg-[repeating-linear-gradient(135deg,_rgba(148,163,184,0.18)_0px,_rgba(148,163,184,0.18)_1px,_transparent_1px,_transparent_10px)]"
+          className="pointer-events-none absolute inset-0 opacity-60 mask-[radial-gradient(circle_at_center,rgba(0,0,0,1),rgba(0,0,0,0))]"
         />
 
         <motion.div

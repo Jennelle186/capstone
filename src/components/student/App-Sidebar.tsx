@@ -41,7 +41,7 @@ const projects = [
 export function AppSidebar() {
     const { state } = useSidebar()
     const location = useLocation()
-    const MotionLink = React.useMemo(() => motion(Link), [])
+    const MotionLink = React.useMemo(() => motion.create(Link), [])
     const containerVariants = React.useMemo(
         () => ({
             hidden: { opacity: 0 },
@@ -74,7 +74,7 @@ export function AppSidebar() {
                     className="flex items-center gap-3 px-2 py-1"
                 >
                     <div className="relative">
-                        <div className="absolute -inset-1 rounded-xl bg-gradient-to-br from-emerald-400/30 via-cyan-400/30 to-blue-500/30 blur" />
+                        <div className="absolute -inset-1 rounded-xl bg-linear-to-br from-emerald-400/30 via-cyan-400/30 to-blue-500/30 blur" />
                         <img
                             src="/ccs-logo.jpg"
                             alt="CCS logo"
@@ -107,37 +107,36 @@ export function AppSidebar() {
                                 {mainNavigation.map((item) => {
                                     const isActive = location.pathname === item.url
                                     return (
-                                    <motion.div key={item.title} variants={itemVariants}>
-                                        <SidebarMenuItem>
-                                            <SidebarMenuButton
-                                                asChild
-                                                isActive={isActive}
-                                                tooltip={item.title}
-                                            >
-                                                <MotionLink
-                                                    to={item.url}
-                                                    whileHover={{ x: 4 }}
-                                                    whileTap={{ scale: 0.97 }}
-                                                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                                                    className={`group relative flex items-center gap-2 rounded-md px-2 py-2 ${
-                                                        isActive
-                                                            ? 'bg-slate-100/80 pl-3 text-slate-900'
-                                                            : 'text-slate-500'
-                                                    }`}
+                                        <motion.div key={item.title} variants={itemVariants}>
+                                            <SidebarMenuItem>
+                                                <SidebarMenuButton
+                                                    asChild
+                                                    isActive={isActive}
+                                                    tooltip={item.title}
                                                 >
-                                                    {isActive && (
-                                                        <motion.span
-                                                            layoutId="activeIndicator"
-                                                            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                                                            className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-md bg-green-600"
-                                                        />
-                                                    )}
-                                                    <item.icon className="size-4 text-slate-600 group-hover:text-slate-900" />
-                                                    <span>{item.title}</span>
-                                                </MotionLink>
-                                            </SidebarMenuButton>
-                                        </SidebarMenuItem>
-                                    </motion.div>
+                                                    <MotionLink
+                                                        to={item.url}
+                                                        whileHover={{ x: 4 }}
+                                                        whileTap={{ scale: 0.97 }}
+                                                        transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                                                        className={`group relative flex items-center gap-2 rounded-md px-2 py-2 ${isActive
+                                                                ? 'bg-slate-100/80 pl-3 text-slate-900'
+                                                                : 'text-slate-500'
+                                                            }`}
+                                                    >
+                                                        {isActive && (
+                                                            <motion.span
+                                                                layoutId="activeIndicator"
+                                                                transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                                                                className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-md bg-green-600"
+                                                            />
+                                                        )}
+                                                        <item.icon className="size-4 text-slate-600 group-hover:text-slate-900" />
+                                                        <span>{item.title}</span>
+                                                    </MotionLink>
+                                                </SidebarMenuButton>
+                                            </SidebarMenuItem>
+                                        </motion.div>
                                     )
                                 })}
                             </motion.div>
@@ -156,33 +155,32 @@ export function AppSidebar() {
                                 {projects.map((item) => {
                                     const isActive = location.pathname === item.url
                                     return (
-                                    <motion.div key={item.title} variants={itemVariants}>
-                                        <SidebarMenuItem>
-                                            <SidebarMenuButton asChild tooltip={item.title}>
-                                                <MotionLink
-                                                    to={item.url}
-                                                    whileHover={{ x: 4 }}
-                                                    whileTap={{ scale: 0.97 }}
-                                                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                                                    className={`group relative flex items-center gap-2 rounded-md px-2 py-2 ${
-                                                        isActive
-                                                            ? 'bg-slate-100/80 pl-3 text-slate-900'
-                                                            : 'text-slate-500'
-                                                    }`}
-                                                >
-                                                    {isActive && (
-                                                        <motion.span
-                                                            layoutId="activeIndicator"
-                                                            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                                                            className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-md bg-green-600"
-                                                        />
-                                                    )}
-                                                    <item.icon className="size-4 text-slate-600 group-hover:text-slate-900" />
-                                                    <span>{item.title}</span>
-                                                </MotionLink>
-                                            </SidebarMenuButton>
-                                        </SidebarMenuItem>
-                                    </motion.div>
+                                        <motion.div key={item.title} variants={itemVariants}>
+                                            <SidebarMenuItem>
+                                                <SidebarMenuButton asChild tooltip={item.title}>
+                                                    <MotionLink
+                                                        to={item.url}
+                                                        whileHover={{ x: 4 }}
+                                                        whileTap={{ scale: 0.97 }}
+                                                        transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                                                        className={`group relative flex items-center gap-2 rounded-md px-2 py-2 ${isActive
+                                                                ? 'bg-slate-100/80 pl-3 text-slate-900'
+                                                                : 'text-slate-500'
+                                                            }`}
+                                                    >
+                                                        {isActive && (
+                                                            <motion.span
+                                                                layoutId="activeIndicator"
+                                                                transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                                                                className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-md bg-green-600"
+                                                            />
+                                                        )}
+                                                        <item.icon className="size-4 text-slate-600 group-hover:text-slate-900" />
+                                                        <span>{item.title}</span>
+                                                    </MotionLink>
+                                                </SidebarMenuButton>
+                                            </SidebarMenuItem>
+                                        </motion.div>
                                     )
                                 })}
                             </motion.div>
