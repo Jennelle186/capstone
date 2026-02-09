@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 
-import UploadZone from "@/components/upload-zone";
+import UploadZone from "@/components/student/UploadDocuments/upload-zone";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -71,7 +71,7 @@ export default function UploadDocuments() {
             )}
           />
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <MotionButton
               type="button"
               variant="outline"

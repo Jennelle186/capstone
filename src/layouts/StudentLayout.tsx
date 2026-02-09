@@ -3,6 +3,7 @@ import { AppSidebar } from "@/components/student/App-Sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AnimatePresence, motion } from "framer-motion";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function StudentLayout() {
     const location = useLocation();
@@ -26,6 +27,7 @@ export default function StudentLayout() {
                             </motion.div>
                         </AnimatePresence>
                     </div>
+                    <Toaster />
                 </SidebarInset>
             </SidebarProvider>
         </TooltipProvider>
