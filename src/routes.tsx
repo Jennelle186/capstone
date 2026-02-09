@@ -4,7 +4,9 @@ import SignupPage from "./pages/SignupPage";
 import HomePage from "./pages/HomePage";
 import AboutPage from "./pages/AboutPage";
 import TermsPage from "./pages/TermsPage";
+import StudentDashboard from "./pages/students/StudentDashboard";
 import RootLayout from "./layouts/RootLayout";
+import StudentLayout from "./layouts/StudentLayout";
 
 const AppRoutes = createBrowserRouter([
     {
@@ -21,6 +23,13 @@ const AppRoutes = createBrowserRouter([
                     { path: "signup", Component: SignupPage },
                 ]
             }
+        ],
+    },
+    {
+        path: "/student",
+        element: <StudentLayout />,
+        children: [
+            { path: "dashboard", Component: StudentDashboard },
         ],
     },
     {
