@@ -11,7 +11,10 @@ interface AuthLayoutProps {
 export default function AuthLayout({ children, title, description }: AuthLayoutProps) {
     return (
         <div className="grid min-h-svh lg:grid-cols-2">
-            <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden border-r border-slate-200 bg-slate-50 text-slate-900 p-10">
+            <motion.aside
+                layout
+                className="relative hidden lg:flex flex-col justify-between overflow-hidden border-r border-slate-200 bg-slate-50 text-slate-900 p-10"
+            >
                 <motion.div
                     className="pointer-events-none absolute -top-24 -right-20 h-64 w-64 rounded-full bg-emerald-200/40 blur-3xl"
                     animate={{ x: [0, -10, 0], y: [0, 12, 0] }}
@@ -88,10 +91,10 @@ export default function AuthLayout({ children, title, description }: AuthLayoutP
                         Institutional Record
                     </motion.span>
                 </motion.div>
-            </aside>
-            <div className="flex flex-col gap-4 p-6 md:p-10">
+            </motion.aside>
+            <motion.div layout className="flex flex-col gap-4 p-6 md:p-10">
                 <div className="flex flex-1 items-center justify-center">
-                    <div className="w-full max-w-xs">
+                    <motion.div layout className="w-full max-w-xs">
                         {(title || description) && (
                             <div className="mb-6">
                                 {title && (
@@ -107,9 +110,9 @@ export default function AuthLayout({ children, title, description }: AuthLayoutP
                             </div>
                         )}
                         {children}
-                    </div>
+                    </motion.div>
                 </div>
-            </div>
+            </motion.div>
         </div>
     );
 }

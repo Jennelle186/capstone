@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { fadeUp, stagger, liftHover } from "@/lib/motion";
 
-const MotionButton = motion(Button);
+const MotionButton = motion.create(Button);
 
 export default function HomePage() {
   const { scrollY } = useScroll();
@@ -79,20 +79,21 @@ export default function HomePage() {
           <motion.div
             variants={fadeUp}
             className="mt-14 grid gap-6 rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm md:grid-cols-3"
+            layout
           >
-            <motion.div whileHover={liftHover}>
+            <motion.div whileHover={liftHover} layout>
               <p className="text-sm font-semibold text-slate-900">Document Intake</p>
               <p className="mt-2 text-sm text-slate-600">
                 Upload enrollment requirements in PDF or image formats in one place.
               </p>
             </motion.div>
-            <motion.div whileHover={liftHover}>
+            <motion.div whileHover={liftHover} layout>
               <p className="text-sm font-semibold text-slate-900">OCR & Editing</p>
               <p className="mt-2 text-sm text-slate-600">
                 Extract and validate document text before verification and approval.
               </p>
             </motion.div>
-            <motion.div whileHover={liftHover}>
+            <motion.div whileHover={liftHover} layout>
               <p className="text-sm font-semibold text-slate-900">Verification Flow</p>
               <p className="mt-2 text-sm text-slate-600">
                 Teachers and advisers verify physical documents and approve submissions
@@ -122,7 +123,7 @@ export default function HomePage() {
           Built for CCS operations with tools that reduce manual work and improve data accuracy.
         </motion.p>
 
-        <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <motion.div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-4" layout>
           {[
             {
               title: "Secure Document Intake",
@@ -145,13 +146,14 @@ export default function HomePage() {
               key={feature.title}
               variants={fadeUp}
               whileHover={liftHover}
+              layout
               className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
             >
               <p className="text-sm font-semibold text-slate-900">{feature.title}</p>
               <p className="mt-2 text-sm text-slate-600">{feature.description}</p>
             </motion.div>
           ))}
-        </div>
+        </motion.div>
       </motion.section>
 
       <motion.section
@@ -174,10 +176,11 @@ export default function HomePage() {
             A tailored experience for students and CCS advisers, with permissions aligned to school policy.
           </motion.p>
 
-          <div className="mt-8 grid gap-6 md:grid-cols-2">
+          <motion.div className="mt-8 grid gap-6 md:grid-cols-2" layout>
             <motion.div
               variants={fadeUp}
               whileHover={liftHover}
+              layout
               className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
             >
               <p className="text-sm font-semibold text-slate-900">Students</p>
@@ -190,6 +193,7 @@ export default function HomePage() {
             <motion.div
               variants={fadeUp}
               whileHover={liftHover}
+              layout
               className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
             >
               <p className="text-sm font-semibold text-slate-900">Teachers & Advisers</p>
@@ -199,7 +203,7 @@ export default function HomePage() {
                 <li>Track progress for CCS administration</li>
               </ul>
             </motion.div>
-          </div>
+          </motion.div>
         </div>
       </motion.section>
 
@@ -222,7 +226,7 @@ export default function HomePage() {
           Reduce administrative workload while improving data quality and compliance.
         </motion.p>
 
-        <div className="mt-8 grid gap-6 md:grid-cols-3">
+        <motion.div className="mt-8 grid gap-6 md:grid-cols-3" layout>
           {[
             {
               title: "Efficiency",
@@ -241,13 +245,14 @@ export default function HomePage() {
               key={benefit.title}
               variants={fadeUp}
               whileHover={liftHover}
+              layout
               className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
             >
               <p className="text-sm font-semibold text-slate-900">{benefit.title}</p>
               <p className="mt-2 text-sm text-slate-600">{benefit.description}</p>
             </motion.div>
           ))}
-        </div>
+        </motion.div>
       </motion.section>
 
       <motion.section
