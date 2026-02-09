@@ -1,16 +1,19 @@
+import * as React from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AnimatePresence, motion, type Variants } from "framer-motion";
+import { DataTable } from "@/components/student/Dashboard Datatable/dataTable";
+import {
+  columns,
+  type DataTableDashboard,
+} from "@/components/student/Dashboard Datatable/columns";
+import { motion, type Variants } from "framer-motion";
 import {
   FileText,
   CheckCircle2,
   ShieldCheck,
   Clock3,
-  Eye,
-  Check,
   Sparkles,
 } from "lucide-react";
 
@@ -21,17 +24,22 @@ const stats = [
   { label: "Ready for Admission", value: 6, icon: CheckCircle2 },
 ];
 
-const documents = [
-  { name: "Birth Certificate", uploaded: true, status: "Verified", sent: true },
-  { name: "Report Card", uploaded: true, status: "Verified", sent: true },
-  { name: "Admission Form", uploaded: true, status: "Verified", sent: true },
-  { name: "CET", uploaded: true, status: "Verified", sent: true },
-  { name: "Medical Certificate", uploaded: true, status: "Verified", sent: true },
-  { name: "Good Moral Certificate", uploaded: true, status: "Verified", sent: true },
+const documents: DataTableDashboard[] = [
+  { id: "doc-1", documentType: "Birth Certificate", uploaded: true, status: "verified", sentToAdmin: true },
+  { id: "doc-2", documentType: "Report Card", uploaded: true, status: "verified", sentToAdmin: true },
+  { id: "doc-3", documentType: "Admission Form", uploaded: true, status: "verified", sentToAdmin: true },
+  { id: "doc-4", documentType: "CET", uploaded: true, status: "verified", sentToAdmin: true },
+  { id: "doc-5", documentType: "Medical Certificate", uploaded: true, status: "verified", sentToAdmin: true },
+  { id: "doc-6", documentType: "Good Moral Certificate", uploaded: true, status: "verified", sentToAdmin: true },
 ];
 
+async function getData(): Promise<DataTableDashboard[]> {
+  return documents;
+}
+
 export default function StudentDashboard() {
-  const isLoading = false;
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [data, setData] = React.useState<DataTableDashboard[]>([]);
   const pendingStat = stats.find((stat) => stat.label === "Pending Documents");
   const isAllCaughtUp = pendingStat?.value === "0 / 0";
 
@@ -51,21 +59,18 @@ export default function StudentDashboard() {
     },
   };
 
-  const rowContainer: Variants = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.05, delayChildren: 0.08 },
-    },
-  };
-  const rowItem: Variants = {
-    hidden: { opacity: 0, y: 20 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: { type: "spring" as const, stiffness: 100, damping: 15 },
-    },
-  };
+  React.useEffect(() => {
+    let isMounted = true;
+    getData().then((result) => {
+      if (isMounted) {
+        setData(result);
+        setIsLoading(false);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <main className="flex flex-1 flex-col gap-6 p-6 md:p-8 bg-slate-50 min-h-screen">
@@ -152,18 +157,18 @@ export default function StudentDashboard() {
           </Button>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm text-slate-700">
-              <thead>
-                <tr className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-6 py-4 text-left">Document Type</th>
-                  <th className="px-6 py-4 text-left">Uploaded?</th>
-                  <th className="px-6 py-4 text-left">Status</th>
-                  <th className="px-6 py-4 text-left">Sent to Admin</th>
-                  <th className="px-6 py-4 text-left">Actions</th>
-                </tr>
-              </thead>
-              {isLoading ? (
+          {isLoading ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm text-slate-700">
+                <thead>
+                  <tr className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-6 py-4 text-left">Document Type</th>
+                    <th className="px-6 py-4 text-left">Uploaded?</th>
+                    <th className="px-6 py-4 text-left">Status</th>
+                    <th className="px-6 py-4 text-left">Sent to Admin</th>
+                    <th className="px-6 py-4 text-left">Actions</th>
+                  </tr>
+                </thead>
                 <tbody className="divide-y divide-slate-100">
                   {Array.from({ length: 6 }).map((_, index) => (
                     <tr key={`row-skeleton-${index}`}>
@@ -185,44 +190,13 @@ export default function StudentDashboard() {
                     </tr>
                   ))}
                 </tbody>
-              ) : (
-                <AnimatePresence>
-                  <motion.tbody
-                    variants={rowContainer}
-                    initial="hidden"
-                    animate="show"
-                    exit="hidden"
-                    className="divide-y divide-slate-100"
-                  >
-                    {documents.map((doc) => (
-                      <motion.tr
-                        key={doc.name}
-                        layout
-                        variants={rowItem}
-                        whileHover={{ backgroundColor: "var(--accent)" }}
-                      >
-                        <td className="px-6 py-4 text-slate-900">{doc.name}</td>
-                        <td className="px-6 py-4">{doc.uploaded ? "Yes" : "No"}</td>
-                        <td className="px-6 py-4">
-                          <Badge variant="secondary" className="gap-1">
-                            <Check className="h-3 w-3" />
-                            {doc.status}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4">{doc.sent ? "Yes" : "No"}</td>
-                        <td className="px-6 py-4">
-                          <Button variant="ghost" size="sm" className="text-emerald-700">
-                            <Eye className="mr-2 h-4 w-4" />
-                            View
-                          </Button>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </motion.tbody>
-                </AnimatePresence>
-              )}
-            </table>
-          </div>
+              </table>
+            </div>
+          ) : (
+            <div className="p-4">
+              <DataTable columns={columns} data={data} />
+            </div>
+          )}
         </CardContent>
       </Card>
     </main>
