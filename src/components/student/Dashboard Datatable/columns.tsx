@@ -2,7 +2,7 @@
 import type { ColumnDef } from "@tanstack/react-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ArrowUpDown, Check, Eye } from "lucide-react"
+import { ArrowUpDown, Eye } from "lucide-react"
 
 
 // This type is used to define the shape of our data.
@@ -22,7 +22,7 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
             <Button
                 variant="ghost"
                 size="sm"
-                className="-ml-3 h-8 text-xs uppercase tracking-wide text-muted-foreground"
+                className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
                 onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
             >
                 Document Type
@@ -36,7 +36,7 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
             <Button
                 variant="ghost"
                 size="sm"
-                className="-ml-3 h-8 text-xs uppercase tracking-wide text-muted-foreground"
+                className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
                 onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
             >
                 Uploaded?
@@ -51,19 +51,28 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
             <Button
                 variant="ghost"
                 size="sm"
-                className="-ml-3 h-8 text-xs uppercase tracking-wide text-muted-foreground"
+                className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
                 onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
             >
                 Status
                 <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
             </Button>
         ),
-        cell: ({ row }) => (
-            <Badge variant="secondary" className="gap-1">
-                <Check className="h-3 w-3" />
-                {row.getValue("status")}
-            </Badge>
-        ),
+        cell: ({ row }) => {
+            const status = row.getValue("status") as string
+            const statusStyles =
+                status === "verified"
+                    ? "bg-green-100 text-green-700"
+                    : status === "pending"
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-rose-100 text-rose-700"
+            return (
+                <Badge variant="secondary" className={`gap-2 rounded-full border-0 px-3 py-1 ${statusStyles}`}>
+                    {status === "verified" && <span className="h-1.5 w-1.5 rounded-full bg-green-600" />}
+                    {status}
+                </Badge>
+            )
+        },
     },
     {
         accessorKey: "sentToAdmin",
@@ -71,7 +80,7 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
             <Button
                 variant="ghost"
                 size="sm"
-                className="-ml-3 h-8 text-xs uppercase tracking-wide text-muted-foreground"
+                className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
                 onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
             >
                 Sent to Admin
@@ -85,8 +94,13 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
         header: "Actions",
         enableSorting: false,
         cell: ({ row }) => (
-            <Button variant="ghost" size="sm" className="text-emerald-700" onClick={() => console.log("clicked", row.id)}>
-                <Eye className="mr-2 h-4 w-4" />
+            <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                onClick={() => console.log("clicked", row.id)}
+            >
+                <Eye className="h-4 w-4" />
                 View
             </Button>
         ),

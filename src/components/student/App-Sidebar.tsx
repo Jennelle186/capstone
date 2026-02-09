@@ -99,17 +99,17 @@ export function AppSidebar() {
                         Dashboards
                     </SidebarGroupLabel>
                     <SidebarGroupContent>
-                        <SidebarMenu >
+                        <SidebarMenu className="space-y-2">
                             <motion.div variants={containerVariants} initial="hidden" animate="show">
                                 {mainNavigation.map((item) => (
                                     <motion.div key={item.title} variants={itemVariants}>
                                         <SidebarMenuItem>
                                             <SidebarMenuButton asChild isActive={item.title === 'Overview'} tooltip={item.title}>
-                                                <a href={item.url} className="group">
+                                                <a href={item.url} className="group relative flex items-center gap-2 pl-3">
                                                     <item.icon className="size-4 text-slate-600 group-hover:text-slate-900" />
                                                     <span>{item.title}</span>
                                                     {item.title === 'Overview' && (
-                                                        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                                        <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded bg-emerald-500" />
                                                     )}
                                                 </a>
                                             </SidebarMenuButton>
@@ -127,7 +127,7 @@ export function AppSidebar() {
                         Pages
                     </SidebarGroupLabel>
                     <SidebarGroupContent>
-                        <SidebarMenu>
+                        <SidebarMenu className="space-y-2">
                             <motion.div variants={containerVariants} initial="hidden" animate="show">
                                 {projects.map((item) => (
                                     <motion.div key={item.title} variants={itemVariants}>

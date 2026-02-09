@@ -109,7 +109,7 @@ export function DataTable<TData, TValue>({
                                     return (
                                         <TableHead
                                             key={header.id}
-                                            className="px-6 py-4 text-xs uppercase tracking-wide text-muted-foreground"
+                                            className="bg-slate-50 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-600"
                                         >
                                             {header.isPlaceholder
                                                 ? null
