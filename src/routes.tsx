@@ -5,6 +5,7 @@ import HomePage from "./pages/HomePage";
 import AboutPage from "./pages/AboutPage";
 import TermsPage from "./pages/TermsPage";
 import StudentDashboard from "./pages/students/StudentDashboard";
+import UploadDocuments from "./pages/students/UploadDocuments";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
 
@@ -27,9 +28,10 @@ const AppRoutes = createBrowserRouter([
     },
     {
         path: "/student",
-        element: <StudentLayout />,
+        Component: StudentLayout,
         children: [
             { path: "dashboard", Component: StudentDashboard },
+            { path: "upload", Component: UploadDocuments },
         ],
     },
     {
