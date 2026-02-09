@@ -40,3 +40,21 @@ export const loginSchema = z.object({
 });
 
 export type LoginFormData = z.infer<typeof loginSchema>;
+
+export const signupSchema = z
+  .object({
+    email: z.email(),
+    password: passwordSchema,
+    passwordConfirm: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.password !== data.passwordConfirm) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["passwordConfirm"],
+        message: "password do not match",
+      });
+    }
+  });
+
+export type SignupFormData = z.infer<typeof signupSchema>;

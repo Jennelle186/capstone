@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router";
 import LoginPage from "./pages/LoginPage";
+import SignupPage from "./pages/SignupPage";
 import RootLayout from "./layouts/RootLayout";
 
 const AppRoutes = createBrowserRouter([
@@ -13,7 +14,7 @@ const AppRoutes = createBrowserRouter([
                 path: "auth",
                 children: [
                     { path: "login", Component: LoginPage },
-                    { path: "signup", element: <div>Signup Page</div> },
+                    { path: "signup", Component: SignupPage },
                 ]
             }
         ],
