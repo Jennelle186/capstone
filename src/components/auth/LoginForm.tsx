@@ -5,6 +5,7 @@ import { Input } from "../ui/input";
 import { toast } from "sonner"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldSeparator } from '../ui/field';
 import { loginSchema, type LoginFormData } from '@/schemas/auth.schema';
+import { Link } from 'react-router';
 
 export default function LoginForm() {
     //zod form
@@ -104,9 +105,9 @@ export default function LoginForm() {
                         </Button>
                         <FieldDescription className="text-center">
                             Don&apos;t have an account?{" "}
-                            <a href="#" className="underline underline-offset-4">
+                            <Link to="/auth/signup" className="underline underline-offset-4">
                                 Sign up
-                            </a>
+                            </Link>
                         </FieldDescription>
                     </Field>
                 </FieldGroup>
