@@ -1,3 +1,3 @@
-# React + TypeScript + Vite + shadcn/ui
+# Enrolment Document Management System Using React + TypeScript + Vite + shadcn/ui
 
-This is a template for a new Vite project with React, TypeScript, and shadcn/ui.
+#ADD README LATER 
