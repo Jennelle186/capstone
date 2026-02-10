@@ -6,6 +6,7 @@ import AboutPage from "./pages/AboutPage";
 import TermsPage from "./pages/TermsPage";
 import StudentDashboard from "./pages/students/StudentDashboard";
 import UploadDocuments from "./pages/students/UploadDocuments";
+import ProfileSettings from "./pages/students/ProfileSettings";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
 
@@ -32,6 +33,7 @@ const AppRoutes = createBrowserRouter([
         children: [
             { path: "dashboard", Component: StudentDashboard },
             { path: "upload", Component: UploadDocuments },
+            { path: "profile", Component: ProfileSettings },
         ],
     },
     {

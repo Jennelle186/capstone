@@ -63,3 +63,39 @@ export const signupSchema = z
   });
 
 export type SignupFormData = z.infer<typeof signupSchema>;
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email({ message: "Enter a valid email address" }),
+});
+
+export type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
+
+export const changeEmailSchema = z
+  .object({
+    currentEmail: z
+      .string()
+      .email({ message: "Enter a valid current email address" }),
+    newEmail: z.string().email({ message: "Enter a valid new email address" }),
+    confirmEmail: z
+      .string()
+      .email({ message: "Confirm your new email address" }),
+  })
+  .superRefine((data, ctx) => {
+    if (data.newEmail !== data.confirmEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirmEmail"],
+        message: "Emails do not match",
+      });
+    }
+
+    if (data.currentEmail === data.newEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["newEmail"],
+        message: "New email must be different from current email",
+      });
+    }
+  });
+
+export type ChangeEmailFormData = z.infer<typeof changeEmailSchema>;

@@ -34,7 +34,7 @@ const mainNavigation = [
 const projects = [
     { title: 'Upload Documents', icon: Upload, url: '/student/upload' },
     { title: 'Verified Documents', icon: BadgeCheck, url: '#' },
-    { title: 'Profile Settings', icon: UserCog, url: '#' },
+    { title: 'Profile Settings', icon: UserCog, url: '/student/profile' },
     { title: 'Logout', icon: LogOut, url: '#' },
 ]
 
@@ -120,8 +120,8 @@ export function AppSidebar() {
                                                         whileTap={{ scale: 0.97 }}
                                                         transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                                                         className={`group relative flex items-center gap-2 rounded-md px-2 py-2 ${isActive
-                                                                ? 'bg-slate-100/80 pl-3 text-slate-900'
-                                                                : 'text-slate-500'
+                                                            ? 'bg-slate-100/80 pl-3 text-slate-900'
+                                                            : 'text-slate-500'
                                                             }`}
                                                     >
                                                         {isActive && (
@@ -164,8 +164,8 @@ export function AppSidebar() {
                                                         whileTap={{ scale: 0.97 }}
                                                         transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                                                         className={`group relative flex items-center gap-2 rounded-md px-2 py-2 ${isActive
-                                                                ? 'bg-slate-100/80 pl-3 text-slate-900'
-                                                                : 'text-slate-500'
+                                                            ? 'bg-slate-100/80 pl-3 text-slate-900'
+                                                            : 'text-slate-500'
                                                             }`}
                                                     >
                                                         {isActive && (

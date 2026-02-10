@@ -14,7 +14,9 @@ import {
   ShieldCheck,
   Clock3,
   Sparkles,
+  Bell,
 } from "lucide-react";
+import { Link } from "react-router";
 
 const stats = [
   { label: "Documents Uploaded", value: 6, icon: FileText, tone: "blue" },
@@ -81,6 +83,18 @@ export default function StudentDashboard() {
               Track your enrollment documents and verification status.
             </p>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="relative"
+            aria-label="Notifications"
+          >
+            <Bell className="h-5 w-5" />
+            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500" />
+          </Button>
         </div>
       </div>
 
@@ -159,9 +173,12 @@ export default function StudentDashboard() {
       <Card className="rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base font-semibold">My Documents</CardTitle>
-          <Button size="sm" variant="outline" className="border-slate-200">
-            Upload
-          </Button>
+          <Link to="/student/upload">
+            <Button>
+              Upload
+            </Button>
+          </Link>
+
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
