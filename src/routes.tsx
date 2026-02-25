@@ -10,6 +10,8 @@ import UploadDocuments from "./pages/students/UploadDocuments";
 import ProfileSettings from "./pages/students/ProfileSettings";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
+import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
+import TeacherDashboard from "./pages/teachers/TeacherDashboard";
 
 const AppRoutes = createBrowserRouter([
     {
@@ -36,6 +38,13 @@ const AppRoutes = createBrowserRouter([
             { path: "dashboard", Component: StudentDashboard },
             { path: "upload", Component: UploadDocuments },
             { path: "profile", Component: ProfileSettings },
+        ],
+    },
+    {
+        path: "/teacher",
+        Component: TeacherDashboardLayout,
+        children: [
+            { path: "dashboard", Component: TeacherDashboard },
         ],
     },
     {
