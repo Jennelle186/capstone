@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
@@ -35,6 +35,7 @@ const AppRoutes = createBrowserRouter([
         path: "/student",
         Component: StudentLayout,
         children: [
+            { index: true, element: <Navigate to="dashboard" replace /> },
             { path: "dashboard", Component: StudentDashboard },
             { path: "upload", Component: UploadDocuments },
             { path: "profile", Component: ProfileSettings },
@@ -44,6 +45,7 @@ const AppRoutes = createBrowserRouter([
         path: "/teacher",
         Component: TeacherDashboardLayout,
         children: [
+            { index: true, element: <Navigate to="dashboard" replace /> },
             { path: "dashboard", Component: TeacherDashboard },
         ],
     },

@@ -1,6 +1,9 @@
+import * as React from "react";
 import { AlertTriangle, TrendingUp, UserPlus } from "lucide-react";
 import { motion } from "framer-motion";
 import MetricCard from "@/components/teacher/MetricCard";
+import TotalEnrolleesSection from "@/components/dashboard/total-enrollees-section";
+import type { OptimizedAreaChartDataPoint } from "@/components/charts/optimized-area-chart";
 
 const metrics = [
   {
@@ -46,7 +49,27 @@ const itemVariants = {
   },
 };
 
+function buildEnrolleeSeries(totalPoints: number): OptimizedAreaChartDataPoint[] {
+  const start = new Date("2023-01-01T00:00:00.000Z");
+
+  return Array.from({ length: totalPoints }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+
+    const trend = 250 + index * 0.9;
+    const seasonal = Math.sin(index / 12) * 42 + Math.cos(index / 7) * 18;
+    const value = Math.max(80, Math.round(trend + seasonal));
+
+    return {
+      date: date.toISOString().slice(0, 10),
+      value,
+    };
+  });
+}
+
 export default function TeacherDashboard() {
+  const totalEnrolleesData = React.useMemo(() => buildEnrolleeSeries(1400), []);
+
   return (
     <section aria-label="Teacher dashboard content area" className="space-y-4">
       <motion.div
@@ -66,6 +89,9 @@ export default function TeacherDashboard() {
             />
           </motion.div>
         ))}
+      </motion.div>
+      <motion.div variants={itemVariants} initial="hidden" animate="show">
+        <TotalEnrolleesSection data={totalEnrolleesData} />
       </motion.div>
     </section>
   );
