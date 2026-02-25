@@ -74,6 +74,11 @@ export default function LoginForm() {
                                 {fieldState.invalid && (
                                     <FieldError errors={[fieldState.error]} />
                                 )}
+                                <FieldDescription className="text-right">
+                                    <Link to="/auth/forgot-password" className="underline underline-offset-4">
+                                        Forgot password?
+                                    </Link>
+                                </FieldDescription>
                             </Field>
                         )}
                     />

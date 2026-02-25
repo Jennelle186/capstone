@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
 import AboutPage from "./pages/AboutPage";
 import TermsPage from "./pages/TermsPage";
@@ -23,6 +24,7 @@ const AppRoutes = createBrowserRouter([
                 children: [
                     { path: "login", Component: LoginPage },
                     { path: "signup", Component: SignupPage },
+                    { path: "forgot-password", Component: ForgotPasswordPage },
                 ]
             }
         ],
