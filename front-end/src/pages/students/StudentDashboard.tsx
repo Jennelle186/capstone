@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useAuth } from "@clerk/clerk-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,6 +18,7 @@ import {
   Bell,
 } from "lucide-react";
 import { Link } from "react-router";
+import { fetchWithClerkAuth } from "@/lib/api";
 
 const stats = [
   { label: "Documents Uploaded", value: 6, icon: FileText, tone: "blue" },
@@ -39,8 +41,10 @@ async function getData(): Promise<DataTableDashboard[]> {
 }
 
 export default function StudentDashboard() {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
   const [data, setData] = React.useState<DataTableDashboard[]>([]);
+  const [userId, setUserId] = React.useState<string | null>(null);
   const pendingStat = stats.find((stat) => stat.label === "Pending Documents");
   const isAllCaughtUp = pendingStat?.value === "0 / 0";
 
@@ -73,6 +77,48 @@ export default function StudentDashboard() {
     };
   }, []);
 
+  React.useEffect(() => {
+    //React gets Clerk token and backend verifies it.
+    if (!isLoaded || !isSignedIn) return;
+
+    let isMounted = true;
+    const loadProfile = async () => {
+      try {
+        const token = await getToken();
+        if (!token) {
+          throw new Error("Missing Clerk session token before /api/me request.");
+        }
+
+        const response = await fetchWithClerkAuth("/api/me", token);
+        if (!response.ok) {
+          let message = `Failed to load authenticated profile. (${response.status})`;
+          try {
+            const errorPayload = (await response.json()) as { detail?: string };
+            if (errorPayload?.detail) {
+              message = `${message} ${errorPayload.detail}`;
+            }
+          } catch {
+            // Ignore JSON parse failures and keep the status-based message.
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as { userId?: string };
+        if (isMounted) {
+          setUserId(payload.userId ?? null);
+        }
+      } catch (error) {
+        console.error("Failed to fetch protected profile:", error);
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getToken, isLoaded, isSignedIn]);
+
   return (
     <main className="flex flex-1 flex-col gap-6 p-6 md:p-8 bg-slate-50 min-h-screen">
       <div className="flex items-center justify-between">
@@ -82,6 +128,11 @@ export default function StudentDashboard() {
             <p className="text-sm text-muted-foreground">
               Track your enrollment documents and verification status.
             </p>
+            {userId && (
+              <p className="text-xs text-slate-500">
+                Authenticated via Clerk backend token verification: {userId}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
