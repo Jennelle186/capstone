@@ -24,6 +24,7 @@ type SidebarItem = {
     title: string
     icon: LucideIcon
     url: string
+    onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void | Promise<void>
 }
 
 type SidebarGroupConfig = {
@@ -125,6 +126,7 @@ export default function AppSidebar({
                                                     <SidebarMenuButton asChild tooltip={item.title} isActive={isActive}>
                                                         <MotionLink
                                                             to={item.url}
+                                                            onClick={item.onClick}
                                                             whileHover={{ x: 4 }}
                                                             whileTap={{ scale: 0.97 }}
                                                             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
