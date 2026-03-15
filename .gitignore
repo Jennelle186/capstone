@@ -8,3 +8,5 @@ tmp*-cwd
 .env
 .env.local
 .env.*.local
+front-end/dist/
+

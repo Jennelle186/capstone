@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any
+from typing import Any, Annotated
 
 from clerk_backend_api.security import verify_token
 from clerk_backend_api.security.types import TokenVerificationError, VerifyTokenOptions
@@ -53,3 +53,7 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid Clerk token: {error}",
         ) from error
+    
+
+CurrentUser = Annotated[dict[str, Any], Depends(get_current_user)]
+
