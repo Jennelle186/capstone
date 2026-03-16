@@ -23,10 +23,11 @@ export default function SsoCallbackPage() {
       </Card>
 
       <AuthenticateWithRedirectCallback
-        signInForceRedirectUrl="/student/dashboard"
-        signUpForceRedirectUrl="/student/dashboard"
-        signInFallbackRedirectUrl="/student/dashboard"
-        signUpFallbackRedirectUrl="/student/dashboard"
+        // Central role-aware landing route after OAuth completion.
+        signInForceRedirectUrl="/post-auth"
+        signUpForceRedirectUrl="/post-auth"
+        signInFallbackRedirectUrl="/post-auth"
+        signUpFallbackRedirectUrl="/post-auth"
       />
     </main>
   );

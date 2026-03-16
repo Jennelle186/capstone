@@ -12,9 +12,10 @@ import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
 import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
 import TeacherDashboard from "./pages/teachers/TeacherDashboard";
-import RequireAuth from "./components/auth/RequireAuth";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
+import { RequireStudent, RequireTeacher } from "./components/auth/RequireRole";
+import PostAuthRedirectPage from "./pages/PostAuthRedirectPage";
 
 const AppRoutes = createBrowserRouter([
     {
@@ -24,6 +25,8 @@ const AppRoutes = createBrowserRouter([
             { index: true, Component: HomePage },
             { path: "about", Component: AboutPage },
             { path: "terms", Component: TermsPage },
+            // Central landing route for successful auth (password/OAuth).
+            { path: "post-auth", Component: PostAuthRedirectPage },
             {
                 path: "auth",
                 children: [
@@ -41,7 +44,7 @@ const AppRoutes = createBrowserRouter([
     },
     {
         path: "/student",
-        Component: RequireAuth,
+        Component: RequireStudent,
         children: [
             {
                 Component: StudentLayout,
@@ -56,7 +59,7 @@ const AppRoutes = createBrowserRouter([
     },
     {
         path: "/teacher",
-        Component: RequireAuth,
+        Component: RequireTeacher,
         children: [
             {
                 Component: TeacherDashboardLayout,

@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy import select
+from typing_extensions import Annotated
 
-from ..auth import CurrentUser
 from ..database import SessionDep
 from ..models import Student, User, UserRole
+from ..rbac import require_student
 from ..services.clerk import update_user_public_metadata
 from ..services.user_sync import ensure_user_row
 
@@ -21,8 +23,12 @@ class PublicMetadataUpdate(BaseModel):
     program: str | None = None
 
 
+# Strict student-only endpoint: admins should not be able to modify student profile fields.
+StudentClaims = Annotated[dict, Depends(require_student)]
+
+
 @router.post("/api/users/public-metadata", tags=["users"])
-async def update_public_metadata(payload: PublicMetadataUpdate, current_user: CurrentUser, db: SessionDep) -> dict:
+async def update_public_metadata(payload: PublicMetadataUpdate, current_user: StudentClaims, db: SessionDep) -> dict:
     """
     Stores app-specific data in Clerk publicMetadata, then mirrors it into the DB.
 

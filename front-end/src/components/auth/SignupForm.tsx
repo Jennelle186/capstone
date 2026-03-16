@@ -57,7 +57,8 @@ export default function SignupForm() {
       if (signUpAttempt.status === "complete" && signUpAttempt.createdSessionId) {
         await setActive({ session: signUpAttempt.createdSessionId });
         toast.success("Account created!", { position: "bottom-right" });
-        navigate("/student/dashboard");
+        // Centralize role-based redirects in one place.
+        navigate("/post-auth");
         return;
       }
 
@@ -91,7 +92,8 @@ export default function SignupForm() {
       await signUp.authenticateWithRedirect({
         strategy: "oauth_google",
         redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/student/dashboard",
+        // OAuth completes at a role-aware landing route.
+        redirectUrlComplete: "/post-auth",
       });
     } catch (error) {
       console.error("Google signup error:", error);
@@ -118,7 +120,8 @@ export default function SignupForm() {
 
       await setActive({ session: completeSignUp.createdSessionId });
       toast.success("Email verified. Welcome!", { position: "bottom-right" });
-      navigate("/student/dashboard");
+      // Centralize role-based redirects in one place.
+      navigate("/post-auth");
     } catch (error) {
       console.error("Verification error:", error);
       const message = isClerkAPIResponseError(error)

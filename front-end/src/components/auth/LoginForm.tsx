@@ -51,7 +51,8 @@ export default function LoginForm() {
 
             await setActive({ session: result.createdSessionId });
             toast.success("Login successful!", { position: "bottom-right" });
-            navigate("/student/dashboard");
+            // Centralize role-based redirects in one place (teachers should not be sent to student routes).
+            navigate("/post-auth");
         } catch (error) {
             console.error("Form submission error:", error);
             let errorMessage: string;
@@ -74,7 +75,8 @@ export default function LoginForm() {
             await signIn.authenticateWithRedirect({
                 strategy: "oauth_google",
                 redirectUrl: "/sso-callback",
-                redirectUrlComplete: "/student/dashboard",
+                // OAuth completes at a role-aware landing route.
+                redirectUrlComplete: "/post-auth",
             });
         } catch (error) {
             console.error("Google login error:", error);
