@@ -70,6 +70,24 @@ export const forgotPasswordSchema = z.object({
 
 export type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
 
+export const resetPasswordSchema = z
+  .object({
+    code: z.string().min(6, { message: "Enter the 6-digit code" }),
+    password: passwordSchema,
+    passwordConfirm: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.password !== data.passwordConfirm) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["passwordConfirm"],
+        message: "password do not match",
+      });
+    }
+  });
+
+export type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>;
+
 export const changeEmailSchema = z
   .object({
     currentEmail: z
@@ -99,3 +117,9 @@ export const changeEmailSchema = z
   });
 
 export type ChangeEmailFormData = z.infer<typeof changeEmailSchema>;
+
+export const changeEmailVerifySchema = z.object({
+  code: z.string().min(6, { message: "Enter the 6-digit code" }),
+});
+
+export type ChangeEmailVerifyFormData = z.infer<typeof changeEmailVerifySchema>;

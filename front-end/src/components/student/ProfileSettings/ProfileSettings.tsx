@@ -1,11 +1,12 @@
 "use client";
 
-import { KeyRound, Mail, Save } from "lucide-react";
+import { Mail, Save } from "lucide-react";
+import * as React from "react";
+import { useUser } from "@clerk/clerk-react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
 import ChangeEmailDialog from "@/components/auth/ChangeEmailDialog";
-import ForgotPasswordDialog from "@/components/auth/ForgotPasswordDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,20 +14,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
 
-// Local-only demo data for layout; replace with API data when available.
+// Default form values. We hydrate these from Clerk once the user is loaded.
+// Missing values are intentionally left blank for now.
 const initialProfile = {
-  firstName: "Tessa",
-  middleName: "E.",
-  lastName: "Herondale",
-  email: "tessa@example.com",
-  phone: "+63 912 345 6789",
-  studentId: "2025-00124",
-  program: "BS Computer Science",
-  yearLevel: "3rd Year",
-  adviser: "Prof. Maria Santos",
-  schoolYear: "2025-2026",
-  address: "Iligan City, Philippines",
-  bio: "Focused on document compliance and onboarding milestones.",
+  firstName: "",
+  middleName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  studentId: "",
+  program: "",
+  yearLevel: "",
+  adviser: "",
+  schoolYear: "",
+  address: "",
+  bio: "",
 };
 
 type ProfileFormValues = typeof initialProfile;
@@ -214,10 +216,38 @@ function AcademicDetailsSection({ form }: ProfileSectionProps) {
 }
 
 export default function ProfileSettings() {
+  const { isLoaded, user } = useUser();
   const form = useForm<ProfileFormValues>({
     defaultValues: initialProfile,
   });
   const email = useWatch({ control: form.control, name: "email" });
+
+  React.useEffect(() => {
+    if (!isLoaded || !user) return;
+
+    // Avoid overwriting user edits if they've started typing.
+    if (form.formState.isDirty) return;
+
+    const studentNumber =
+      typeof user.publicMetadata?.student_number === "string"
+        ? user.publicMetadata.student_number
+        : "";
+
+    const program =
+      typeof user.publicMetadata?.program === "string"
+        ? user.publicMetadata.program
+        : "";
+
+    form.reset({
+      ...initialProfile,
+      firstName: user.firstName ?? "",
+      lastName: user.lastName ?? "",
+      email: user.primaryEmailAddress?.emailAddress ?? "",
+      phone: user.primaryPhoneNumber?.phoneNumber ?? "",
+      studentId: studentNumber,
+      program,
+    });
+  }, [form, isLoaded, user]);
 
   const handleSubmit = form.handleSubmit(async (values) => {
     try {
@@ -250,17 +280,12 @@ export default function ProfileSettings() {
             <CardTitle className="text-base">Account Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <ForgotPasswordDialog
-              defaultEmail={email}
-              trigger={
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <KeyRound className="h-4 w-4" />
-                  Forgot password
-                </Button>
-              }
-            />
             <ChangeEmailDialog
               currentEmail={email}
+              onSubmitted={(data) => {
+                // Optimistically update the form value; Clerk will update the user resource once verified.
+                form.setValue("email", data.newEmail, { shouldDirty: false });
+              }}
               trigger={
                 <Button variant="outline" className="w-full justify-start gap-2">
                   <Mail className="h-4 w-4" />
