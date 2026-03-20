@@ -75,10 +75,6 @@ const AppRoutes = createBrowserRouter([
         Component: SsoCallbackPage,
     },
     {
-        path: "/about",
-        element: <div>About</div>,
-    },
-    {
         path: "*",
         element: <div>Not Found</div>,
     },
