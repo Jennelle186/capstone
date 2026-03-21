@@ -12,6 +12,7 @@ import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
 import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
 import TeacherDashboard from "./pages/teachers/TeacherDashboard";
+import TeacherProfilePage from "./pages/teachers/TeacherProfilePage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
 import { RequireStudent, RequireTeacher } from "./components/auth/RequireRole";
@@ -67,6 +68,7 @@ const AppRoutes = createBrowserRouter([
                 children: [
                     { index: true, element: <Navigate to="dashboard" replace /> },
                     { path: "dashboard", Component: TeacherDashboard },
+                    { path: "profile/*", Component: TeacherProfilePage },
                 ],
             },
         ],

@@ -17,6 +17,7 @@ export default function TeacherSidebar() {
     ? (user?.fullName ?? user?.username ?? user?.firstName ?? "Teacher")
     : "Teacher";
 
+  // Use email as fallback for avatar initials if name is not available.
   const userEmail = isLoaded
     ? (user?.primaryEmailAddress?.emailAddress ?? "teacher@example.com")
     : "teacher@example.com";
@@ -60,8 +61,9 @@ export default function TeacherSidebar() {
         label: "Pages",
         items: [
           { title: "Upload", icon: Upload, url: "#" },
-          { title: "Account", icon: UserCircle2, url: "#" },
           { title: "Student Profile", icon: Users, url: "#" },
+          { title: "Account", icon: UserCircle2, url: "/teacher/profile" },
+
           {
             title: "Logout",
             icon: LogOut,

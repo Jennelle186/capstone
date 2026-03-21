@@ -3,7 +3,12 @@
 import { useUser, UserProfile } from "@clerk/clerk-react";
 import LoadingPage from "@/components/LoadingPage";
 
-export default function ProfileSettings() {
+
+type ProfileSettingsProps = {
+  path?: string;
+};
+
+export default function ProfileSettings({ path = "/student/profile" }: ProfileSettingsProps) {
   const { isLoaded } = useUser();
 
   if (!isLoaded) {
@@ -23,7 +28,7 @@ export default function ProfileSettings() {
 
       <div className="flex justify-center">
         <UserProfile
-          path="/student/profile"
+          path={path}
           routing="path"
           appearance={{
             elements: {
