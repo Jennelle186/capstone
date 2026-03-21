@@ -116,7 +116,7 @@ export default function Header() {
               transition={{ delay: 0.5 }}
             >
               <Button asChild variant="default" size="sm" className="hidden md:flex">
-                <Link to="/auth/login">Student Login</Link>
+                <Link to="/auth/login">Login</Link>
               </Button>
             </motion.div>
 
@@ -170,7 +170,7 @@ export default function Header() {
 
               <Button asChild variant="default" size="sm" className="w-full">
                 <Link to="/auth/login" onClick={() => setIsMobileMenuOpen(false)}>
-                  Student Login
+                  Login
                 </Link>
               </Button>
             </div>
