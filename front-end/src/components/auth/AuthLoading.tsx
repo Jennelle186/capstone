@@ -1,8 +1,6 @@
-import LoginPageSkeleton from "@/pages/login-page-skeleton";
+import LoadingPage from "@/components/LoadingPage";
 
 export default function AuthLoading() {
-  // Reusable loading UI while Clerk hydrates auth + user state.
-  // We render the login skeleton to avoid a blank screen during protected route checks.
-  return <LoginPageSkeleton />;
+  // Global loading page for any route while Clerk hydrates auth + user state.
+  return <LoadingPage />;
 }
-

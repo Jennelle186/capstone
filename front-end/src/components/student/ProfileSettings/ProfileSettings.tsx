@@ -1,318 +1,37 @@
 "use client";
 
-import { Mail, Save } from "lucide-react";
-import * as React from "react";
-import { useUser } from "@clerk/clerk-react";
-import { useForm, useWatch } from "react-hook-form";
-import { toast } from "sonner";
-
-import ChangeEmailDialog from "@/components/auth/ChangeEmailDialog";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
-
-// Default form values. We hydrate these from Clerk once the user is loaded.
-// Missing values are intentionally left blank for now.
-const initialProfile = {
-  firstName: "",
-  middleName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  studentId: "",
-  program: "",
-  yearLevel: "",
-  adviser: "",
-  schoolYear: "",
-  address: "",
-  bio: "",
-};
-
-type ProfileFormValues = typeof initialProfile;
-
-type ProfileSectionProps = {
-  form: ReturnType<typeof useForm<ProfileFormValues>>;
-};
-
-function PersonalInformationSection({ form }: ProfileSectionProps) {
-  return (
-    <Card className="rounded-2xl border border-slate-200 shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-base">Personal Information</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4 md:grid-cols-2">
-        <FormField
-          control={form.control}
-          name="firstName"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>First name</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="middleName"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Middle name</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="lastName"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Last name</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="studentId"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Student ID</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="email"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Email address</FormLabel>
-              <FormControl>
-                <Input type="email" {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="phone"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Mobile number</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-      </CardContent>
-    </Card>
-  );
-}
-
-function AcademicDetailsSection({ form }: ProfileSectionProps) {
-  return (
-    <Card className="rounded-2xl border border-slate-200 shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-base">Academic Details</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4 md:grid-cols-2">
-        <FormField
-          control={form.control}
-          name="program"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Program</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="yearLevel"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Year level</FormLabel>
-              <FormControl>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select year level" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1st Year">1st Year</SelectItem>
-                    <SelectItem value="2nd Year">2nd Year</SelectItem>
-                    <SelectItem value="3rd Year">3rd Year</SelectItem>
-                    <SelectItem value="4th Year">4th Year</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="adviser"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Academic adviser</FormLabel>
-              <FormControl>
-                <Input {...field} disabled />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="schoolYear"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>School year</FormLabel>
-              <FormControl>
-                <Input {...field} disabled />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="address"
-          render={({ field }) => (
-            <FormItem className="md:col-span-2">
-              <FormLabel>Current address</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="bio"
-          render={({ field }) => (
-            <FormItem className="md:col-span-2">
-              <FormLabel>Short bio</FormLabel>
-              <FormControl>
-                <Textarea rows={3} {...field} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-      </CardContent>
-    </Card>
-  );
-}
+import { useUser, UserProfile } from "@clerk/clerk-react";
+import LoadingPage from "@/components/LoadingPage";
 
 export default function ProfileSettings() {
-  const { isLoaded, user } = useUser();
-  const form = useForm<ProfileFormValues>({
-    defaultValues: initialProfile,
-  });
-  const email = useWatch({ control: form.control, name: "email" });
+  const { isLoaded } = useUser();
 
-  React.useEffect(() => {
-    if (!isLoaded || !user) return;
-
-    // Avoid overwriting user edits if they've started typing.
-    if (form.formState.isDirty) return;
-
-    const studentNumber =
-      typeof user.publicMetadata?.student_number === "string"
-        ? user.publicMetadata.student_number
-        : "";
-
-    const program =
-      typeof user.publicMetadata?.program === "string"
-        ? user.publicMetadata.program
-        : "";
-
-    form.reset({
-      ...initialProfile,
-      firstName: user.firstName ?? "",
-      lastName: user.lastName ?? "",
-      email: user.primaryEmailAddress?.emailAddress ?? "",
-      phone: user.primaryPhoneNumber?.phoneNumber ?? "",
-      studentId: studentNumber,
-      program,
-    });
-  }, [form, isLoaded, user]);
-
-  const handleSubmit = form.handleSubmit(async (values) => {
-    try {
-      // TODO: Replace with API call when backend endpoint is available.
-      console.log("Profile settings submitted", values);
-      toast.success("Profile settings saved successfully.");
-    } catch (error) {
-      // Surface a friendly error toast while preserving the actual error in the console.
-      console.error("Failed to save profile settings", error);
-      toast.error("Failed to save profile settings. Please try again.");
-    }
-  });
+  if (!isLoaded) {
+    return <LoadingPage />;
+  }
 
   return (
     <section className="space-y-6">
-      {/* Page title and quick action */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Profile Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Keep your student details accurate for verification and onboarding.
+            Manage your account details, security, and preferences via Clerk.
           </p>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        {/* Side tab actions */}
-        <Card className="h-fit rounded-2xl border border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Account Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <ChangeEmailDialog
-              currentEmail={email}
-              onSubmitted={(data) => {
-                // Optimistically update the form value; Clerk will update the user resource once verified.
-                form.setValue("email", data.newEmail, { shouldDirty: false });
-              }}
-              trigger={
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <Mail className="h-4 w-4" />
-                  Change email
-                </Button>
-              }
-            />
-          </CardContent>
-        </Card>
-
-        <Form {...form}>
-          <form id="profile-settings-form" onSubmit={handleSubmit} className="space-y-6">
-            {/* Personal information form */}
-            <PersonalInformationSection form={form} />
-
-            {/* Academic details and contact info */}
-            <AcademicDetailsSection form={form} />
-
-            {/* Submit button lives inside the form for proper semantics */}
-            <div className="flex justify-end">
-              <Button type="submit" className="gap-2">
-                <Save className="h-4 w-4" />
-                Save changes
-              </Button>
-            </div>
-          </form>
-        </Form>
+      <div className="flex justify-center">
+        <UserProfile
+          path="/student/profile"
+          routing="path"
+          appearance={{
+            elements: {
+              rootBox: "w-full",
+              card: "shadow-md border border-slate-200 rounded-2xl",
+            },
+          }}
+        />
       </div>
     </section>
   );

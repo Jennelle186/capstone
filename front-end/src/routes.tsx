@@ -52,7 +52,8 @@ const AppRoutes = createBrowserRouter([
                     { index: true, element: <Navigate to="dashboard" replace /> },
                     { path: "dashboard", Component: StudentDashboard },
                     { path: "upload", Component: UploadDocuments },
-                    { path: "profile", Component: ProfileSettings },
+                    // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).
+                    { path: "profile/*", Component: ProfileSettings },
                 ],
             },
         ],
