@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import type { DocumentTypeItem } from "@/types/documentType";
 
 interface RequirementChecklistProps {
+    disabled?: boolean;
     items: DocumentTypeItem[];
     selectedIds: Set<string>;
     onToggle: (documentTypeId: string) => void;
@@ -32,6 +33,7 @@ function getDocumentIcon(code: string) {
 }
 
 export default function RequirementChecklist({
+    disabled = false,
     items,
     selectedIds,
     onToggle,
@@ -50,14 +52,15 @@ export default function RequirementChecklist({
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.2, delay: index * 0.03 }}
                         onClick={() => onToggle(item.id)}
-                        className="text-left"
+                        disabled={disabled}
+                        className={cn("text-left", disabled ? "cursor-not-allowed" : undefined)}
                     >
                         <Card
                             className={cn(
                                 "transition-colors",
-                                checked
-                                    ? "border-emerald-300 bg-emerald-50/60"
-                                    : "hover:border-slate-300 hover:bg-slate-50/60",
+                                checked ? "border-emerald-300 bg-emerald-50/60" : undefined,
+                                !checked && !disabled ? "hover:border-slate-300 hover:bg-slate-50/60" : undefined,
+                                disabled ? "bg-muted/30 opacity-80" : undefined,
                             )}
                         >
                             <CardContent className="flex items-start justify-between gap-3 p-4">
@@ -77,8 +80,12 @@ export default function RequirementChecklist({
                                     <input
                                         type="checkbox"
                                         checked={checked}
+                                        disabled={disabled}
                                         onChange={() => onToggle(item.id)}
-                                        className="h-4 w-4 cursor-pointer accent-emerald-600"
+                                        className={cn(
+                                            "h-4 w-4 accent-emerald-600",
+                                            disabled ? "cursor-not-allowed" : "cursor-pointer",
+                                        )}
                                         aria-label={`Toggle requirement for ${item.name}`}
                                     />
                                 </div>

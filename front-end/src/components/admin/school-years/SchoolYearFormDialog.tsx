@@ -95,7 +95,7 @@ export default function SchoolYearFormDialog({
                             onChange={(event) => onChange((prev) => ({ ...prev, autoClosureDate: event.target.value }))}
                         />
                         <p className="text-xs text-muted-foreground">
-                            Set a date when this school year will automatically transition to "Closed" status.
+                            Set the admin-approved date when this school year will automatically close and archive.
                         </p>
                     </div>
                     <div className="space-y-2">
@@ -108,9 +108,9 @@ export default function SchoolYearFormDialog({
                                 <SelectValue placeholder="Select status" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="upcoming">Upcoming</SelectItem>
+                                <SelectItem value="upcoming">Open</SelectItem>
                                 <SelectItem value="active">Active</SelectItem>
-                                <SelectItem value="closed">Closed</SelectItem>
+                                <SelectItem value="closed">Closed / Archived</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

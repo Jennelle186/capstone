@@ -4,16 +4,24 @@ import { toast } from "sonner";
 
 import { fetchWithClerkAuth } from "@/lib/api";
 import {
+    buildDefaultRolloverForm,
+    buildSchoolYearRolloverPayload,
     buildSchoolYearPayload,
     DEFAULT_SCHOOL_YEAR_FORM,
+    DEFAULT_SCHOOL_YEAR_ROLLOVER_FORM,
     parseSchoolYearApiError,
+    validateSchoolYearRolloverPayload,
     validateSchoolYearPayload,
 } from "@/lib/school-year-utils";
 import type {
+    SchoolYearActivationPreview,
+    SchoolYearAuditLog,
     SchoolYearCreateFormState,
     SchoolYearDepartmentAssignment,
     SchoolYearPayload,
     SchoolYearRecord,
+    SchoolYearRolloverFormState,
+    SchoolYearRolloverPayload,
     SchoolYearStatus,
 } from "@/types/schoolYear";
 
@@ -27,6 +35,22 @@ type ActivationIntent =
     | { kind: "quick"; schoolYear: SchoolYearRecord }
     | { kind: "save"; payload: SchoolYearPayload }
     | null;
+
+function normalizeSchoolYearName(name: string): string {
+    return name.trim().toLowerCase();
+}
+
+function findDuplicateSchoolYear(
+    schoolYears: SchoolYearRecord[],
+    name: string,
+    excludeId?: string,
+): SchoolYearRecord | null {
+    const normalizedName = normalizeSchoolYearName(name);
+    return schoolYears.find((schoolYear) => {
+        if (excludeId && schoolYear.id === excludeId) return false;
+        return normalizeSchoolYearName(schoolYear.name) === normalizedName;
+    }) ?? null;
+}
 
     // The useSchoolYearsPage hook encapsulates all the state and logic for the School Years admin page,
 // including loading school years, handling form interactions for creating/editing school years,
@@ -43,10 +67,18 @@ export function useSchoolYearsPage() {
     const [editingSchoolYear, setEditingSchoolYear] = useState<SchoolYearRecord | null>(null);
     const [viewingSchoolYear, setViewingSchoolYear] = useState<SchoolYearRecord | null>(null);
     const [schoolYearAssignments, setSchoolYearAssignments] = useState<SchoolYearDepartmentAssignment[]>([]);
+    const [schoolYearAuditLogs, setSchoolYearAuditLogs] = useState<SchoolYearAuditLog[]>([]);
     const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false);
+    const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
     const [activationIntent, setActivationIntent] = useState<ActivationIntent>(null);
+    const [activationPreview, setActivationPreview] = useState<SchoolYearActivationPreview | null>(null);
+    const [isActivationPreviewLoading, setIsActivationPreviewLoading] = useState(false);
     const [schoolYearToDeactivate, setSchoolYearToDeactivate] = useState<SchoolYearRecord | null>(null);
     const [schoolYearToClose, setSchoolYearToClose] = useState<SchoolYearRecord | null>(null);
+    const [schoolYearToReopen, setSchoolYearToReopen] = useState<SchoolYearRecord | null>(null);
+    const [rolloverSourceSchoolYear, setRolloverSourceSchoolYear] = useState<SchoolYearRecord | null>(null);
+    const [rolloverFormData, setRolloverFormData] = useState<SchoolYearRolloverFormState>(DEFAULT_SCHOOL_YEAR_ROLLOVER_FORM);
+    const [isRolloverOpen, setIsRolloverOpen] = useState(false);
 
     // Compute the currently active school year from the list of school years, 
     const activeSchoolYear = useMemo(
@@ -90,6 +122,27 @@ export function useSchoolYearsPage() {
         [getToken],
     );
 
+    const requestRawWithAdminAuth = useCallback(
+        async (path: string, init?: RequestInit): Promise<Response> => {
+            const token = await getToken();
+            if (!token) throw new Error("Missing admin authentication token.");
+
+            const response = await fetchWithClerkAuth(path, token, init);
+            if (!response.ok) {
+                let message = `Request failed with status ${response.status}.`;
+                try {
+                    const payload = (await response.json()) as unknown;
+                    message = parseSchoolYearApiError(payload, message);
+                } catch {
+                    // Ignore malformed payloads.
+                }
+                throw new Error(message);
+            }
+            return response;
+        },
+        [getToken],
+    );
+
     // Function to load the list of school years from the API, with error handling and loading state management.
     const loadSchoolYears = useCallback(async () => {
         setIsLoading(true);
@@ -119,6 +172,12 @@ export function useSchoolYearsPage() {
         setIsFormOpen(false);
         setEditingSchoolYear(null);
         setFormData(DEFAULT_SCHOOL_YEAR_FORM);
+    }, []);
+
+    const closeRolloverDialog = useCallback(() => {
+        setIsRolloverOpen(false);
+        setRolloverSourceSchoolYear(null);
+        setRolloverFormData(DEFAULT_SCHOOL_YEAR_ROLLOVER_FORM);
     }, []);
 
 
@@ -170,6 +229,24 @@ export function useSchoolYearsPage() {
         [activeSchoolYear, editingSchoolYear],
     );
 
+    const loadActivationPreview = useCallback(
+        async (schoolYear: SchoolYearRecord) => {
+            setIsActivationPreviewLoading(true);
+            try {
+                const payload = (await requestWithAdminAuth(
+                    `/api/admin/school-years/${schoolYear.id}/activation-preview`,
+                )) as SchoolYearActivationPreview;
+                setActivationPreview(payload);
+            } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Failed to load activation preview.");
+                setActivationPreview(null);
+            } finally {
+                setIsActivationPreviewLoading(false);
+            }
+        },
+        [requestWithAdminAuth],
+    );
+
     // Handler for submitting the school year form, which handles both creating and updating school years based on whether we're in editing mode.
     const submitSchoolYear = useCallback(
         async (skipActivationPrompt = false, payloadOverride?: SchoolYearPayload) => {
@@ -177,6 +254,11 @@ export function useSchoolYearsPage() {
             const validationMessage = validateSchoolYearPayload(payload);
             if (validationMessage) {
                 toast.error(validationMessage);
+                return;
+            }
+            const duplicateSchoolYear = findDuplicateSchoolYear(schoolYears, payload.name, editingSchoolYear?.id);
+            if (duplicateSchoolYear) {
+                toast.error(`School year "${duplicateSchoolYear.name}" already exists.`);
                 return;
             }
             if (!skipActivationPrompt && shouldConfirmActivationSwitch(payload)) {
@@ -208,7 +290,15 @@ export function useSchoolYearsPage() {
                 setIsSaving(false);
             }
         },
-        [closeFormDialog, editingSchoolYear, formData, loadSchoolYears, requestWithAdminAuth, shouldConfirmActivationSwitch],
+        [
+            closeFormDialog,
+            editingSchoolYear,
+            formData,
+            loadSchoolYears,
+            requestWithAdminAuth,
+            schoolYears,
+            shouldConfirmActivationSwitch,
+        ],
     );
 
     // Handler for quickly activating a school year from the list, 
@@ -267,11 +357,12 @@ export function useSchoolYearsPage() {
             if (schoolYear.is_active) return;
             if (activeSchoolYear && activeSchoolYear.id !== schoolYear.id) {
                 setActivationIntent({ kind: "quick", schoolYear });
+                void loadActivationPreview(schoolYear);
                 return;
             }
             void setSchoolYearActive(schoolYear);
         },
-        [activeSchoolYear, setSchoolYearActive],
+        [activeSchoolYear, loadActivationPreview, setSchoolYearActive],
     );
 
     // Handler for confirming the activation of a school year after the user has been prompted,
@@ -281,6 +372,7 @@ export function useSchoolYearsPage() {
         if (activationIntent.kind === "quick") {
             const nextSchoolYear = activationIntent.schoolYear;
             setActivationIntent(null);
+            setActivationPreview(null);
             void setSchoolYearActive(nextSchoolYear);
             return;
         }
@@ -288,6 +380,7 @@ export function useSchoolYearsPage() {
         // If we're here, it means we're confirming activation as part of saving a school year from the form. We can proceed with the save since the user has already confirmed they want to switch active school years.
         const payload = activationIntent.payload;
         setActivationIntent(null);
+        setActivationPreview(null);
         void submitSchoolYear(true, payload);
     }, [activationIntent, setSchoolYearActive, submitSchoolYear]);
 
@@ -296,6 +389,7 @@ export function useSchoolYearsPage() {
         setViewingSchoolYear(schoolYear);
         setIsViewOpen(true);
         setIsAssignmentsLoading(true);
+        setIsAuditLogsLoading(true);
         void requestWithAdminAuth(`/api/admin/school-years/${schoolYear.id}/assignments`)
             .then((payload) => {
                 setSchoolYearAssignments(payload as SchoolYearDepartmentAssignment[]);
@@ -307,6 +401,16 @@ export function useSchoolYearsPage() {
             .finally(() => {
                 setIsAssignmentsLoading(false);
             });
+        void requestWithAdminAuth(`/api/admin/school-years/${schoolYear.id}/audit-logs`)
+            .then((payload) => {
+                setSchoolYearAuditLogs(payload as SchoolYearAuditLog[]);
+            })
+            .catch(() => {
+                setSchoolYearAuditLogs([]);
+            })
+            .finally(() => {
+                setIsAuditLogsLoading(false);
+            });
     }, [requestWithAdminAuth]);
 
     const handleViewOpenChange = useCallback((open: boolean) => {
@@ -314,45 +418,166 @@ export function useSchoolYearsPage() {
         if (!open) {
             setViewingSchoolYear(null);
             setSchoolYearAssignments([]);
+            setSchoolYearAuditLogs([]);
             setIsAssignmentsLoading(false);
+            setIsAuditLogsLoading(false);
         }
     }, []);
+
+    const reopenSchoolYear = useCallback(
+        async (schoolYear: SchoolYearRecord) => {
+            try {
+                await requestWithAdminAuth(`/api/admin/school-years/${schoolYear.id}/reopen`, { method: "POST" });
+                toast.success(`${schoolYear.name} was reopened.`);
+                await loadSchoolYears();
+            } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Failed to reopen school year.");
+            } finally {
+                setSchoolYearToReopen(null);
+            }
+        },
+        [loadSchoolYears, requestWithAdminAuth],
+    );
+
+    const runAutoClosure = useCallback(async () => {
+        try {
+            const payload = (await requestWithAdminAuth("/api/admin/school-years/run-auto-closure", {
+                method: "POST",
+            })) as { closed_count: number };
+            toast.success(
+                payload.closed_count === 1
+                    ? "1 school year was auto-closed."
+                    : `${payload.closed_count} school years were auto-closed.`,
+            );
+            await loadSchoolYears();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to run auto closure.");
+        }
+    }, [loadSchoolYears, requestWithAdminAuth]);
+
+    const exportSchoolYearsCsv = useCallback(async () => {
+        try {
+            const response = await requestRawWithAdminAuth("/api/admin/school-years/export.csv");
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "school-years.csv";
+            link.click();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to export school years.");
+        }
+    }, [requestRawWithAdminAuth]);
+
+    const openRolloverDialog = useCallback((schoolYear: SchoolYearRecord) => {
+        setRolloverSourceSchoolYear(schoolYear);
+        setRolloverFormData(buildDefaultRolloverForm(schoolYear, schoolYears));
+        setIsRolloverOpen(true);
+    }, [schoolYears]);
+
+    const handleRolloverOpenChange = useCallback(
+        (open: boolean) => {
+            if (!open) {
+                closeRolloverDialog();
+                return;
+            }
+            setIsRolloverOpen(true);
+        },
+        [closeRolloverDialog],
+    );
+
+    const submitRollover = useCallback(
+        async (payloadOverride?: SchoolYearRolloverPayload) => {
+            if (!rolloverSourceSchoolYear) return;
+            const payload = payloadOverride ?? buildSchoolYearRolloverPayload(rolloverFormData);
+            const validationMessage = validateSchoolYearRolloverPayload(payload);
+            if (validationMessage) {
+                toast.error(validationMessage);
+                return;
+            }
+            const duplicateSchoolYear = findDuplicateSchoolYear(schoolYears, payload.name);
+            if (duplicateSchoolYear) {
+                toast.error(`School year "${duplicateSchoolYear.name}" already exists.`);
+                return;
+            }
+
+            setIsSaving(true);
+            try {
+                await requestWithAdminAuth(`/api/admin/school-years/${rolloverSourceSchoolYear.id}/rollover`, {
+                    method: "POST",
+                    body: JSON.stringify(payload),
+                });
+                toast.success(`${payload.name} was created from ${rolloverSourceSchoolYear.name}.`);
+                closeRolloverDialog();
+                await loadSchoolYears();
+            } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Failed to create rollover school year.");
+            } finally {
+                setIsSaving(false);
+            }
+        },
+        [
+            closeRolloverDialog,
+            loadSchoolYears,
+            requestWithAdminAuth,
+            rolloverFormData,
+            rolloverSourceSchoolYear,
+            schoolYears,
+        ],
+    );
 
     // Handler for closing the view school year dialog, which clears the viewing context and closes the dialog.
     return {
         activationIntent,
+        activationPreview,
         activeSchoolYear,
         closeFormDialog,
         closeSchoolYear,
+        exportSchoolYearsCsv,
         editingSchoolYear,
         filteredSchoolYears,
         formData,
         handleConfirmActivation,
         handleFormOpenChange,
         handleQuickActivate,
+        handleRolloverOpenChange,
         handleViewOpenChange,
         isAssignmentsLoading,
+        isAuditLogsLoading,
+        isActivationPreviewLoading,
         isFormOpen,
         isLoading,
+        isRolloverOpen,
         isSaving,
         isViewOpen,
         loadSchoolYears,
         openCreateDialog,
         openEditDialog,
+        openRolloverDialog,
         openViewDialog,
+        reopenSchoolYear,
+        rolloverFormData,
+        rolloverSourceSchoolYear,
+        runAutoClosure,
         schoolYearToClose,
         schoolYearToDeactivate,
+        schoolYearToReopen,
+        schoolYearAuditLogs,
         schoolYearAssignments,
         schoolYears,
         searchQuery,
         setActivationIntent,
         setFormData,
+        setRolloverFormData,
         setSchoolYearToClose,
         setSchoolYearToDeactivate,
+        setSchoolYearToReopen,
         setSearchQuery,
         setStatusFilter,
         setSchoolYearInactive,
         statusFilter,
+        submitRollover,
         submitSchoolYear,
         viewingSchoolYear,
     };

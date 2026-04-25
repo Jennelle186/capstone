@@ -162,6 +162,36 @@ class SchoolYear(Base):
         back_populates="school_year",
         cascade="all, delete-orphan",
     )
+    audit_logs = relationship(
+        "SchoolYearAuditLog",
+        back_populates="school_year",
+        cascade="all, delete-orphan",
+    )
+
+
+class SchoolYearAuditLog(Base):
+    __tablename__ = "school_year_audit_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    school_year_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("school_years.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    action = Column(String(40), nullable=False, index=True)
+    actor_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    actor_clerk_user_id = Column(String(255), nullable=True)
+    previous_values = Column(JSONB, nullable=True)
+    new_values = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    school_year = relationship("SchoolYear", back_populates="audit_logs")
+    actor_user = relationship("User")
 
 
 class ProgramAdviserAssignment(Base):

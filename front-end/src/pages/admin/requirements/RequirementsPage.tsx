@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/clerk-react";
 import { motion } from "framer-motion";
-import { ArrowLeftRight, ClipboardList, Loader2, Save } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ClipboardList, Loader2, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -142,8 +142,11 @@ export default function RequirementsPage() {
         () => schoolYears.find((item) => item.id === selectedSchoolYearId) ?? null,
         [schoolYears, selectedSchoolYearId],
     );
+    const isSelectedSchoolYearClosed = selectedSchoolYear?.status === "closed";
 
     const handleRequirementToggle = (documentTypeId: string) => {
+        if (isSelectedSchoolYearClosed) return;
+
         setDraftSelectedRequirementIds((prev) => {
             const next = new Set(prev);
             if (next.has(documentTypeId)) {
@@ -157,6 +160,10 @@ export default function RequirementsPage() {
 
     const handleSaveRequirements = async () => {
         if (!selectedSchoolYearId || isSaving) return;
+        if (isSelectedSchoolYearClosed) {
+            toast.error("Closed school years are read-only. Requirements cannot be changed.");
+            return;
+        }
 
         const nextSelectedIds = availableDocumentTypes
             .map((item) => item.id)
@@ -268,10 +275,20 @@ export default function RequirementsPage() {
                             Requirement Checklist {selectedSchoolYear ? `(${selectedSchoolYear.name})` : ""}
                         </CardTitle>
                         <CardDescription>
-                            Select document types required for enrollment in this school year.
+                            {isSelectedSchoolYearClosed
+                                ? "Review document types required for this closed school year."
+                                : "Select document types required for enrollment in this school year."}
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        {isSelectedSchoolYearClosed ? (
+                            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                <p>
+                                    This school year is closed and archived. Requirements are read-only and cannot be changed.
+                                </p>
+                            </div>
+                        ) : null}
                         {availableDocumentTypes.length === 0 ? (
                             <EmptyState
                                 icon={<ClipboardList className="h-6 w-6" />}
@@ -286,6 +303,7 @@ export default function RequirementsPage() {
                         ) : (
                             <>
                                 <RequirementChecklist
+                                    disabled={isSelectedSchoolYearClosed}
                                     items={availableDocumentTypes}
                                     selectedIds={draftSelectedRequirementIds}
                                     onToggle={handleRequirementToggle}
@@ -294,7 +312,7 @@ export default function RequirementsPage() {
                                     <Button
                                         variant="outline"
                                         onClick={handleResetRequirements}
-                                        disabled={isRequirementsLoading || isSaving}
+                                        disabled={isRequirementsLoading || isSaving || isSelectedSchoolYearClosed}
                                     >
                                         Reset
                                     </Button>
@@ -302,7 +320,7 @@ export default function RequirementsPage() {
                                         onClick={() => {
                                             void handleSaveRequirements();
                                         }}
-                                        disabled={!selectedSchoolYearId || isRequirementsLoading || isSaving}
+                                        disabled={!selectedSchoolYearId || isRequirementsLoading || isSaving || isSelectedSchoolYearClosed}
                                     >
                                         <Save className="mr-2 h-4 w-4" />
                                         {isSaving ? "Saving..." : "Save Requirements"}
