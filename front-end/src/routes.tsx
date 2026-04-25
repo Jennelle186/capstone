@@ -11,11 +11,19 @@ import ProfileSettings from "./pages/students/ProfileSettings";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
 import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
+import AdminLayout from "./layouts/AdminLayout";
 import TeacherDashboard from "./pages/teachers/TeacherDashboard";
 import TeacherProfilePage from "./pages/teachers/TeacherProfilePage";
+import AdminDashboardPage from "./pages/admin/dashboard/AdminDashboardPage";
+import AdvisersPage from "./pages/admin/advisers/AdvisersPage";
+import ReportsPage from "./pages/admin/reports/ReportsPage";
+import DepartmentsPage from "./pages/admin/departments/DepartmentsPage";
+import SchoolYearsPage from "./pages/admin/school-years/SchoolYearsPage";
+import DocumentTypesPage from "./pages/admin/document-types/DocumentTypesPage";
+import RequirementsPage from "./pages/admin/requirements/RequirementsPage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
-import { RequireStudent, RequireTeacher } from "./components/auth/RequireRole";
+import { RequireStudent, RequireAdviser, RequireAdmin } from "./components/auth/RequireRole";
 import PostAuthRedirectPage from "./pages/PostAuthRedirectPage";
 
 const AppRoutes = createBrowserRouter([
@@ -60,8 +68,8 @@ const AppRoutes = createBrowserRouter([
         ],
     },
     {
-        path: "/teacher",
-        Component: RequireTeacher,
+        path: "/adviser",
+        Component: RequireAdviser,
         children: [
             {
                 Component: TeacherDashboardLayout,
@@ -69,6 +77,25 @@ const AppRoutes = createBrowserRouter([
                     { index: true, element: <Navigate to="dashboard" replace /> },
                     { path: "dashboard", Component: TeacherDashboard },
                     { path: "profile/*", Component: TeacherProfilePage },
+                ],
+            },
+        ],
+    },
+    {
+        path: "/admin",
+        Component: RequireAdmin,
+        children: [
+            {
+                Component: AdminLayout,
+                children: [
+                    { index: true, element: <Navigate to="dashboard" replace /> },
+                    { path: "dashboard", Component: AdminDashboardPage },
+                    { path: "advisers", Component: AdvisersPage },
+                    { path: "departments", Component: DepartmentsPage },
+                    { path: "document-types", Component: DocumentTypesPage },
+                    { path: "requirements", Component: RequirementsPage },
+                    { path: "reports", Component: ReportsPage },
+                    { path: "settings/school-year", Component: SchoolYearsPage },
                 ],
             },
         ],

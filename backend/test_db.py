@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.database import build_database_url
 
 
-async def test_connection() -> None:
+def test_connection() -> None:
+    asyncio.run(_test_connection())
+
+
+async def _test_connection() -> None:
     database_url = build_database_url()
     engine = create_async_engine(database_url)
 
@@ -22,4 +26,4 @@ async def test_connection() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(test_connection())
+    asyncio.run(_test_connection())

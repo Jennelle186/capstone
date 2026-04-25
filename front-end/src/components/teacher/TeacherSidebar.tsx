@@ -54,7 +54,7 @@ export default function TeacherSidebar() {
       {
         label: "Dashboards",
         items: [
-          { title: "Overview", icon: LayoutDashboard, url: "/teacher/dashboard" },
+          { title: "Overview", icon: LayoutDashboard, url: "/adviser/dashboard" },
         ],
       },
       {
@@ -62,7 +62,7 @@ export default function TeacherSidebar() {
         items: [
           { title: "Upload", icon: Upload, url: "#" },
           { title: "Student Profile", icon: Users, url: "#" },
-          { title: "Account", icon: UserCircle2, url: "/teacher/profile" },
+          { title: "Account", icon: UserCircle2, url: "/adviser/profile" },
 
           {
             title: "Logout",

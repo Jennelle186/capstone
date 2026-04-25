@@ -5,6 +5,7 @@ import {
     flexRender,
     getCoreRowModel,
     getFilteredRowModel,
+    getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
     type ColumnFiltersState,
@@ -51,11 +52,17 @@ export function DataTable<TData, TValue>({
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         state: {
             sorting,
             columnFilters,
+        },
+        initialState: {
+            pagination: {
+                pageSize: 10,
+            },
         },
     })
 
@@ -152,8 +159,42 @@ export function DataTable<TData, TValue>({
             </div>
 
             <div className="text-sm text-muted-foreground">
-                Showing {table.getFilteredRowModel().rows.length} result
+                Showing {table.getRowModel().rows.length} of {table.getFilteredRowModel().rows.length} result
                 {table.getFilteredRowModel().rows.length === 1 ? "" : "s"}
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Select
+                    value={String(table.getState().pagination.pageSize)}
+                    onValueChange={(value) => table.setPageSize(Number(value))}
+                >
+                    <SelectTrigger className="h-9 w-28">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="5">5 / page</SelectItem>
+                        <SelectItem value="10">10 / page</SelectItem>
+                        <SelectItem value="20">20 / page</SelectItem>
+                    </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => table.previousPage()}
+                        disabled={!table.getCanPreviousPage()}
+                    >
+                        Previous
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => table.nextPage()}
+                        disabled={!table.getCanNextPage()}
+                    >
+                        Next
+                    </Button>
+                </div>
             </div>
         </div>
     )

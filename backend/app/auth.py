@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _authorized_parties() -> list[str]:
+    defaults = {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    }
+    configured = {
+        party.strip()
+        for party in os.getenv("CLERK_AUTHORIZED_PARTIES", "").split(",")
+        if party.strip()
+    }
+    return sorted(defaults | configured)
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
@@ -42,7 +57,7 @@ def get_current_user(
     options = VerifyTokenOptions(
         secret_key=secret_key,
         jwt_key=jwt_key,
-        authorized_parties=["http://localhost:5173", "http://127.0.0.1:5173"],
+        authorized_parties=_authorized_parties(),
     )
 
     try:

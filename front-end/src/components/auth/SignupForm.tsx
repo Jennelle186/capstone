@@ -14,7 +14,7 @@ import {
   FieldSeparator,
 } from "../ui/field";
 import { signupSchema, type SignupFormData } from "@/schemas/auth.schema";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 function isClerkAPIResponseError(error: unknown): error is { errors: Array<{ longMessage?: string; message?: string }> } {
   return (
@@ -28,6 +28,9 @@ function isClerkAPIResponseError(error: unknown): error is { errors: Array<{ lon
 export default function SignupForm() {
   const { isLoaded, signUp, setActive } = useSignUp();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const invitationTicket = searchParams.get("__clerk_ticket");
+  const isInvitationFlow = Boolean(invitationTicket);
   const [pendingVerification, setPendingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
@@ -49,16 +52,29 @@ export default function SignupForm() {
     if (!isLoaded || isGoogleLoading) return;
 
     try {
-      const signUpAttempt = await signUp.create({
-        emailAddress: data.email,
-        password: data.password,
-      });
+      // Invitation sign-ups should consume the ticket from Clerk email links.
+      const signUpAttempt = isInvitationFlow && invitationTicket
+        ? await signUp.create({
+            strategy: "ticket",
+            ticket: invitationTicket,
+            password: data.password,
+          })
+        : await signUp.create({
+            emailAddress: data.email,
+            password: data.password,
+          });
 
       if (signUpAttempt.status === "complete" && signUpAttempt.createdSessionId) {
         await setActive({ session: signUpAttempt.createdSessionId });
-        toast.success("Account created!", { position: "bottom-right" });
+        toast.success(isInvitationFlow ? "Invitation accepted. Account created!" : "Account created!", { position: "bottom-right" });
         // Centralize role-based redirects in one place.
         navigate("/post-auth");
+        return;
+      }
+
+      // Ticket-based invitation flows usually complete immediately after password setup.
+      if (isInvitationFlow) {
+        toast.error("Invitation sign-up requires additional steps. Please try the invitation link again.");
         return;
       }
 
@@ -164,6 +180,14 @@ export default function SignupForm() {
     <>
       <form id="signup-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <FieldGroup>
+          {isInvitationFlow && (
+            <Field>
+              <FieldDescription>
+                You are completing an adviser invitation. Set your password to finish account setup.
+              </FieldDescription>
+            </Field>
+          )}
+
           <Controller
             name="email"
             control={form.control}
@@ -174,10 +198,15 @@ export default function SignupForm() {
                   {...field}
                   id="form-signup-email"
                   type="email"
-                  placeholder="Enter your email address"
+                  placeholder={isInvitationFlow ? "Use the invited email address" : "Enter your email address"}
                   autoComplete="on"
                   disabled={!isLoaded || isBusy}
                 />
+                {isInvitationFlow && (
+                  <FieldDescription>
+                    Invitation ticket is authoritative; this should match the invited email.
+                  </FieldDescription>
+                )}
                 {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
               </Field>
             )}
@@ -260,45 +289,49 @@ export default function SignupForm() {
 
           <Field>
             <Button type="submit" form="signup-form" disabled={!isLoaded || isBusy}>
-              {isSubmitting ? "Creating account..." : "Submit"}
+              {isSubmitting ? "Creating account..." : (isInvitationFlow ? "Accept Invitation" : "Submit")}
             </Button>
           </Field>
 
-          <FieldSeparator>Or Continue With</FieldSeparator>
+          {!isInvitationFlow && (
+            <>
+              <FieldSeparator>Or Continue With</FieldSeparator>
 
-          <Field>
-            <Button
-              variant="outline"
-              type="button"
-              className="border-gray-300 hover:bg-gray-50"
-              disabled={!isLoaded || isBusy}
-              onClick={onGoogleSignup}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5">
-                <path
-                  d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"
-                  fill="#EA4335"
-                />
-                <path d="M0 5.457V19.366c0 .904.732 1.636 1.636 1.636h3.819V11.73L0 5.457z" fill="#34A853" />
-                <path
-                  d="M18.545 21.002h3.819c.904 0 1.636-.732 1.636-1.636V5.457l-5.455 6.273v9.272z"
-                  fill="#FBBC04"
-                />
-                <path
-                  d="M18.545 11.73V3.493l1.528-1.145C21.69 2.28 24 3.434 24 5.457v.001l-5.455 6.272z"
-                  fill="#C5221F"
-                />
-                <path d="M0 5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64v7.09L0 5.457z" fill="#C5221F" />
-              </svg>
-              {isGoogleLoading ? "Redirecting..." : "Sign up with Gmail"}
-            </Button>
-            <FieldDescription className="text-center">
-              Already have an account?{" "}
-              <Link to="/auth/login" className="underline underline-offset-4">
-                Log in
-              </Link>
-            </FieldDescription>
-          </Field>
+              <Field>
+                <Button
+                  variant="outline"
+                  type="button"
+                  className="border-gray-300 hover:bg-gray-50"
+                  disabled={!isLoaded || isBusy}
+                  onClick={onGoogleSignup}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5">
+                    <path
+                      d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"
+                      fill="#EA4335"
+                    />
+                    <path d="M0 5.457V19.366c0 .904.732 1.636 1.636 1.636h3.819V11.73L0 5.457z" fill="#34A853" />
+                    <path
+                      d="M18.545 21.002h3.819c.904 0 1.636-.732 1.636-1.636V5.457l-5.455 6.273v9.272z"
+                      fill="#FBBC04"
+                    />
+                    <path
+                      d="M18.545 11.73V3.493l1.528-1.145C21.69 2.28 24 3.434 24 5.457v.001l-5.455 6.272z"
+                      fill="#C5221F"
+                    />
+                    <path d="M0 5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64v7.09L0 5.457z" fill="#C5221F" />
+                  </svg>
+                  {isGoogleLoading ? "Redirecting..." : "Sign up with Gmail"}
+                </Button>
+                <FieldDescription className="text-center">
+                  Already have an account?{" "}
+                  <Link to="/auth/login" className="underline underline-offset-4">
+                    Log in
+                  </Link>
+                </FieldDescription>
+              </Field>
+            </>
+          )}
         </FieldGroup>
       </form>
     </>

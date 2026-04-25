@@ -1,5 +1,5 @@
-import ProfileSettings from "@/components/student/ProfileSettings/ProfileSettings";
+import TeacherAccountSettings from "@/components/teacher/TeacherAccountSettings";
 
 export default function TeacherProfilePage() {
-  return <ProfileSettings path="/teacher/profile" />;
+  return <TeacherAccountSettings />;
 }

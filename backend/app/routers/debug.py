@@ -30,6 +30,7 @@ async def debug_claims(current_user: CurrentUser) -> dict:
         "email": current_user.get("email"),
         "last_name": current_user.get("last_name"),
         "first_name": current_user.get("first_name"),
+        "middle_name": current_user.get("middle_name"),
     }
 
 
@@ -63,6 +64,7 @@ async def debug_db_user(current_user: CurrentUser, db: SessionDep) -> dict:
             "clerk_user_id": user.clerk_user_id,
             "email": user.email,
             "first_name": user.first_name,
+            "middle_name": user.middle_name,
             "last_name": user.last_name,
             "role": getattr(user.role, "value", user.role),
             "public_metadata": user.public_metadata,

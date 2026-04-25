@@ -1,6 +1,8 @@
 backend/.venv/
 backend/__pycache__/
 backend/*.pyc
+backend/.pytest_cache/
+backend/pytest-cache-files-*/
 **/__pycache__/
 *.pyc
 tmp*-cwd
@@ -9,4 +11,3 @@ tmp*-cwd
 .env.local
 .env.*.local
 front-end/dist/
-

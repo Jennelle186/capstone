@@ -2,23 +2,22 @@ import { useAuth, useUser } from "@clerk/clerk-react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import AuthLoading from "@/components/auth/AuthLoading";
 
-type AppRole = "student" | "teacher" | "admin";
+type AppRole = "student" | "adviser" | "admin";
 
 function normalizeRole(value: unknown): AppRole {
   // If the role is missing, not a string, or unrecognized, we fall back to "student"
   // (least access) to avoid accidentally giving someone more access than they should have.
   if (typeof value !== "string") return "student";
   const role = value.trim().toLowerCase();
-  if (role === "student" || role === "teacher" || role === "admin") return role;
+  if (role === "student" || role === "adviser" || role === "admin") return role;
   return "student";
 }
 
 function homeForRole(role: AppRole): string {
   // Each role has its own dashboard. This keeps routes consistent with front-end/src/routes.tsx.
-  // If an admin route is added later (e.g. "/admin/dashboard"), add it here too.
-  if (role === "teacher") return "/teacher/dashboard";
-  if (role === "student") return "/student/dashboard";
-  return "/teacher/dashboard";
+  if (role === "admin") return "/admin/dashboard";
+  if (role === "adviser") return "/adviser/dashboard";
+  return "/student/dashboard";
 }
 
 function RequireRole({ allow }: { allow: AppRole[] }) {
@@ -62,8 +61,12 @@ export function RequireStudent() {
   return <RequireRole allow={["student"]} />;
 }
 
-export function RequireTeacher() {
-  return <RequireRole allow={["teacher"]} />;
+export function RequireAdviser() {
+  return <RequireRole allow={["adviser"]} />;
+}
+
+export function RequireAdmin() {
+  return <RequireRole allow={["admin"]} />;
 }
 
 export default RequireRole;

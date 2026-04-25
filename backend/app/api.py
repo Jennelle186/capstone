@@ -13,6 +13,7 @@ from .database import SessionDep
 from .models import UserRole
 from .routers.debug import router as debug_router
 from .routers.users import router as users_router
+from .routers import admin
 from .services.user_sync import ensure_user_row
 
 
@@ -28,18 +29,28 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(users_router)
 app.include_router(debug_router)
+app.include_router(admin.router)
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]
 
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+def _allowed_cors_origins() -> list[str]:
+    defaults = {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    }
+    configured = {
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    }
+    return sorted(defaults | configured)
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=_allowed_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]

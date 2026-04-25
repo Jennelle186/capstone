@@ -31,7 +31,7 @@ def role_from_clerk_claims(claims: dict[str, Any]) -> UserRole:
     """
     Convert the Clerk session token `role` claim into our `UserRole`.
 
-    Expected claim values are lowercase strings ("student" | "teacher" | "admin")
+    Expected claim values are lowercase strings ("student" | "adviser" | "admin")
       { "role": "{{user.public_metadata.role}}" } is based on the Clerk session from the Dashboard
     """
     raw = claims.get("role")
@@ -49,8 +49,8 @@ def role_from_clerk_claims(claims: dict[str, Any]) -> UserRole:
 
     if value == "student":
         return UserRole.STUDENT
-    if value == "teacher":
-        return UserRole.TEACHER
+    if value == "adviser":
+        return UserRole.ADVISER
     if value == "admin":
         return UserRole.ADMIN
 
@@ -64,7 +64,7 @@ def require_roles(*allowed: UserRole, allow_admin: bool = True) -> Callable[[Cur
     FastAPI dependency that enforces RBAC for a route.
 
     Usage:
-      @router.get("/api/teacher/...", dependencies=[Depends(require_roles(UserRole.TEACHER))])
+      @router.get("/api/adviser/...", dependencies=[Depends(require_roles(UserRole.ADVISER))])
       async def handler(...): ...
     """
     allowed_set: set[UserRole] = set(allowed)
@@ -86,7 +86,7 @@ def require_roles(*allowed: UserRole, allow_admin: bool = True) -> Callable[[Cur
     return _dependency
 
 
-# Optional convenience dependencies (usable as `Depends(require_teacher)`).
+# Optional convenience dependencies (usable as `Depends(require_adviser)`).
 require_student = require_roles(UserRole.STUDENT, allow_admin=False)
-require_teacher = require_roles(UserRole.TEACHER)
+require_adviser = require_roles(UserRole.ADVISER)
 require_admin = require_roles(UserRole.ADMIN)

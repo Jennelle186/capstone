@@ -26,7 +26,7 @@ def upgrade() -> None:
         """
         DO $$
         BEGIN
-          CREATE TYPE user_role AS ENUM ('STUDENT', 'TEACHER', 'ADMIN');
+          CREATE TYPE user_role AS ENUM ('STUDENT', 'ADVISER', 'ADMIN');
         EXCEPTION
           WHEN duplicate_object THEN NULL;
         END $$;
@@ -35,7 +35,7 @@ def upgrade() -> None:
 
     user_role = postgresql.ENUM(
         "STUDENT",
-        "TEACHER",
+        "ADVISER",
         "ADMIN",
         name="user_role",
         create_type=False,
