@@ -29,7 +29,7 @@ export const DEFAULT_SCHOOL_YEAR_ROLLOVER_FORM: SchoolYearRolloverFormState = {
 
 // Mapping of school year statuses to their display labels.
 export const SCHOOL_YEAR_STATUS_LABEL: Record<SchoolYearStatus, string> = {
-    upcoming: "Open",
+    upcoming: "Upcoming",
     active: "Active",
     closed: "Closed / Archived",
 };

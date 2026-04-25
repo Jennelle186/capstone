@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from app.schemas.document_management import DocumentTypeCreateRequest, RequirementAssignmentRequest
+from app.schemas.document_management import (
+    DocumentTypeCreateRequest,
+    RequirementAssignmentRequest,
+)
 
 
 def test_document_type_create_request_normalizes_code_and_keywords() -> None:

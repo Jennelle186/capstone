@@ -4,10 +4,10 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import desc, func, select
 
 from ...database import SessionDep
-from ...models import DocumentType, DocumentTypeStatus, SchoolYearRequirement
+from ...models import DocumentType, DocumentTypeStatus
 from ...rbac import require_admin
 from ...schemas.document_management import (
     DocumentTypeCreateRequest,
@@ -16,7 +16,10 @@ from ...schemas.document_management import (
     RequirementAssignmentRequest,
     RequirementAssignmentResponse,
 )
-from ...services.document_requirements import ensure_school_year_requirements_mutable, get_school_year_or_404
+from ...services.document_requirements import (
+    list_school_year_requirement_ids,
+    replace_school_year_requirement_ids,
+)
 
 router = APIRouter()
 
@@ -132,14 +135,7 @@ async def get_school_year_requirements(
     db: SessionDep = None,
 ):
     del current_user
-    await get_school_year_or_404(db, school_year_id)
-
-    stmt = (
-        select(SchoolYearRequirement.document_type_id)
-        .where(SchoolYearRequirement.school_year_id == school_year_id)
-        .order_by(desc(SchoolYearRequirement.updated_at), desc(SchoolYearRequirement.created_at))
-    )
-    document_type_ids = list((await db.execute(stmt)).scalars().all())
+    document_type_ids = await list_school_year_requirement_ids(db, school_year_id)
 
     return RequirementAssignmentResponse(
         school_year_id=school_year_id,
@@ -154,35 +150,12 @@ async def replace_school_year_requirements(
     db: SessionDep = None,
 ):
     del current_user
-    await ensure_school_year_requirements_mutable(db, payload.school_year_id)
-
-    if payload.document_type_ids:
-        existing_stmt = select(DocumentType.id).where(
-            DocumentType.id.in_(payload.document_type_ids),
-            DocumentType.status == DocumentTypeStatus.ACTIVE,
-        )
-        existing_ids = set((await db.execute(existing_stmt)).scalars().all())
-        missing_or_inactive = [doc_id for doc_id in payload.document_type_ids if doc_id not in existing_ids]
-        if missing_or_inactive:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="One or more document types are missing or not active.",
-            )
-
-    await db.execute(
-        delete(SchoolYearRequirement).where(SchoolYearRequirement.school_year_id == payload.school_year_id)
+    document_type_ids = await replace_school_year_requirement_ids(
+        db,
+        payload.school_year_id,
+        payload.document_type_ids,
     )
-
-    for document_type_id in payload.document_type_ids:
-        db.add(
-            SchoolYearRequirement(
-                school_year_id=payload.school_year_id,
-                document_type_id=document_type_id,
-            )
-        )
-
-    await db.commit()
     return RequirementAssignmentResponse(
         school_year_id=payload.school_year_id,
-        document_type_ids=payload.document_type_ids,
+        document_type_ids=document_type_ids,
     )

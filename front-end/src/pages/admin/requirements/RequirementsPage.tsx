@@ -1,23 +1,11 @@
 import { useAuth } from "@clerk/clerk-react";
 import { motion } from "framer-motion";
-import { AlertTriangle, ArrowLeftRight, ClipboardList, Loader2, Save } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
 import { toast } from "sonner";
 
-import EmptyState from "@/components/admin/document-management/EmptyState";
 import PageHeader from "@/components/admin/document-management/PageHeader";
-import RequirementChecklist from "@/components/admin/document-management/RequirementChecklist";
-import { fadeInUp, staggerContainer } from "@/components/admin/motion-variants";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import { staggerContainer } from "@/components/admin/motion-variants";
 import { parseDocumentManagementApiError, toDocumentTypeItem } from "@/lib/document-management-utils";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { DocumentTypeApiRecord, DocumentTypeItem } from "@/types/documentType";
@@ -26,10 +14,8 @@ import type {
     RequirementAssignmentResponse,
 } from "@/types/requirement";
 import type { SchoolYearRecord } from "@/types/schoolYear";
-
-function toSchoolYearLabel(schoolYear: SchoolYearRecord): string {
-    return schoolYear.name;
-}
+import RequirementsChecklistCard from "./RequirementsChecklistCard";
+import RequirementsSchoolYearControls from "./RequirementsSchoolYearControls";
 
 export default function RequirementsPage() {
     const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -38,7 +24,7 @@ export default function RequirementsPage() {
     const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>("");
     const [initialSelectedRequirementIds, setInitialSelectedRequirementIds] = useState<Set<string>>(new Set());
     const [draftSelectedRequirementIds, setDraftSelectedRequirementIds] = useState<Set<string>>(new Set());
-    const [isPageLoading, setIsPageLoading] = useState(true);
+const [isPageLoading, setIsPageLoading] = useState(true);
     const [isRequirementsLoading, setIsRequirementsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -158,7 +144,17 @@ export default function RequirementsPage() {
         });
     };
 
-    const handleSaveRequirements = async () => {
+    const handleSelectAllRequirements = () => {
+        if (isSelectedSchoolYearClosed) return;
+        setDraftSelectedRequirementIds(new Set(availableDocumentTypes.map((item) => item.id)));
+    };
+
+const handleClearRequirements = () => {
+        if (isSelectedSchoolYearClosed) return;
+        setDraftSelectedRequirementIds(new Set());
+    };
+
+const handleSaveRequirements = async () => {
         if (!selectedSchoolYearId || isSaving) return;
         if (isSelectedSchoolYearClosed) {
             toast.error("Closed school years are read-only. Requirements cannot be changed.");
@@ -169,13 +165,13 @@ export default function RequirementsPage() {
             .map((item) => item.id)
             .filter((id) => draftSelectedRequirementIds.has(id));
 
-        const payload: RequirementAssignmentPayload = {
-            school_year_id: selectedSchoolYearId,
-            document_type_ids: nextSelectedIds,
-        };
-
         setIsSaving(true);
         try {
+            const payload: RequirementAssignmentPayload = {
+                school_year_id: selectedSchoolYearId,
+                document_type_ids: nextSelectedIds,
+            };
+
             const response = (await requestWithAdminAuth("/api/admin/requirements", {
                 method: "PUT",
                 body: JSON.stringify(payload),
@@ -221,116 +217,27 @@ export default function RequirementsPage() {
                 subtitle="Manage required enrollment documents per school year."
             />
 
-            <motion.div variants={fadeInUp}>
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-base">School Year Controls</CardTitle>
-                        <CardDescription>
-                            These requirements apply to the entire school for the selected school year.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                            <div className="w-full sm:w-60">
-                                <Select
-                                    value={selectedSchoolYearId}
-                                    onValueChange={setSelectedSchoolYearId}
-                                    disabled={schoolYears.length === 0 || isRequirementsLoading}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select school year" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {schoolYears.map((schoolYear) => (
-                                            <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                                                {toSchoolYearLabel(schoolYear)}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                                {isRequirementsLoading ? (
-                                    <>
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        Loading saved requirements...
-                                    </>
-                                ) : (
-                                    <>
-                                        <ArrowLeftRight className="h-4 w-4" />
-                                        Switching school year loads that year&apos;s saved requirement selection.
-                                    </>
-                                )}
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
-            </motion.div>
+            <RequirementsSchoolYearControls
+                schoolYears={schoolYears}
+                selectedSchoolYearId={selectedSchoolYearId}
+                isRequirementsLoading={isRequirementsLoading}
+                onSelectedSchoolYearChange={setSelectedSchoolYearId}
+            />
 
-            <motion.div variants={fadeInUp}>
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <ClipboardList className="h-5 w-5 text-blue-700" />
-                            Requirement Checklist {selectedSchoolYear ? `(${selectedSchoolYear.name})` : ""}
-                        </CardTitle>
-                        <CardDescription>
-                            {isSelectedSchoolYearClosed
-                                ? "Review document types required for this closed school year."
-                                : "Select document types required for enrollment in this school year."}
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {isSelectedSchoolYearClosed ? (
-                            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                                <p>
-                                    This school year is closed and archived. Requirements are read-only and cannot be changed.
-                                </p>
-                            </div>
-                        ) : null}
-                        {availableDocumentTypes.length === 0 ? (
-                            <EmptyState
-                                icon={<ClipboardList className="h-6 w-6" />}
-                                title="No document types found."
-                                description="No document types found. Create document types first before setting requirements."
-                                action={(
-                                    <Button asChild>
-                                        <Link to="/admin/document-types">Go to Document Types</Link>
-                                    </Button>
-                                )}
-                            />
-                        ) : (
-                            <>
-                                <RequirementChecklist
-                                    disabled={isSelectedSchoolYearClosed}
-                                    items={availableDocumentTypes}
-                                    selectedIds={draftSelectedRequirementIds}
-                                    onToggle={handleRequirementToggle}
-                                />
-                                <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
-                                    <Button
-                                        variant="outline"
-                                        onClick={handleResetRequirements}
-                                        disabled={isRequirementsLoading || isSaving || isSelectedSchoolYearClosed}
-                                    >
-                                        Reset
-                                    </Button>
-                                    <Button
-                                        onClick={() => {
-                                            void handleSaveRequirements();
-                                        }}
-                                        disabled={!selectedSchoolYearId || isRequirementsLoading || isSaving || isSelectedSchoolYearClosed}
-                                    >
-                                        <Save className="mr-2 h-4 w-4" />
-                                        {isSaving ? "Saving..." : "Save Requirements"}
-                                    </Button>
-                                </div>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-            </motion.div>
+<RequirementsChecklistCard
+                availableDocumentTypes={availableDocumentTypes}
+                draftSelectedRequirementIds={draftSelectedRequirementIds}
+                selectedSchoolYear={selectedSchoolYear}
+                selectedSchoolYearId={selectedSchoolYearId}
+                isSelectedSchoolYearClosed={isSelectedSchoolYearClosed}
+                isRequirementsLoading={isRequirementsLoading}
+                isSaving={isSaving}
+                onRequirementToggle={handleRequirementToggle}
+                onSelectAllRequirements={handleSelectAllRequirements}
+                onClearRequirements={handleClearRequirements}
+                onResetRequirements={handleResetRequirements}
+                onSaveRequirements={handleSaveRequirements}
+            />
         </motion.div>
     );
 }
