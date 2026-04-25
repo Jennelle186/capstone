@@ -5,6 +5,7 @@ export interface SchoolYearRecord {
     name: string;
     start_date: string;
     end_date: string;
+    auto_closure_date: string | null;
     status: SchoolYearStatus;
     is_active: boolean;
     created_at: string;
@@ -15,6 +16,7 @@ export interface SchoolYearCreateFormState {
     name: string;
     startDate: string;
     endDate: string;
+    autoClosureDate: string;
     status: SchoolYearStatus;
     setAsActive: boolean;
 }
@@ -23,6 +25,7 @@ export interface SchoolYearPayload {
     name: string;
     start_date: string;
     end_date: string;
+    auto_closure_date: string | null;
     status: SchoolYearStatus;
     set_as_active: boolean;
 }

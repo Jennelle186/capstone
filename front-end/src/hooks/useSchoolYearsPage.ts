@@ -152,6 +152,7 @@ export function useSchoolYearsPage() {
             name: schoolYear.name,
             startDate: schoolYear.start_date,
             endDate: schoolYear.end_date,
+            autoClosureDate: schoolYear.auto_closure_date || "",
             status: schoolYear.status,
             setAsActive: schoolYear.is_active,
         });

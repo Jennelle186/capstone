@@ -20,6 +20,7 @@ class SchoolYearResponse(BaseModel):
     name: str
     start_date: date
     end_date: date
+    auto_closure_date: date | None
     status: SchoolYearStatus
     is_active: bool
     created_at: datetime
@@ -30,6 +31,7 @@ class SchoolYearCreateRequest(BaseModel):
     name: str = Field(min_length=4, max_length=64)
     start_date: date
     end_date: date
+    auto_closure_date: date | None = None
     status: SchoolYearStatus = SchoolYearStatus.UPCOMING
     set_as_active: bool = False
 
@@ -47,6 +49,7 @@ class SchoolYearUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=4, max_length=64)
     start_date: date | None = None
     end_date: date | None = None
+    auto_closure_date: date | None = None
     status: SchoolYearStatus | None = None
     set_as_active: bool | None = None
 
@@ -79,6 +82,7 @@ def serialize_school_year(school_year: SchoolYear) -> SchoolYearResponse:
         name=school_year.name,
         start_date=school_year.start_date,
         end_date=school_year.end_date,
+        auto_closure_date=school_year.auto_closure_date,
         status=school_year.status,
         is_active=school_year.is_active,
         created_at=school_year.created_at,
@@ -268,6 +272,7 @@ async def create_school_year(
         name=payload.name,
         start_date=payload.start_date,
         end_date=payload.end_date,
+        auto_closure_date=payload.auto_closure_date,
         status=payload.status,
         is_active=False,
     )
@@ -307,6 +312,8 @@ async def update_school_year(
         school_year.start_date = payload.start_date
     if payload.end_date is not None:
         school_year.end_date = payload.end_date
+    if payload.auto_closure_date is not None:
+        school_year.auto_closure_date = payload.auto_closure_date
 
     next_status = payload.status if payload.status is not None else school_year.status
     if next_status == SchoolYearStatus.CLOSED and payload.set_as_active is True:

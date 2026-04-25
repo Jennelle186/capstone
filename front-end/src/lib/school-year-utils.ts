@@ -5,6 +5,7 @@ export const DEFAULT_SCHOOL_YEAR_FORM: SchoolYearCreateFormState = {
     name: "",
     startDate: "",
     endDate: "",
+    autoClosureDate: "",
     status: "upcoming",
     setAsActive: false,
 };
@@ -56,6 +57,7 @@ export function buildSchoolYearPayload(formData: SchoolYearCreateFormState): Sch
         name: formData.name.trim(),
         start_date: formData.startDate,
         end_date: formData.endDate,
+        auto_closure_date: formData.autoClosureDate ? formData.autoClosureDate : null,
         status: formData.status,
         set_as_active: formData.setAsActive,
     };

@@ -296,8 +296,8 @@ export default function SchoolYearsPage() {
                                     <p>{formatSchoolYearDate(activeSchoolYear.end_date)}</p>
                                 </div>
                                 <div>
-                                    <p className="font-medium text-foreground">Date Created</p>
-                                    <p>{formatSchoolYearDateTime(activeSchoolYear.created_at)}</p>
+                                    <p className="font-medium text-foreground">Auto Closure Date</p>
+                                    <p>{activeSchoolYear.auto_closure_date ? formatSchoolYearDate(activeSchoolYear.auto_closure_date) : "Not set"}</p>
                                 </div>
                                 <div>
                                     <p className="font-medium text-foreground">Last Updated</p>
@@ -495,6 +495,8 @@ export default function SchoolYearsPage() {
                                 <p className="font-medium text-foreground">{formatSchoolYearDate(viewingSchoolYear.start_date)}</p>
                                 <p className="text-muted-foreground">End Date</p>
                                 <p className="font-medium text-foreground">{formatSchoolYearDate(viewingSchoolYear.end_date)}</p>
+                                <p className="text-muted-foreground">Auto Closure Date</p>
+                                <p className="font-medium text-foreground">{viewingSchoolYear.auto_closure_date ? formatSchoolYearDate(viewingSchoolYear.auto_closure_date) : "Not set"}</p>
                                 <p className="text-muted-foreground">Status</p>
                                 <p className="font-medium text-foreground">{SCHOOL_YEAR_STATUS_LABEL[viewingSchoolYear.status]}</p>
                                 <p className="text-muted-foreground">Active</p>

@@ -142,6 +142,7 @@ class SchoolYear(Base):
     name = Column(String(64), nullable=False, unique=True, index=True)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
+    auto_closure_date = Column(Date, nullable=True)
     status = Column(
         Enum(SchoolYearStatus, name="school_year_status"),
         nullable=False,

@@ -87,6 +87,18 @@ export default function SchoolYearFormDialog({
                         </div>
                     </div>
                     <div className="space-y-2">
+                        <Label htmlFor="school-year-auto-closure">Automatic Closure Date (Optional)</Label>
+                        <Input
+                            id="school-year-auto-closure"
+                            type="date"
+                            value={form.autoClosureDate}
+                            onChange={(event) => onChange((prev) => ({ ...prev, autoClosureDate: event.target.value }))}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Set a date when this school year will automatically transition to "Closed" status.
+                        </p>
+                    </div>
+                    <div className="space-y-2">
                         <Label>Status</Label>
                         <Select
                             value={form.status}
