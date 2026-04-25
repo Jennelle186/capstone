@@ -13,6 +13,8 @@ from ..database import SessionDep
 from ..models import (
     Adviser,
     Department,
+    DocumentType,
+    DocumentTypeStatus,
     ProgramAdviserAssignment,
     SchoolYear,
     SchoolYearAuditLog,
@@ -153,10 +155,36 @@ async def _summary_for_school_year(db: SessionDep, school_year: SchoolYear) -> d
         if program_uuid_for_department_code(department.code) not in assigned_program_ids
     ]
 
-    requirement_count_stmt = select(func.count(SchoolYearRequirement.id)).where(
-        SchoolYearRequirement.school_year_id == school_year.id
+    requirement_count_stmt = (
+        select(func.count(SchoolYearRequirement.id))
+        .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
+        .where(
+            SchoolYearRequirement.school_year_id == school_year.id,
+            DocumentType.status == DocumentTypeStatus.ACTIVE,
+        )
     )
-    requirement_count = int((await db.execute(requirement_count_stmt)).scalar_one() or 0)
+    requirement_count_result = await db.execute(requirement_count_stmt)
+    requirement_count_row = requirement_count_result.fetchone()
+    raw_count = requirement_count_row[0] if requirement_count_row else 0
+
+    valid_requirements = []
+    if raw_count > 0:
+        req_stmt = (
+            select(SchoolYearRequirement, DocumentType)
+            .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
+            .where(
+                SchoolYearRequirement.school_year_id == school_year.id,
+                DocumentType.status == DocumentTypeStatus.ACTIVE,
+            )
+        )
+        req_result = await db.execute(req_stmt)
+        for req_row in req_result.all():
+            doc_type = req_row[1]
+            classifications = doc_type.applicable_classifications
+            if classifications and len(classifications) > 0:
+                valid_requirements.append(req_row[0].id)
+
+    requirement_count = len(valid_requirements)
 
     readiness_issues: list[str] = []
     if school_year.status == SchoolYearStatus.CLOSED:
