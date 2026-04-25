@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { ArchiveRestore, PencilLine, Trash2 } from "lucide-react";
 
 import StatusBadge from "@/components/admin/document-management/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Table,
@@ -11,7 +12,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import type { DocumentTypeItem } from "@/types/documentType";
+import type { DocumentTypeItem, StudentClassification } from "@/types/documentType";
 
 interface DocumentTypesTableProps {
     items: DocumentTypeItem[];
@@ -24,9 +25,11 @@ function isArchived(item: DocumentTypeItem): boolean {
     return item.isArchived || !item.isActive;
 }
 
-function isClassificationConfigured(item: DocumentTypeItem): boolean {
-    return item.classifierDescription.trim().length > 0 && item.keywords.length > 0;
-}
+const CLASSIFICATION_LABELS: Record<StudentClassification, string> = {
+    regular: "Regular",
+    transferee: "Transferee",
+    shiftee: "Shiftee",
+};
 
 export default function DocumentTypesTable({
     items,
@@ -49,7 +52,7 @@ export default function DocumentTypesTable({
             <TableBody>
                 {items.map((item, index) => {
                     const archived = isArchived(item);
-                    const classificationConfigured = isClassificationConfigured(item);
+                    const classifications = item.applicableClassifications || [];
 
                     return (
                         <TableRow key={item.id} className="align-top">
@@ -70,8 +73,14 @@ export default function DocumentTypesTable({
                                 {item.description}
                             </TableCell>
                             <TableCell>
-                                {classificationConfigured ? (
-                                    <StatusBadge kind="configured" />
+                                {classifications.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                        {classifications.map((classification) => (
+                                            <Badge key={classification} variant="secondary" className="text-xs">
+                                                {CLASSIFICATION_LABELS[classification]}
+                                            </Badge>
+                                        ))}
+                                    </div>
                                 ) : (
                                     <StatusBadge kind="incomplete" />
                                 )}
