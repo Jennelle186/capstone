@@ -15,6 +15,7 @@ from ...schemas.document_management import (
     DocumentTypeUpdateRequest,
     RequirementAssignmentRequest,
     RequirementAssignmentResponse,
+    StudentClassificationSchema,
 )
 from ...services.document_requirements import (
     list_school_year_requirement_ids,
@@ -32,6 +33,9 @@ def serialize_document_type(document_type: DocumentType) -> DocumentTypeResponse
         description=document_type.description,
         classifier_description=document_type.classifier_description,
         keywords=list(document_type.keywords or []),
+        applicable_classifications=[
+            StudentClassificationSchema(item) for item in (document_type.applicable_classifications or [])
+        ],
         status=document_type.status,
         created_at=document_type.created_at,
         updated_at=document_type.updated_at,
@@ -87,6 +91,7 @@ async def create_document_type(
         description=payload.description,
         classifier_description=payload.classifier_description,
         keywords=payload.keywords,
+        applicable_classifications=payload.applicable_classifications,
         status=payload.status,
     )
     db.add(document_type)
@@ -120,6 +125,8 @@ async def update_document_type(
         document_type.classifier_description = payload.classifier_description
     if payload.keywords is not None:
         document_type.keywords = payload.keywords
+    if payload.applicable_classifications is not None:
+        document_type.applicable_classifications = payload.applicable_classifications
     if payload.status is not None:
         document_type.status = payload.status
 

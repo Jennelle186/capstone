@@ -1,5 +1,7 @@
 export type DocumentTypeStatus = "active" | "archived";
 
+export type StudentClassification = "regular" | "transferee" | "shiftee";
+
 export interface DocumentTypeItem {
     id: string;
     name: string;
@@ -7,6 +9,7 @@ export interface DocumentTypeItem {
     description: string;
     classifierDescription: string;
     keywords: string[];
+    applicableClassifications: StudentClassification[];
     isActive: boolean;
     isArchived: boolean;
     createdAt: string;
@@ -19,6 +22,7 @@ export interface DocumentTypeFormState {
     description: string;
     classifierDescription: string;
     keywords: string[];
+    applicableClassifications: StudentClassification[];
     isActive: boolean;
 }
 
@@ -31,6 +35,7 @@ export interface DocumentTypeApiRecord {
     description: string;
     classifier_description: string | null;
     keywords: string[];
+    applicable_classifications: StudentClassification[];
     status: DocumentTypeStatus;
     created_at: string;
     updated_at: string;
@@ -42,5 +47,6 @@ export interface DocumentTypeUpsertPayload {
     description: string;
     classifier_description: string | null;
     keywords: string[];
+    applicable_classifications: StudentClassification[];
     status: DocumentTypeStatus;
 }

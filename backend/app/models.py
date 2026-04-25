@@ -21,6 +21,12 @@ class SchoolYearStatus(str, enum.Enum):
     CLOSED = "closed"
 
 
+class StudentClassification(str, enum.Enum):
+    REGULAR = "regular"
+    TRANSFEREE = "transferee"
+    SHIFTEE = "shiftee"
+
+
 class AdviserInvitationStatus(str, enum.Enum):
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -79,6 +85,11 @@ class Student(Base):
     # These can be null at first sign-up; you can fill them later during onboarding.
     student_number = Column(String, unique=True, nullable=True)
     program = Column(String, nullable=True)
+    classification = Column(
+        Enum(StudentClassification, name="student_classification"),
+        nullable=True,
+        default=StudentClassification.REGULAR,
+    )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -230,6 +241,12 @@ class DocumentType(Base):
     description = Column(Text, nullable=False)
     classifier_description = Column(Text, nullable=True)
     keywords = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    applicable_classifications = Column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb")
+    )
     status = Column(
         Enum(
             DocumentTypeStatus,

@@ -15,7 +15,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import type { DocumentTypeFormState } from "@/types/documentType";
+import type { DocumentTypeFormState, StudentClassification } from "@/types/documentType";
+
+const CLASSIFICATION_OPTIONS: { value: StudentClassification; label: string }[] = [
+    { value: "regular", label: "Regular Students" },
+    { value: "transferee", label: "Transferees" },
+    { value: "shiftee", label: "Shiftees" },
+];
 
 interface DocumentTypeFormProps {
     open: boolean;
@@ -194,6 +200,39 @@ export default function DocumentTypeForm({
                             <p className="text-xs text-muted-foreground">
                                 Keywords are optional repeated words, labels, or clues commonly found in this document.
                             </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Applies To</Label>
+                            <div className="flex flex-wrap gap-2">
+                                {CLASSIFICATION_OPTIONS.map((option) => {
+                                    const isSelected = formState.applicableClassifications.includes(option.value);
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            className={`inline-flex items-center rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                                                isSelected
+                                                    ? "border-primary bg-primary/10 text-primary"
+                                                    : "border-input bg-background hover:bg-accent"
+                                            }`}
+                                            onClick={() => {
+                                                const next = isSelected
+                                                    ? formState.applicableClassifications.filter((c) => c !== option.value)
+                                                    : [...formState.applicableClassifications, option.value];
+                                                onFormStateChange({ ...formState, applicableClassifications: next });
+                                            }}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {formState.applicableClassifications.length === 0 && (
+                                <p className="text-xs text-amber-600">
+                                    Warning: This document will not appear in any checklist if no classification is selected.
+                                </p>
+                            )}
                         </div>
                     </motion.section>
 

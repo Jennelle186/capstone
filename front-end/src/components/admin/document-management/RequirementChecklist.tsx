@@ -9,9 +9,10 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { DocumentTypeItem } from "@/types/documentType";
+import type { DocumentTypeItem, StudentClassification } from "@/types/documentType";
 
 interface RequirementChecklistProps {
     disabled?: boolean;
@@ -26,6 +27,12 @@ const CODE_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
     REPORT_CARD: GraduationCap,
     GOOD_MORAL: FileCheck2,
     BIRTH_CERT: FileBadge2,
+};
+
+const CLASSIFICATION_LABELS: Record<StudentClassification, string> = {
+    regular: "Regular",
+    transferee: "Transferee",
+    shiftee: "Shiftee",
 };
 
 function getDocumentIcon(code: string) {
@@ -43,6 +50,7 @@ export default function RequirementChecklist({
             {items.map((item, index) => {
                 const checked = selectedIds.has(item.id);
                 const Icon = getDocumentIcon(item.code);
+                const classifications = item.applicableClassifications || [];
 
                 return (
                     <motion.button
@@ -74,6 +82,15 @@ export default function RequirementChecklist({
                                     <div className="space-y-1">
                                         <p className="font-medium text-foreground">{item.name}</p>
                                         <p className="text-sm text-muted-foreground">{item.description}</p>
+                                        {classifications.length > 0 && (
+                                            <div className="flex flex-wrap gap-1 pt-1">
+                                                {classifications.map((classification) => (
+                                                    <Badge key={classification} variant="outline" className="text-xs">
+                                                        {CLASSIFICATION_LABELS[classification] || classification}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="pt-0.5">

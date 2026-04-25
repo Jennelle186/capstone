@@ -39,6 +39,7 @@ export function toDocumentTypeItem(record: DocumentTypeApiRecord): DocumentTypeI
         description: record.description,
         classifierDescription: record.classifier_description ?? "",
         keywords: [...record.keywords],
+        applicableClassifications: [...(record.applicable_classifications ?? [])],
         isActive: !isArchived,
         isArchived,
         createdAt: record.created_at,

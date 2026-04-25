@@ -120,7 +120,11 @@ const [isPageLoading, setIsPageLoading] = useState(true);
     }, [loadSchoolYearRequirements, selectedSchoolYearId]);
 
     const availableDocumentTypes = useMemo(
-        () => documentTypes.filter((item) => item.isActive && !item.isArchived),
+        () => documentTypes.filter((item) => {
+            if (!item.isActive || item.isArchived) return false;
+            const classifications = item.applicableClassifications ?? [];
+            return classifications.length > 0;
+        }),
         [documentTypes],
     );
 

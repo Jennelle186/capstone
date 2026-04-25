@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
-from ..models import DocumentTypeStatus
+from ..models import DocumentTypeStatus, StudentClassification
+
+
+class StudentClassificationSchema(str, Enum):
+    REGULAR = "regular"
+    TRANSFEREE = "transferee"
+    SHIFTEE = "shiftee"
 
 
 class DocumentTypeResponse(BaseModel):
@@ -15,6 +22,7 @@ class DocumentTypeResponse(BaseModel):
     description: str
     classifier_description: str | None
     keywords: list[str]
+    applicable_classifications: list[StudentClassificationSchema]
     status: DocumentTypeStatus
     created_at: datetime
     updated_at: datetime
@@ -26,6 +34,7 @@ class DocumentTypeCreateRequest(BaseModel):
     description: str = Field(min_length=1)
     classifier_description: str | None = None
     keywords: list[str] = Field(default_factory=list)
+    applicable_classifications: list[StudentClassificationSchema] = Field(default_factory=list)
     status: DocumentTypeStatus = DocumentTypeStatus.ACTIVE
 
     @field_validator("name", "description")
@@ -60,6 +69,18 @@ class DocumentTypeCreateRequest(BaseModel):
             deduped.append(normalized)
         return deduped
 
+    @field_validator("applicable_classifications")
+    @classmethod
+    def normalize_classifications(cls, value: list[StudentClassificationSchema]) -> list[StudentClassificationSchema]:
+        seen: set[str] = set()
+        deduped: list[StudentClassificationSchema] = []
+        for item in value:
+            if item.value in seen:
+                continue
+            seen.add(item.value)
+            deduped.append(item)
+        return deduped
+
 
 class DocumentTypeUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
@@ -67,6 +88,7 @@ class DocumentTypeUpdateRequest(BaseModel):
     description: str | None = Field(default=None, min_length=1)
     classifier_description: str | None = None
     keywords: list[str] | None = None
+    applicable_classifications: list[StudentClassificationSchema] | None = None
     status: DocumentTypeStatus | None = None
 
     @field_validator("name", "description")
@@ -105,6 +127,22 @@ class DocumentTypeUpdateRequest(BaseModel):
                 continue
             seen.add(lowered)
             deduped.append(normalized)
+        return deduped
+
+    @field_validator("applicable_classifications")
+    @classmethod
+    def normalize_optional_classifications(
+        cls, value: list[StudentClassificationSchema] | None
+    ) -> list[StudentClassificationSchema] | None:
+        if value is None:
+            return None
+        seen: set[str] = set()
+        deduped: list[StudentClassificationSchema] = []
+        for item in value:
+            if item.value in seen:
+                continue
+            seen.add(item.value)
+            deduped.append(item)
         return deduped
 
 

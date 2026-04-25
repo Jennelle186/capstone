@@ -46,6 +46,7 @@ function createDefaultFormState(): DocumentTypeFormState {
         description: "",
         classifierDescription: "",
         keywords: [],
+        applicableClassifications: ["regular"],
         isActive: true,
     };
 }
@@ -173,6 +174,7 @@ export default function DocumentTypesPage() {
             description: item.description,
             classifierDescription: item.classifierDescription,
             keywords: [...item.keywords],
+            applicableClassifications: [...(item.applicableClassifications ?? ["regular"])],
             isActive: !isArchived(item),
         });
         setKeywordInput("");
@@ -236,6 +238,7 @@ export default function DocumentTypesPage() {
             description,
             classifier_description: formState.classifierDescription.trim() || null,
             keywords: [...formState.keywords],
+            applicable_classifications: [...formState.applicableClassifications],
             status: toDocumentTypeStatus(formState.isActive),
         };
 
