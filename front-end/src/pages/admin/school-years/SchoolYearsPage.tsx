@@ -44,6 +44,10 @@ export default function SchoolYearsPage() {
         runAutoClosure,
         schoolYearAssignments,
         schoolYearAuditLogs,
+        schoolYearRequirements,
+        documentTypes,
+        admissionSchemas,
+        isRequirementsLoading,
         schoolYears,
         schoolYearToClose,
         schoolYearToDeactivate,
@@ -149,9 +153,13 @@ export default function SchoolYearsPage() {
                 handleViewOpenChange={handleViewOpenChange}
                 isAssignmentsLoading={isAssignmentsLoading}
                 isAuditLogsLoading={isAuditLogsLoading}
+                isRequirementsLoading={isRequirementsLoading}
                 isViewOpen={isViewOpen}
                 schoolYearAssignments={schoolYearAssignments}
                 schoolYearAuditLogs={schoolYearAuditLogs}
+                schoolYearRequirements={schoolYearRequirements}
+                documentTypes={documentTypes}
+                admissionSchemas={admissionSchemas}
                 viewingSchoolYear={viewingSchoolYear}
             />
 

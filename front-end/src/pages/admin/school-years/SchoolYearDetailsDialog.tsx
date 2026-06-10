@@ -16,15 +16,22 @@ import {
     SCHOOL_YEAR_STATUS_BADGE_STYLE,
     SCHOOL_YEAR_STATUS_LABEL,
 } from "@/lib/school-year-utils";
+import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
+import type { DocumentTypeApiRecord } from "@/types/documentType";
+import type { RequirementAssignmentResponse } from "@/types/requirement";
 import type { SchoolYearAuditLog, SchoolYearDepartmentAssignment, SchoolYearRecord } from "@/types/schoolYear";
 
 interface SchoolYearDetailsDialogProps {
     handleViewOpenChange: (open: boolean) => void;
     isAssignmentsLoading: boolean;
     isAuditLogsLoading: boolean;
+    isRequirementsLoading: boolean;
     isViewOpen: boolean;
     schoolYearAssignments: SchoolYearDepartmentAssignment[];
     schoolYearAuditLogs: SchoolYearAuditLog[];
+    schoolYearRequirements: RequirementAssignmentResponse | null;
+    documentTypes: DocumentTypeApiRecord[];
+    admissionSchemas: AdmissionSchemaRecord[];
     viewingSchoolYear: SchoolYearRecord | null;
 }
 
@@ -32,9 +39,13 @@ export default function SchoolYearDetailsDialog({
     handleViewOpenChange,
     isAssignmentsLoading,
     isAuditLogsLoading,
+    isRequirementsLoading,
     isViewOpen,
     schoolYearAssignments,
     schoolYearAuditLogs,
+    schoolYearRequirements,
+    documentTypes,
+    admissionSchemas,
     viewingSchoolYear,
 }: SchoolYearDetailsDialogProps) {
     return (
@@ -51,11 +62,6 @@ export default function SchoolYearDetailsDialog({
                             <Badge className={SCHOOL_YEAR_STATUS_BADGE_STYLE[viewingSchoolYear.status]}>
                                 {SCHOOL_YEAR_STATUS_LABEL[viewingSchoolYear.status]}
                             </Badge>
-                            {viewingSchoolYear.is_active ? (
-                                <Badge variant="outline" className="border-emerald-600 text-emerald-700">
-                                    Active
-                                </Badge>
-                            ) : null}
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             <div className="rounded-md border p-3">
@@ -77,20 +83,22 @@ export default function SchoolYearDetailsDialog({
                                 <p className="font-medium text-foreground">{formatSchoolYearDateTime(viewingSchoolYear.updated_at)}</p>
                             </div>
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             <div className="rounded-md border p-3">
                                 <p className="text-xs text-muted-foreground">Readiness</p>
                                 <p className="font-medium text-foreground">{viewingSchoolYear.is_ready ? "Ready" : "Needs setup"}</p>
                             </div>
                             <div className="rounded-md border p-3">
-                                <p className="text-xs text-muted-foreground">Assignments</p>
-                                <p className="font-medium text-foreground">
-                                    {viewingSchoolYear.adviser_assignment_count} / {viewingSchoolYear.active_department_count}
-                                </p>
-                            </div>
-                            <div className="rounded-md border p-3">
                                 <p className="text-xs text-muted-foreground">Requirements</p>
                                 <p className="font-medium text-foreground">{viewingSchoolYear.requirement_count}</p>
+                            </div>
+                            <div className="rounded-md border p-3">
+                                <p className="text-xs text-muted-foreground">Adviser Assignments</p>
+                                <p className="font-medium text-foreground">{viewingSchoolYear.adviser_assignment_count}</p>
+                            </div>
+                            <div className="rounded-md border p-3">
+                                <p className="text-xs text-muted-foreground">Departments</p>
+                                <p className="font-medium text-foreground">{viewingSchoolYear.active_department_count}</p>
                             </div>
                         </div>
                         <div className="space-y-2 rounded-md border p-3">
@@ -112,16 +120,68 @@ export default function SchoolYearDetailsDialog({
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Loading assignments...
                                 </div>
-                            ) : schoolYearAssignments.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">No departments found.</p>
+                            ) : (
+                                (() => {
+                                    const activeAssignments = schoolYearAssignments.filter(
+                                        (a) => a.department_is_active,
+                                    );
+                                    if (activeAssignments.length === 0) {
+                                        return <p className="text-sm text-muted-foreground">No active departments found.</p>;
+                                    }
+                                    return (
+                                        <div className="grid max-h-48 gap-2 overflow-auto sm:grid-cols-2">
+                                            {activeAssignments.map((assignment) => (
+                                                <div key={assignment.department_id} className="rounded-md bg-muted/40 px-3 py-2">
+                                                    <p className="text-sm font-medium text-foreground">{assignment.department_code}</p>
+                                                    <p className="text-xs text-muted-foreground">{assignment.adviser_name ?? "No adviser assigned"}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()
+                            )}
+                        </div>
+                        <div className="space-y-2 rounded-md border p-3">
+                            <p className="text-sm font-medium text-foreground">Document Requirements</p>
+                            {isRequirementsLoading ? (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Loading requirements...
+                                </div>
+                            ) : !schoolYearRequirements || schoolYearRequirements.requirements.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No requirements set for this school year.</p>
                             ) : (
                                 <div className="grid max-h-48 gap-2 overflow-auto sm:grid-cols-2">
-                                    {schoolYearAssignments.map((assignment) => (
-                                        <div key={assignment.department_id} className="rounded-md bg-muted/40 px-3 py-2">
-                                            <p className="text-sm font-medium text-foreground">{assignment.department_code}</p>
-                                            <p className="text-xs text-muted-foreground">{assignment.adviser_name ?? "No adviser assigned"}</p>
-                                        </div>
-                                    ))}
+                                    {schoolYearRequirements.requirements.map((requirement) => {
+                                        const docType = documentTypes.find(
+                                            (item) => item.id === requirement.document_type_id,
+                                        );
+                                        const schema = requirement.admission_form_schema_id
+                                            ? admissionSchemas.find(
+                                                  (item) => item.id === requirement.admission_form_schema_id,
+                                              )
+                                            : null;
+                                        return (
+                                            <div
+                                                key={requirement.document_type_id}
+                                                className="rounded-md bg-muted/40 px-3 py-2"
+                                            >
+                                                <p className="text-sm font-medium text-foreground">
+                                                    {docType?.name ?? requirement.document_type_id}
+                                                </p>
+                                                {schema ? (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Schema: {schema.name}
+                                                        {schema.version_label ? ` (${schema.version_label})` : ""}
+                                                    </p>
+                                                ) : (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {docType?.code ?? "Unknown"}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>

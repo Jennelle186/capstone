@@ -24,6 +24,9 @@ import type {
     SchoolYearRolloverPayload,
     SchoolYearStatus,
 } from "@/types/schoolYear";
+import type { DocumentTypeApiRecord } from "@/types/documentType";
+import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
+import type { RequirementAssignmentResponse } from "@/types/requirement";
 
 // Constants and utility functions related to managing school years in the admin interface, including form state, API interactions, and error handling.
 type StatusFilter = "all" | SchoolYearStatus;
@@ -70,6 +73,10 @@ export function useSchoolYearsPage() {
     const [schoolYearAuditLogs, setSchoolYearAuditLogs] = useState<SchoolYearAuditLog[]>([]);
     const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false);
     const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
+    const [schoolYearRequirements, setSchoolYearRequirements] = useState<RequirementAssignmentResponse | null>(null);
+    const [documentTypes, setDocumentTypes] = useState<DocumentTypeApiRecord[]>([]);
+    const [admissionSchemas, setAdmissionSchemas] = useState<AdmissionSchemaRecord[]>([]);
+    const [isRequirementsLoading, setIsRequirementsLoading] = useState(false);
     const [activationIntent, setActivationIntent] = useState<ActivationIntent>(null);
     const [activationPreview, setActivationPreview] = useState<SchoolYearActivationPreview | null>(null);
     const [isActivationPreviewLoading, setIsActivationPreviewLoading] = useState(false);
@@ -390,6 +397,7 @@ export function useSchoolYearsPage() {
         setIsViewOpen(true);
         setIsAssignmentsLoading(true);
         setIsAuditLogsLoading(true);
+        setIsRequirementsLoading(true);
         void requestWithAdminAuth(`/api/admin/school-years/${schoolYear.id}/assignments`)
             .then((payload) => {
                 setSchoolYearAssignments(payload as SchoolYearDepartmentAssignment[]);
@@ -411,6 +419,25 @@ export function useSchoolYearsPage() {
             .finally(() => {
                 setIsAuditLogsLoading(false);
             });
+        void Promise.all([
+            requestWithAdminAuth(`/api/admin/requirements?school_year_id=${schoolYear.id}`),
+            requestWithAdminAuth("/api/admin/document-types?status=all"),
+            requestWithAdminAuth("/api/admin/admission-form-schemas?status=all"),
+        ])
+            .then(([requirementsPayload, documentTypesPayload, admissionSchemasPayload]) => {
+                setSchoolYearRequirements(requirementsPayload as RequirementAssignmentResponse);
+                setDocumentTypes(documentTypesPayload as DocumentTypeApiRecord[]);
+                setAdmissionSchemas(admissionSchemasPayload as AdmissionSchemaRecord[]);
+            })
+            .catch((error) => {
+                toast.error(error instanceof Error ? error.message : "Failed to load requirements.");
+                setSchoolYearRequirements(null);
+                setDocumentTypes([]);
+                setAdmissionSchemas([]);
+            })
+            .finally(() => {
+                setIsRequirementsLoading(false);
+            });
     }, [requestWithAdminAuth]);
 
     const handleViewOpenChange = useCallback((open: boolean) => {
@@ -421,6 +448,10 @@ export function useSchoolYearsPage() {
             setSchoolYearAuditLogs([]);
             setIsAssignmentsLoading(false);
             setIsAuditLogsLoading(false);
+            setSchoolYearRequirements(null);
+            setDocumentTypes([]);
+            setAdmissionSchemas([]);
+            setIsRequirementsLoading(false);
         }
     }, []);
 
@@ -565,6 +596,10 @@ export function useSchoolYearsPage() {
         schoolYearToReopen,
         schoolYearAuditLogs,
         schoolYearAssignments,
+        schoolYearRequirements,
+        documentTypes,
+        admissionSchemas,
+        isRequirementsLoading,
         schoolYears,
         searchQuery,
         setActivationIntent,

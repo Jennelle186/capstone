@@ -21,6 +21,7 @@ import DepartmentsPage from "./pages/admin/departments/DepartmentsPage";
 import SchoolYearsPage from "./pages/admin/school-years/SchoolYearsPage";
 import DocumentTypesPage from "./pages/admin/document-types/DocumentTypesPage";
 import RequirementsPage from "./pages/admin/requirements/RequirementsPage";
+import AdmissionSchemasPage from "./pages/admin/admission-forms/AdmissionSchemasPage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
 import { RequireStudent, RequireAdviser, RequireAdmin } from "./components/auth/RequireRole";
@@ -93,6 +94,7 @@ const AppRoutes = createBrowserRouter([
                     { path: "advisers", Component: AdvisersPage },
                     { path: "departments", Component: DepartmentsPage },
                     { path: "document-types", Component: DocumentTypesPage },
+                    { path: "admission-forms", Component: AdmissionSchemasPage },
                     { path: "requirements", Component: RequirementsPage },
                     { path: "reports", Component: ReportsPage },
                     { path: "settings/school-year", Component: SchoolYearsPage },

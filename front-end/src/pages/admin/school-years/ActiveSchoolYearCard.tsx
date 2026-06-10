@@ -75,14 +75,16 @@ export default function ActiveSchoolYearCard({
                                 <p>{activeSchoolYear.is_ready ? "Ready" : "Needs setup"}</p>
                             </div>
                             <div>
-                                <p className="font-medium text-foreground">Assignments</p>
-                                <p>
-                                    {activeSchoolYear.adviser_assignment_count} / {activeSchoolYear.active_department_count}
-                                </p>
-                            </div>
-                            <div>
                                 <p className="font-medium text-foreground">Requirements</p>
                                 <p>{activeSchoolYear.requirement_count}</p>
+                            </div>
+                            <div>
+                                <p className="font-medium text-foreground">Adviser Assignments</p>
+                                <p>{activeSchoolYear.adviser_assignment_count}</p>
+                            </div>
+                            <div>
+                                <p className="font-medium text-foreground">Departments</p>
+                                <p>{activeSchoolYear.active_department_count}</p>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2">

@@ -7,18 +7,24 @@ import RequirementChecklist from "@/components/admin/document-management/Require
 import { fadeInUp } from "@/components/admin/motion-variants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
 import type { DocumentTypeItem } from "@/types/documentType";
 import type { SchoolYearRecord } from "@/types/schoolYear";
 
 type RequirementsChecklistCardProps = {
     availableDocumentTypes: DocumentTypeItem[];
     draftSelectedRequirementIds: Set<string>;
+    admissionSchemas: AdmissionSchemaRecord[];
+    selectedAdmissionFormSchemaId: string;
     selectedSchoolYear: SchoolYearRecord | null;
     selectedSchoolYearId: string;
     isSelectedSchoolYearClosed: boolean;
     isRequirementsLoading: boolean;
     isSaving: boolean;
     onRequirementToggle: (documentTypeId: string) => void;
+    onAdmissionFormSchemaChange: (schemaId: string) => void;
     onSelectAllRequirements: () => void;
     onClearRequirements: () => void;
     onResetRequirements: () => void;
@@ -28,12 +34,15 @@ type RequirementsChecklistCardProps = {
 export default function RequirementsChecklistCard({
     availableDocumentTypes,
     draftSelectedRequirementIds,
+    admissionSchemas,
+    selectedAdmissionFormSchemaId,
     selectedSchoolYear,
     selectedSchoolYearId,
     isSelectedSchoolYearClosed,
     isRequirementsLoading,
     isSaving,
     onRequirementToggle,
+    onAdmissionFormSchemaChange,
     onSelectAllRequirements,
     onClearRequirements,
     onResetRequirements,
@@ -42,9 +51,19 @@ export default function RequirementsChecklistCard({
     const selectedAvailableCount = availableDocumentTypes.filter((item) => (
         draftSelectedRequirementIds.has(item.id)
     )).length;
+    const admissionFormDocumentType = availableDocumentTypes.find((item) => item.code === "ADMISSION_FORM") ?? null;
+    const isAdmissionFormSelected =
+        admissionFormDocumentType !== null && draftSelectedRequirementIds.has(admissionFormDocumentType.id);
     const allAvailableSelected =
         availableDocumentTypes.length > 0 && selectedAvailableCount === availableDocumentTypes.length;
     const isEditingDisabled = isSelectedSchoolYearClosed || isRequirementsLoading || isSaving;
+    const formatSchemaOption = (schema: AdmissionSchemaRecord) => {
+        const meta = [
+            schema.version_label,
+            schema.effective_date ? `effective ${schema.effective_date}` : null,
+        ].filter(Boolean).join(" · ");
+        return meta ? `${schema.name} (${meta})` : schema.name;
+    };
 
     return (
         <motion.div variants={fadeInUp}>
@@ -112,6 +131,45 @@ export default function RequirementsChecklistCard({
                                 selectedIds={draftSelectedRequirementIds}
                                 onToggle={onRequirementToggle}
                             />
+                            {isAdmissionFormSelected ? (
+                                <div className="rounded-md border bg-cyan-50/50 p-4">
+                                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-foreground">
+                                                Admission Form Extraction Schema
+                                            </h3>
+                                            <p className="mt-1 text-sm text-muted-foreground">
+                                                Select the schema version LlamaExtract should use for this school year.
+                                            </p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="admission-form-schema">Schema Version</Label>
+                                            <Select
+                                                value={selectedAdmissionFormSchemaId}
+                                                onValueChange={onAdmissionFormSchemaChange}
+                                                disabled={isEditingDisabled}
+                                            >
+                                                <SelectTrigger id="admission-form-schema">
+                                                    <SelectValue placeholder="Select a schema" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {admissionSchemas.map((schema) => (
+                                                        <SelectItem key={schema.id} value={schema.id}>
+                                                            {formatSchemaOption(schema)}
+                                                            {schema.status === "active" ? " [active]" : ""}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {admissionSchemas.length === 0 ? (
+                                                <p className="text-xs text-destructive">
+                                                    Create an admission schema before saving this requirement.
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
                             <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
                                 <Button
                                     variant="outline"
