@@ -11,3 +11,4 @@ tmp*-cwd
 .env.local
 .env.*.local
 front-end/dist/
+report.docx

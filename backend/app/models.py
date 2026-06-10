@@ -39,6 +39,12 @@ class DocumentTypeStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 
+class AdmissionFormSchemaStatus(str, enum.Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -287,11 +293,45 @@ class SchoolYearRequirement(Base):
         nullable=False,
         index=True,
     )
+    admission_form_schema_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("admission_form_schemas.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     school_year = relationship("SchoolYear", back_populates="school_year_requirements")
     document_type = relationship("DocumentType", back_populates="school_year_requirements")
+    admission_form_schema = relationship("AdmissionFormSchema")
+
+
+class AdmissionFormSchema(Base):
+    __tablename__ = "admission_form_schemas"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    name = Column(String(120), nullable=False)
+    version_label = Column(String(80), nullable=True)
+    effective_date = Column(Date, nullable=True)
+    description = Column(Text, nullable=True)
+    schema_json = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    fields_json = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    status = Column(
+        Enum(
+            AdmissionFormSchemaStatus,
+            name="admission_form_schema_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=AdmissionFormSchemaStatus.DRAFT,
+        server_default=AdmissionFormSchemaStatus.DRAFT.value,
+        index=True,
+    )
+    source_file_name = Column(String(255), nullable=True)
+    generation_prompt = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class AdviserInvitation(Base):

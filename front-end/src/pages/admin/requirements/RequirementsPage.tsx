@@ -8,6 +8,7 @@ import PageHeader from "@/components/admin/document-management/PageHeader";
 import { staggerContainer } from "@/components/admin/motion-variants";
 import { parseDocumentManagementApiError, toDocumentTypeItem } from "@/lib/document-management-utils";
 import { fetchWithClerkAuth } from "@/lib/api";
+import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
 import type { DocumentTypeApiRecord, DocumentTypeItem } from "@/types/documentType";
 import type {
     RequirementAssignmentPayload,
@@ -20,11 +21,14 @@ import RequirementsSchoolYearControls from "./RequirementsSchoolYearControls";
 export default function RequirementsPage() {
     const { getToken, isLoaded, isSignedIn } = useAuth();
     const [documentTypes, setDocumentTypes] = useState<DocumentTypeItem[]>([]);
+    const [admissionSchemas, setAdmissionSchemas] = useState<AdmissionSchemaRecord[]>([]);
     const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
     const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>("");
     const [initialSelectedRequirementIds, setInitialSelectedRequirementIds] = useState<Set<string>>(new Set());
     const [draftSelectedRequirementIds, setDraftSelectedRequirementIds] = useState<Set<string>>(new Set());
-const [isPageLoading, setIsPageLoading] = useState(true);
+    const [initialAdmissionFormSchemaId, setInitialAdmissionFormSchemaId] = useState("");
+    const [draftAdmissionFormSchemaId, setDraftAdmissionFormSchemaId] = useState("");
+    const [isPageLoading, setIsPageLoading] = useState(true);
     const [isRequirementsLoading, setIsRequirementsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -52,16 +56,21 @@ const [isPageLoading, setIsPageLoading] = useState(true);
     const loadPageData = useCallback(async () => {
         setIsPageLoading(true);
         try {
-            const [documentTypePayload, schoolYearPayload] = await Promise.all([
+            const [documentTypePayload, schoolYearPayload, admissionSchemaPayload] = await Promise.all([
                 requestWithAdminAuth("/api/admin/document-types?status=active"),
                 requestWithAdminAuth("/api/admin/school-years"),
+                requestWithAdminAuth("/api/admin/admission-form-schemas?status=all"),
             ]);
 
             const nextDocumentTypes = (documentTypePayload as DocumentTypeApiRecord[]).map(toDocumentTypeItem);
             const nextSchoolYears = schoolYearPayload as SchoolYearRecord[];
+            const nextAdmissionSchemas = (admissionSchemaPayload as AdmissionSchemaRecord[]).filter(
+                (schema) => schema.status !== "archived",
+            );
 
             setDocumentTypes(nextDocumentTypes);
             setSchoolYears(nextSchoolYears);
+            setAdmissionSchemas(nextAdmissionSchemas);
 
             const defaultSchoolYearId =
                 nextSchoolYears.find((schoolYear) => schoolYear.is_active)?.id ??
@@ -88,17 +97,26 @@ const [isPageLoading, setIsPageLoading] = useState(true);
                     `/api/admin/requirements?school_year_id=${schoolYearId}`,
                 )) as RequirementAssignmentResponse;
                 const nextSelectedIds = new Set(payload.document_type_ids);
+                const admissionRequirement = payload.requirements.find((requirement) => {
+                    const documentType = documentTypes.find((item) => item.id === requirement.document_type_id);
+                    return documentType?.code === "ADMISSION_FORM";
+                });
+                const nextAdmissionSchemaId = admissionRequirement?.admission_form_schema_id ?? "";
                 setInitialSelectedRequirementIds(nextSelectedIds);
                 setDraftSelectedRequirementIds(new Set(payload.document_type_ids));
+                setInitialAdmissionFormSchemaId(nextAdmissionSchemaId);
+                setDraftAdmissionFormSchemaId(nextAdmissionSchemaId);
             } catch (error) {
                 toast.error(error instanceof Error ? error.message : "Failed to load school year requirements.");
                 setInitialSelectedRequirementIds(new Set());
                 setDraftSelectedRequirementIds(new Set());
+                setInitialAdmissionFormSchemaId("");
+                setDraftAdmissionFormSchemaId("");
             } finally {
                 setIsRequirementsLoading(false);
             }
         },
-        [requestWithAdminAuth],
+        [documentTypes, requestWithAdminAuth],
     );
 
     useEffect(() => {
@@ -114,6 +132,8 @@ const [isPageLoading, setIsPageLoading] = useState(true);
         if (!selectedSchoolYearId) {
             setInitialSelectedRequirementIds(new Set());
             setDraftSelectedRequirementIds(new Set());
+            setInitialAdmissionFormSchemaId("");
+            setDraftAdmissionFormSchemaId("");
             return;
         }
         void loadSchoolYearRequirements(selectedSchoolYearId);
@@ -133,6 +153,10 @@ const [isPageLoading, setIsPageLoading] = useState(true);
         [schoolYears, selectedSchoolYearId],
     );
     const isSelectedSchoolYearClosed = selectedSchoolYear?.status === "closed";
+    const admissionFormDocumentType = useMemo(
+        () => availableDocumentTypes.find((item) => item.code === "ADMISSION_FORM") ?? null,
+        [availableDocumentTypes],
+    );
 
     const handleRequirementToggle = (documentTypeId: string) => {
         if (isSelectedSchoolYearClosed) return;
@@ -141,6 +165,9 @@ const [isPageLoading, setIsPageLoading] = useState(true);
             const next = new Set(prev);
             if (next.has(documentTypeId)) {
                 next.delete(documentTypeId);
+                if (admissionFormDocumentType?.id === documentTypeId) {
+                    setDraftAdmissionFormSchemaId("");
+                }
             } else {
                 next.add(documentTypeId);
             }
@@ -153,12 +180,13 @@ const [isPageLoading, setIsPageLoading] = useState(true);
         setDraftSelectedRequirementIds(new Set(availableDocumentTypes.map((item) => item.id)));
     };
 
-const handleClearRequirements = () => {
+    const handleClearRequirements = () => {
         if (isSelectedSchoolYearClosed) return;
         setDraftSelectedRequirementIds(new Set());
+        setDraftAdmissionFormSchemaId("");
     };
 
-const handleSaveRequirements = async () => {
+    const handleSaveRequirements = async () => {
         if (!selectedSchoolYearId || isSaving) return;
         if (isSelectedSchoolYearClosed) {
             toast.error("Closed school years are read-only. Requirements cannot be changed.");
@@ -168,12 +196,26 @@ const handleSaveRequirements = async () => {
         const nextSelectedIds = availableDocumentTypes
             .map((item) => item.id)
             .filter((id) => draftSelectedRequirementIds.has(id));
+        const isAdmissionFormSelected =
+            admissionFormDocumentType !== null && nextSelectedIds.includes(admissionFormDocumentType.id);
+
+        if (isAdmissionFormSelected && !draftAdmissionFormSchemaId) {
+            toast.error("Select an admission form schema for this school year before saving.");
+            return;
+        }
 
         setIsSaving(true);
         try {
             const payload: RequirementAssignmentPayload = {
                 school_year_id: selectedSchoolYearId,
                 document_type_ids: nextSelectedIds,
+                requirements: nextSelectedIds.map((documentTypeId) => ({
+                    document_type_id: documentTypeId,
+                    admission_form_schema_id:
+                        admissionFormDocumentType?.id === documentTypeId
+                            ? draftAdmissionFormSchemaId
+                            : null,
+                })),
             };
 
             const response = (await requestWithAdminAuth("/api/admin/requirements", {
@@ -182,8 +224,15 @@ const handleSaveRequirements = async () => {
             })) as RequirementAssignmentResponse;
 
             const nextSelectedSet = new Set(response.document_type_ids);
+            const admissionRequirement = response.requirements.find((requirement) => {
+                const documentType = availableDocumentTypes.find((item) => item.id === requirement.document_type_id);
+                return documentType?.code === "ADMISSION_FORM";
+            });
+            const nextAdmissionSchemaId = admissionRequirement?.admission_form_schema_id ?? "";
             setInitialSelectedRequirementIds(nextSelectedSet);
             setDraftSelectedRequirementIds(new Set(response.document_type_ids));
+            setInitialAdmissionFormSchemaId(nextAdmissionSchemaId);
+            setDraftAdmissionFormSchemaId(nextAdmissionSchemaId);
 
             toast.success(`Requirements for ${selectedSchoolYear?.name ?? "selected school year"} saved.`);
         } catch (error) {
@@ -195,6 +244,7 @@ const handleSaveRequirements = async () => {
 
     const handleResetRequirements = () => {
         setDraftSelectedRequirementIds(new Set(initialSelectedRequirementIds));
+        setDraftAdmissionFormSchemaId(initialAdmissionFormSchemaId);
         toast.message(
             `Reset to last saved requirements for ${selectedSchoolYear?.name ?? "selected school year"}.`,
         );
@@ -228,15 +278,18 @@ const handleSaveRequirements = async () => {
                 onSelectedSchoolYearChange={setSelectedSchoolYearId}
             />
 
-<RequirementsChecklistCard
+            <RequirementsChecklistCard
                 availableDocumentTypes={availableDocumentTypes}
                 draftSelectedRequirementIds={draftSelectedRequirementIds}
+                admissionSchemas={admissionSchemas}
+                selectedAdmissionFormSchemaId={draftAdmissionFormSchemaId}
                 selectedSchoolYear={selectedSchoolYear}
                 selectedSchoolYearId={selectedSchoolYearId}
                 isSelectedSchoolYearClosed={isSelectedSchoolYearClosed}
                 isRequirementsLoading={isRequirementsLoading}
                 isSaving={isSaving}
                 onRequirementToggle={handleRequirementToggle}
+                onAdmissionFormSchemaChange={setDraftAdmissionFormSchemaId}
                 onSelectAllRequirements={handleSelectAllRequirements}
                 onClearRequirements={handleClearRequirements}
                 onResetRequirements={handleResetRequirements}

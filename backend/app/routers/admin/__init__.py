@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from .access_control import router as access_control_router
+from .admission_forms import router as admission_forms_router
 from .adviser_invitations import router as adviser_invitation_router
 from .adviser_management import router as adviser_management_router
 from .departments import router as departments_router
@@ -23,5 +24,7 @@ router.include_router(adviser_management_router)
 router.include_router(departments_router)
 # Document types and school-year requirements namespace.
 router.include_router(document_management_router)
+# Admission form extraction schema namespace.
+router.include_router(admission_forms_router)
 # Access control namespace (endpoints to be added incrementally).
 router.include_router(access_control_router)

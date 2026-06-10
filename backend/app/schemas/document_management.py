@@ -146,9 +146,15 @@ class DocumentTypeUpdateRequest(BaseModel):
         return deduped
 
 
+class RequirementAssignmentItem(BaseModel):
+    document_type_id: UUID
+    admission_form_schema_id: UUID | None = None
+
+
 class RequirementAssignmentRequest(BaseModel):
     school_year_id: UUID
     document_type_ids: list[UUID] = Field(default_factory=list)
+    requirements: list[RequirementAssignmentItem] | None = None
 
     @field_validator("document_type_ids")
     @classmethod
@@ -166,3 +172,4 @@ class RequirementAssignmentRequest(BaseModel):
 class RequirementAssignmentResponse(BaseModel):
     school_year_id: UUID
     document_type_ids: list[UUID]
+    requirements: list[RequirementAssignmentItem] = Field(default_factory=list)

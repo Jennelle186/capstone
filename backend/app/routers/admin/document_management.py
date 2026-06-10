@@ -19,7 +19,9 @@ from ...schemas.document_management import (
 )
 from ...services.document_requirements import (
     list_school_year_requirement_ids,
+    list_school_year_requirements,
     replace_school_year_requirement_ids,
+    replace_school_year_requirements,
 )
 
 router = APIRouter()
@@ -142,27 +144,55 @@ async def get_school_year_requirements(
     db: SessionDep = None,
 ):
     del current_user
-    document_type_ids = await list_school_year_requirement_ids(db, school_year_id)
+    requirements = await list_school_year_requirements(db, school_year_id)
+    document_type_ids = [document_type_id for document_type_id, _ in requirements]
 
     return RequirementAssignmentResponse(
         school_year_id=school_year_id,
         document_type_ids=document_type_ids,
+        requirements=[
+            {
+                "document_type_id": document_type_id,
+                "admission_form_schema_id": admission_form_schema_id,
+            }
+            for document_type_id, admission_form_schema_id in requirements
+        ],
     )
 
 
 @router.put("/requirements", response_model=RequirementAssignmentResponse)
-async def replace_school_year_requirements(
+async def save_school_year_requirements(
     payload: RequirementAssignmentRequest,
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
     del current_user
-    document_type_ids = await replace_school_year_requirement_ids(
-        db,
-        payload.school_year_id,
-        payload.document_type_ids,
-    )
+    if payload.requirements is not None:
+        requirements = await replace_school_year_requirements(
+            db,
+            payload.school_year_id,
+            [
+                (requirement.document_type_id, requirement.admission_form_schema_id)
+                for requirement in payload.requirements
+            ],
+        )
+        document_type_ids = [document_type_id for document_type_id, _ in requirements]
+    else:
+        document_type_ids = await replace_school_year_requirement_ids(
+            db,
+            payload.school_year_id,
+            payload.document_type_ids,
+        )
+        requirements = [(document_type_id, None) for document_type_id in document_type_ids]
+
     return RequirementAssignmentResponse(
         school_year_id=payload.school_year_id,
         document_type_ids=document_type_ids,
+        requirements=[
+            {
+                "document_type_id": document_type_id,
+                "admission_form_schema_id": admission_form_schema_id,
+            }
+            for document_type_id, admission_form_schema_id in requirements
+        ],
     )
