@@ -15,6 +15,7 @@ from ..models import (
     AdviserInvitationStatus,
     Program,
     ProgramAdviserAssignment,
+    SchoolYear,
     Student,
     User,
     UserRole,
@@ -103,14 +104,18 @@ def _program_uuid_for_department_code(department_code: str) -> uuid.UUID:
 
 async def _ensure_student_profile(db: AsyncSession, user: User) -> None:
     """
-    Ensure a student profile exists for users with student role.
+    Ensure a student profile exists for users with student role,
+    auto-assigning the active school year if one exists.
     """
     result = await db.execute(select(Student).where(Student.user_id == user.id))
     student = result.scalar_one_or_none()
     if student is not None:
         return
 
-    db.add(Student(user_id=user.id))
+    active_stmt = select(SchoolYear.id).where(SchoolYear.is_active.is_(True)).limit(1)
+    active_school_year_id = (await db.execute(active_stmt)).scalar_one_or_none()
+
+    db.add(Student(user_id=user.id, school_year_id=active_school_year_id))
     try:
         await db.commit()
     except IntegrityError:

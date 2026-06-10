@@ -14,6 +14,7 @@ from ..models import (
     SchoolYear,
     SchoolYearRequirement,
     SchoolYearStatus,
+    Student,
 )
 
 ADMISSION_FORM_DOCUMENT_CODE = "ADMISSION_FORM"
@@ -156,6 +157,45 @@ async def replace_school_year_requirements(
 
     await db.commit()
     return deduped_requirements
+
+
+async def get_required_document_types_for_student(
+    db: SessionDep,
+    student: Student,
+) -> list[DocumentType]:
+    """
+    Returns active document types required for the student's school year
+    filtered by the student's classification.
+    """
+    if student.school_year_id is None:
+        return []
+
+    stmt = (
+        select(DocumentType)
+        .join(
+            SchoolYearRequirement,
+            SchoolYearRequirement.document_type_id == DocumentType.id,
+        )
+        .where(
+            SchoolYearRequirement.school_year_id == student.school_year_id,
+            DocumentType.status == DocumentTypeStatus.ACTIVE,
+        )
+        .order_by(DocumentType.name)
+    )
+    document_types = list((await db.execute(stmt)).scalars().all())
+
+    classification = student.classification
+    if classification is None:
+        return document_types
+
+    filtered: list[DocumentType] = []
+    for dt in document_types:
+        applicable = dt.applicable_classifications or []
+        if not applicable:
+            filtered.append(dt)
+        elif classification.value in applicable:
+            filtered.append(dt)
+    return filtered
 
 
 # This function replaces the document type requirements for a specific school year with a new list of document type IDs, ensuring that the school year is mutable and that all provided document type IDs are valid and active. It first deletes any existing requirements for the school year and then adds new requirements based on the provided list of document type IDs.

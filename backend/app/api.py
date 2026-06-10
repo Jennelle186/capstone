@@ -72,6 +72,8 @@ async def read_me(current_user: CurrentUser, db: SessionDep) -> dict:
         "userId": current_user.get("sub"),
         "sessionId": current_user.get("sid"),
         "email": user.email,
+        "firstName": user.first_name,
+        "lastName": user.last_name,
         "role": getattr(user.role, "value", user.role),
     }
 

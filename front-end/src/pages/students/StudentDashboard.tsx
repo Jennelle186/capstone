@@ -3,136 +3,124 @@ import { useAuth } from "@clerk/clerk-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/student/Dashboard Datatable/dataTable";
 import {
   columns,
   type DataTableDashboard,
 } from "@/components/student/Dashboard Datatable/columns";
-import { motion, type Variants } from "framer-motion";
 import {
-  FileText,
-  CheckCircle2,
-  ShieldCheck,
-  Clock3,
-  Sparkles,
+  GraduationCap,
+  User,
+  BookOpen,
   Bell,
 } from "lucide-react";
 import { Link } from "react-router";
 import { fetchWithClerkAuth } from "@/lib/api";
 
-const stats = [
-  { label: "Documents Uploaded", value: 6, icon: FileText, tone: "blue" },
-  { label: "Pending Documents", value: "0 / 0", icon: Clock3, tone: "amber" },
-  { label: "Verified Documents", value: 6, icon: ShieldCheck, tone: "emerald" },
-  { label: "Ready for Admission", value: 6, icon: CheckCircle2, tone: "green" },
-];
+interface RequiredDocument {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+}
 
-const documents: DataTableDashboard[] = [
-  { id: "doc-1", documentType: "Birth Certificate", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-2", documentType: "Report Card", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-3", documentType: "Admission Form", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-4", documentType: "CET", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-5", documentType: "Medical Certificate", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-6", documentType: "Good Moral Certificate", uploaded: true, status: "verified", sentToAdmin: true },
-];
+interface RequiredDocumentsData {
+  school_year_id: string | null;
+  school_year_name: string | null;
+  classification: string | null;
+  documents: RequiredDocument[];
+}
 
-async function getData(): Promise<DataTableDashboard[]> {
-  return documents;
+interface MeResponse {
+  userId: string;
+  firstName: string | null;
+  lastName: string | null;
 }
 
 export default function StudentDashboard() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
   const [data, setData] = React.useState<DataTableDashboard[]>([]);
-  const [userId, setUserId] = React.useState<string | null>(null);
-  const pendingStat = stats.find((stat) => stat.label === "Pending Documents");
-  const isAllCaughtUp = pendingStat?.value === "0 / 0";
-
-  const cardContainer: Variants = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.08, delayChildren: 0.05 },
-    },
-  };
-  const cardItem: Variants = {
-    hidden: { opacity: 0, y: 20 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: { type: "spring" as const, stiffness: 100, damping: 15 },
-    },
-  };
+  const [firstName, setFirstName] = React.useState<string | null>(null);
+  const [lastName, setLastName] = React.useState<string | null>(null);
+  const [schoolYear, setSchoolYear] = React.useState<string | null>(null);
+  const [classification, setClassification] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    let isMounted = true;
-    getData().then((result) => {
-      if (isMounted) {
-        setData(result);
-        setIsLoading(false);
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    //React gets Clerk token and backend verifies it.
     if (!isLoaded || !isSignedIn) return;
 
     let isMounted = true;
-    const loadProfile = async () => {
+    const loadDashboard = async () => {
       try {
         const token = await getToken();
-        if (!token) {
-          throw new Error("Missing Clerk session token before /api/me request.");
-        }
+        if (!token) return;
 
-        const response = await fetchWithClerkAuth("/api/me", token);
-        if (!response.ok) {
-          let message = `Failed to load authenticated profile. (${response.status})`;
-          try {
-            const errorPayload = (await response.json()) as { detail?: string };
-            if (errorPayload?.detail) {
-              message = `${message} ${errorPayload.detail}`;
-            }
-          } catch {
-            // Ignore JSON parse failures and keep the status-based message.
-          }
-          throw new Error(message);
-        }
+        const [meRes, reqRes] = await Promise.all([
+          fetchWithClerkAuth("/api/me", token),
+          fetchWithClerkAuth("/api/me/required-documents", token),
+        ]);
 
-        const payload = (await response.json()) as { userId?: string };
-        if (isMounted) {
-          setUserId(payload.userId ?? null);
-        }
-      } catch (error) {
-        console.error("Failed to fetch protected profile:", error);
+        if (!meRes.ok || !reqRes.ok) return;
+
+        const me = (await meRes.json()) as MeResponse;
+        const req = (await reqRes.json()) as RequiredDocumentsData;
+
+        if (!isMounted) return;
+
+        setFirstName(me.firstName);
+        setLastName(me.lastName);
+        setSchoolYear(req.school_year_name);
+        setClassification(req.classification);
+        setData(
+          req.documents.map((doc) => ({
+            id: doc.id,
+            documentType: doc.name,
+            description: doc.description,
+            status: "uploaded",
+          }))
+        );
+        setIsLoading(false);
+      } catch {
+        if (isMounted) setIsLoading(false);
       }
     };
 
-    void loadProfile();
-
-    return () => {
-      isMounted = false;
-    };
+    void loadDashboard();
+    return () => { isMounted = false; };
   }, [getToken, isLoaded, isSignedIn]);
 
   return (
     <main className="flex flex-1 flex-col gap-6 p-6 md:p-8 bg-slate-50 min-h-screen">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Student Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
-              Track your enrollment documents and verification status.
-            </p>
-            {userId && (
-              <p className="text-xs text-slate-500">
-                Authenticated via Clerk backend token verification: {userId}
-              </p>
+        <div>
+          <div className="flex flex-col">
+            {/* The "Welcome" part */}
+            <span className="text-muted-foreground text-lg font-medium">
+              Welcome,
+            </span>
+
+            {/* The Name part */}
+            <h1 className="text-4xl font-bold tracking-tight text-foreground">
+              {firstName ? `${firstName} ${lastName ?? ""}` : "Student Dashboard"}
+            </h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 mt-1">
+            {schoolYear && (
+              <Badge variant="outline" className="gap-1 text-xs">
+                <GraduationCap className="h-3 w-3" />
+                S.Y. {schoolYear}
+              </Badge>
             )}
+            {classification && (
+              <Badge variant="secondary" className="gap-1 text-xs capitalize">
+                <User className="h-3 w-3" />
+                {classification} Student
+              </Badge>
+            )}
+            <span className="text-sm text-muted-foreground">
+              Track your enrollment documents and verification status.
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -149,87 +137,15 @@ export default function StudentDashboard() {
         </div>
       </div>
 
-      <motion.div
-        className="grid gap-4 md:grid-cols-4"
-        variants={cardContainer}
-        initial="hidden"
-        animate="show"
-      >
-        {isLoading
-          ? Array.from({ length: 4 }).map((_, index) => (
-            <Card
-              key={`stat-skeleton-${index}`}
-              className="h-full rounded-2xl border border-slate-200 shadow-sm transition-all"
-            >
-              <CardContent className="flex h-full flex-col justify-between p-6">
-                <div className="flex items-start justify-between">
-                  <Skeleton className="h-4 w-28" />
-                  <Skeleton className="h-10 w-10 rounded-full" />
-                </div>
-                <Skeleton className="h-9 w-20" />
-              </CardContent>
-            </Card>
-          ))
-          : stats.map(({ label, value, icon: Icon, tone }) => {
-            const isGolden = label === "Ready for Admission";
-            const isPending = label === "Pending Documents";
-            const displayValue = isPending && isAllCaughtUp ? "0" : value;
-            const toneStyles =
-              tone === "blue"
-                ? "bg-blue-100 text-blue-600"
-                : tone === "amber"
-                  ? "bg-amber-100 text-amber-600"
-                  : tone === "emerald"
-                    ? "bg-emerald-100 text-emerald-600"
-                    : "bg-green-100 text-green-600";
-            const cardStyles = isGolden
-              ? "border-l-4 border-green-500 bg-green-50 text-green-900"
-              : "border-slate-200 bg-white text-slate-900";
-            return (
-              <motion.div
-                key={label}
-                variants={cardItem}
-                whileHover={{
-                  y: -5,
-                  transition: { duration: 0.2 },
-                  boxShadow: "0 12px 30px rgba(59, 130, 246, 0.15)",
-                }}
-              >
-                <Card
-                  className={`h-full rounded-2xl border shadow-sm transition-all hover:shadow-md ${cardStyles}`}
-                >
-                  <CardContent className="flex h-full flex-col justify-between p-6">
-                    <div className="flex items-start justify-between">
-                      <CardTitle className={isGolden ? "text-sm text-green-800" : "text-sm text-slate-500"}>
-                        {label}
-                      </CardTitle>
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-full ${toneStyles}`}>
-                        <Icon className="h-5 w-5" />
-                      </div>
-                    </div>
-                    <div className="text-4xl font-bold">{displayValue}</div>
-                    {isPending && isAllCaughtUp && (
-                      <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Sparkles className="h-3 w-3" />
-                        All caught up!
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-      </motion.div>
-
       <Card className="rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base font-semibold">My Documents</CardTitle>
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-slate-500" />
+            <CardTitle className="text-base font-semibold">My Documents</CardTitle>
+          </div>
           <Link to="/student/upload">
-            <Button>
-              Upload
-            </Button>
+            <Button>Upload</Button>
           </Link>
-
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
@@ -238,29 +154,21 @@ export default function StudentDashboard() {
                 <thead>
                   <tr className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-600">
                     <th className="px-6 py-4 text-left">Document Type</th>
-                    <th className="px-6 py-4 text-left">Uploaded?</th>
                     <th className="px-6 py-4 text-left">Status</th>
-                    <th className="px-6 py-4 text-left">Sent to Admin</th>
                     <th className="px-6 py-4 text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {Array.from({ length: 6 }).map((_, index) => (
+                  {Array.from({ length: 4 }).map((_, index) => (
                     <tr key={`row-skeleton-${index}`}>
                       <td className="px-6 py-4">
                         <Skeleton className="h-4 w-44" />
                       </td>
                       <td className="px-6 py-4">
-                        <Skeleton className="h-4 w-10" />
+                        <Skeleton className="h-6 w-24 rounded-full" />
                       </td>
                       <td className="px-6 py-4">
-                        <Skeleton className="h-6 w-20 rounded-full" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-4 w-10" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-8 w-20 rounded-full" />
+                        <Skeleton className="h-8 w-16 rounded-full" />
                       </td>
                     </tr>
                   ))}

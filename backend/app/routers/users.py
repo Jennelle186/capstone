@@ -9,10 +9,11 @@ from sqlalchemy import desc, select
 from typing_extensions import Annotated
 
 from ..database import SessionDep
-from ..models import Adviser, ProgramAdviserAssignment, SchoolYear, Student, User, UserRole
+from ..models import Adviser, DocumentType, ProgramAdviserAssignment, SchoolYear, SchoolYearRequirement, Student, User, UserRole
 from ..rbac import require_roles, require_student
 from ..routers.admin.program_assignment import get_program_id_to_department_code_map
 from ..services.clerk import update_user_personal_names, update_user_public_metadata
+from ..services.document_requirements import get_required_document_types_for_student
 from ..services.user_sync import ensure_user_row
 
 router = APIRouter()
@@ -223,3 +224,50 @@ async def update_adviser_profile(
 
     department, school_year = await _get_active_assignment_for_adviser(db, adviser.id)
     return _build_adviser_profile_response(user, department=department, school_year=school_year)
+
+
+class RequiredDocumentResponse(BaseModel):
+    id: str
+    name: str
+    code: str
+    description: str
+
+
+class RequiredDocumentsResponse(BaseModel):
+    school_year_id: str | None
+    school_year_name: str | None
+    classification: str | None
+    documents: list[RequiredDocumentResponse]
+
+
+@router.get("/api/me/required-documents", response_model=RequiredDocumentsResponse, tags=["users"])
+async def get_required_documents(current_user: dict = Depends(require_student), db: SessionDep = None) -> RequiredDocumentsResponse:
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+
+    if student is None or student.school_year_id is None:
+        return RequiredDocumentsResponse(
+            school_year_id=None,
+            school_year_name=None,
+            classification=student.classification.value if student and student.classification else None,
+            documents=[],
+        )
+
+    school_year = await db.get(SchoolYear, student.school_year_id)
+    document_types = await get_required_document_types_for_student(db, student)
+
+    return RequiredDocumentsResponse(
+        school_year_id=str(student.school_year_id),
+        school_year_name=school_year.name if school_year else None,
+        classification=student.classification.value if student.classification else None,
+        documents=[
+            RequiredDocumentResponse(
+                id=str(dt.id),
+                name=dt.name,
+                code=dt.code,
+                description=dt.description,
+            )
+            for dt in document_types
+        ],
+    )

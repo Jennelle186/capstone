@@ -88,11 +88,22 @@ class Student(Base):
         unique=True
     )
 
+    school_year_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("school_years.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # These can be null at first sign-up; you can fill them later during onboarding.
     student_number = Column(String, unique=True, nullable=True)
     program = Column(String, nullable=True)
     classification = Column(
-        Enum(StudentClassification, name="student_classification"),
+        Enum(
+            StudentClassification,
+            name="student_classification",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=True,
         default=StudentClassification.REGULAR,
     )
@@ -101,6 +112,7 @@ class Student(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     user = relationship("User", back_populates="student")
+    school_year = relationship("SchoolYear", foreign_keys=[school_year_id])
 
 
 class Adviser(Base):

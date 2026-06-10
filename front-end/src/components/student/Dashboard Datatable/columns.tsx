@@ -4,15 +4,25 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ArrowUpDown, Eye } from "lucide-react"
 
-
-// This type is used to define the shape of our data.
-// You can use a Zod schema here if you want.
 export type DataTableDashboard = {
     id: string
     documentType: string
-    uploaded: boolean
-    status: "pending" | "verified" | "rejected"
-    sentToAdmin: boolean
+    description: string
+    status: string
+}
+
+const statusStyles: Record<string, string> = {
+    uploaded: "bg-blue-100 text-blue-700",
+    verified: "bg-green-100 text-green-700",
+    accepted: "bg-emerald-100 text-emerald-700",
+    rejected: "bg-rose-100 text-rose-700",
+}
+
+const statusDisplay: Record<string, string> = {
+    uploaded: "Uploaded",
+    verified: "Verified by Adviser",
+    accepted: "Accepted",
+    rejected: "Rejected",
 }
 
 export const columns: ColumnDef<DataTableDashboard>[] = [
@@ -29,21 +39,18 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
                 <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
             </Button>
         ),
-    },
-    {
-        accessorKey: "uploaded",
-        header: ({ column }) => (
-            <Button
-                variant="ghost"
-                size="sm"
-                className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
-                onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            >
-                Uploaded?
-                <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
-            </Button>
-        ),
-        cell: ({ row }) => (row.getValue("uploaded") ? "Yes" : "No"),
+        cell: ({ row }) => {
+            const name = row.getValue("documentType") as string
+            const description = (row.original as DataTableDashboard).description
+            return (
+                <div>
+                    <p className="text-sm font-medium text-slate-900">{name}</p>
+                    {description && (
+                        <p className="text-xs text-slate-500 leading-tight mt-0.5">{description}</p>
+                    )}
+                </div>
+            )
+        },
     },
     {
         accessorKey: "status",
@@ -59,35 +66,16 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
             </Button>
         ),
         cell: ({ row }) => {
-            const status = row.getValue("status") as string
-            const statusStyles =
-                status === "verified"
-                    ? "bg-green-100 text-green-700"
-                    : status === "pending"
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-rose-100 text-rose-700"
+            const status = (row.getValue("status") as string) || "pending"
+            const style = statusStyles[status] || "bg-slate-100 text-slate-700"
+            const label = statusDisplay[status] || status
             return (
-                <Badge variant="secondary" className={`gap-2 rounded-full border-0 px-3 py-1 ${statusStyles}`}>
-                    {status === "verified" && <span className="h-1.5 w-1.5 rounded-full bg-green-600" />}
-                    {status}
+                <Badge variant="secondary" className={`gap-2 rounded-full border-0 px-3 py-1 ${style}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${status === "accepted" || status === "verified" ? "bg-green-600" : status === "rejected" ? "bg-rose-600" : "bg-slate-400"}`} />
+                    {label}
                 </Badge>
             )
         },
-    },
-    {
-        accessorKey: "sentToAdmin",
-        header: ({ column }) => (
-            <Button
-                variant="ghost"
-                size="sm"
-                className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
-                onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            >
-                Sent to Admin
-                <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
-            </Button>
-        ),
-        cell: ({ row }) => (row.getValue("sentToAdmin") ? "Yes" : "No"),
     },
     {
         id: "actions",
