@@ -1,13 +1,39 @@
+### Python ###
+**/__pycache__/
+*.pyc
+*.egg-info/
 backend/.venv/
-backend/__pycache__/
+backend/venv/
 backend/*.pyc
 backend/.pytest_cache/
 backend/pytest-cache-files-*/
-**/__pycache__/
-*.pyc
-tmp*-cwd
+backend/.ruff_cache/
+backend/.mypy_cache/
+instance/
+
+### Node / Vite ###
+node_modules/
 .vite/
+front-end/dist/
+
+### Environment ###
 .env
 .env.local
 .env.*.local
-front-end/dist/
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Coverage / Reports ###
+htmlcov/
+.coverage
+coverage.xml
+*.db
+*.sqlite3
+
+### Temp ###
+tmp*-cwd
+
+### Generated docs ###
+report.docx
