@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException, UploadFile, status
 
-from ..schemas.admission_forms import AdmissionSchemaField
+from ..schemas.extraction_schemas import ExtractionSchemaField
 
 LLAMA_CLOUD_BASE_URL = "https://api.cloud.llamaindex.ai"
 
@@ -128,14 +128,14 @@ def schema_to_editable_fields(
     data_schema: dict[str, Any],
     parent_key: str = "",
     parent_required: set[str] | None = None,
-) -> list[AdmissionSchemaField]:
+) -> list[ExtractionSchemaField]:
     properties = data_schema.get("properties")
     if not isinstance(properties, dict):
         return []
 
     required_values = data_schema.get("required")
     required = set(required_values if isinstance(required_values, list) else [])
-    fields: list[AdmissionSchemaField] = []
+    fields: list[ExtractionSchemaField] = []
 
     for index, (key, value) in enumerate(properties.items()):
         if not isinstance(key, str) or not isinstance(value, dict):
@@ -152,7 +152,7 @@ def schema_to_editable_fields(
 
         description = value.get("description")
         fields.append(
-            AdmissionSchemaField(
+            ExtractionSchemaField(
                 id=f"generated-{index}-{field_key}",
                 key=field_key,
                 type=schema_type,

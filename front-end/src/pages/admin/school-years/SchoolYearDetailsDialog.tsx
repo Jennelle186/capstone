@@ -16,7 +16,7 @@ import {
     SCHOOL_YEAR_STATUS_BADGE_STYLE,
     SCHOOL_YEAR_STATUS_LABEL,
 } from "@/lib/school-year-utils";
-import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
+import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
 import type { RequirementAssignmentResponse } from "@/types/requirement";
 import type { SchoolYearAuditLog, SchoolYearDepartmentAssignment, SchoolYearRecord } from "@/types/schoolYear";
@@ -31,7 +31,7 @@ interface SchoolYearDetailsDialogProps {
     schoolYearAuditLogs: SchoolYearAuditLog[];
     schoolYearRequirements: RequirementAssignmentResponse | null;
     documentTypes: DocumentTypeApiRecord[];
-    admissionSchemas: AdmissionSchemaRecord[];
+    extractionSchemas: ExtractionSchemaRecord[];
     viewingSchoolYear: SchoolYearRecord | null;
 }
 
@@ -45,7 +45,7 @@ export default function SchoolYearDetailsDialog({
     schoolYearAuditLogs,
     schoolYearRequirements,
     documentTypes,
-    admissionSchemas,
+    extractionSchemas,
     viewingSchoolYear,
 }: SchoolYearDetailsDialogProps) {
     return (
@@ -156,9 +156,9 @@ export default function SchoolYearDetailsDialog({
                                         const docType = documentTypes.find(
                                             (item) => item.id === requirement.document_type_id,
                                         );
-                                        const schema = requirement.admission_form_schema_id
-                                            ? admissionSchemas.find(
-                                                  (item) => item.id === requirement.admission_form_schema_id,
+                                        const schema = requirement.extraction_schema_id
+                                            ? extractionSchemas.find(
+                                                  (item) => item.id === requirement.extraction_schema_id,
                                               )
                                             : null;
                                         return (

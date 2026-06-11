@@ -6,13 +6,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ..models import AdmissionFormSchemaStatus
+from ..models import ExtractionSchemaStatus
 
 
 SchemaFieldType = Literal["string", "number", "integer", "boolean"]
 
 
-class AdmissionSchemaField(BaseModel):
+class ExtractionSchemaField(BaseModel):
     id: str = Field(min_length=1)
     key: str = Field(min_length=1, max_length=120)
     type: SchemaFieldType = "string"
@@ -32,7 +32,7 @@ class AdmissionSchemaField(BaseModel):
     def trim_description(cls, value: str) -> str:
         return value.strip()
 
-class AdmissionFormSchemaBase(BaseModel):
+class ExtractionSchemaBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str = Field(min_length=1, max_length=120)
@@ -40,8 +40,9 @@ class AdmissionFormSchemaBase(BaseModel):
     effective_date: date | None = None
     description: str | None = None
     extraction_schema: dict[str, Any] = Field(default_factory=dict, alias="schema_json")
-    fields_json: list[AdmissionSchemaField] = Field(default_factory=list)
-    status: AdmissionFormSchemaStatus = AdmissionFormSchemaStatus.DRAFT
+    fields_json: list[ExtractionSchemaField] = Field(default_factory=list)
+    document_type_id: UUID | None = None
+    status: ExtractionSchemaStatus = ExtractionSchemaStatus.DRAFT
     source_file_name: str | None = Field(default=None, max_length=255)
     generation_prompt: str | None = None
 
@@ -62,7 +63,7 @@ class AdmissionFormSchemaBase(BaseModel):
         return normalized or None
 
     @model_validator(mode="after")
-    def ensure_schema_json(self) -> "AdmissionFormSchemaBase":
+    def ensure_schema_json(self) -> "ExtractionSchemaBase":
         if self.extraction_schema:
             return self
 
@@ -85,11 +86,11 @@ class AdmissionFormSchemaBase(BaseModel):
         return self
 
 
-class AdmissionFormSchemaCreateRequest(AdmissionFormSchemaBase):
+class ExtractionSchemaCreateRequest(ExtractionSchemaBase):
     pass
 
 
-class AdmissionFormSchemaUpdateRequest(BaseModel):
+class ExtractionSchemaUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
@@ -97,8 +98,9 @@ class AdmissionFormSchemaUpdateRequest(BaseModel):
     effective_date: date | None = None
     description: str | None = None
     extraction_schema: dict[str, Any] | None = Field(default=None, alias="schema_json")
-    fields_json: list[AdmissionSchemaField] | None = None
-    status: AdmissionFormSchemaStatus | None = None
+    fields_json: list[ExtractionSchemaField] | None = None
+    document_type_id: UUID | None = None
+    status: ExtractionSchemaStatus | None = None
     source_file_name: str | None = Field(default=None, max_length=255)
     generation_prompt: str | None = None
 
@@ -121,7 +123,7 @@ class AdmissionFormSchemaUpdateRequest(BaseModel):
         return normalized or None
 
 
-class AdmissionFormSchemaResponse(BaseModel):
+class ExtractionSchemaResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: UUID
@@ -130,18 +132,19 @@ class AdmissionFormSchemaResponse(BaseModel):
     effective_date: date | None
     description: str | None
     extraction_schema: dict[str, Any] = Field(alias="schema_json")
-    fields_json: list[AdmissionSchemaField]
-    status: AdmissionFormSchemaStatus
+    fields_json: list[ExtractionSchemaField]
+    document_type_id: UUID | None
+    status: ExtractionSchemaStatus
     source_file_name: str | None
     generation_prompt: str | None
     created_at: datetime
     updated_at: datetime
 
 
-class AdmissionFormSchemaGenerateResponse(BaseModel):
+class ExtractionSchemaGenerateResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     extraction_schema: dict[str, Any] = Field(alias="schema_json")
-    fields_json: list[AdmissionSchemaField]
+    fields_json: list[ExtractionSchemaField]
     file_id: str
     source_file_name: str | None = None

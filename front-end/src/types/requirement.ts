@@ -1,6 +1,6 @@
 export interface RequirementAssignmentItem {
     document_type_id: string;
-    admission_form_schema_id: string | null;
+    extraction_schema_id: string | null;
 }
 
 export interface RequirementAssignmentPayload {

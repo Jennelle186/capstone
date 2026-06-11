@@ -25,7 +25,7 @@ import type {
     SchoolYearStatus,
 } from "@/types/schoolYear";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
-import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
+import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
 import type { RequirementAssignmentResponse } from "@/types/requirement";
 
 // Constants and utility functions related to managing school years in the admin interface, including form state, API interactions, and error handling.
@@ -75,7 +75,7 @@ export function useSchoolYearsPage() {
     const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
     const [schoolYearRequirements, setSchoolYearRequirements] = useState<RequirementAssignmentResponse | null>(null);
     const [documentTypes, setDocumentTypes] = useState<DocumentTypeApiRecord[]>([]);
-    const [admissionSchemas, setAdmissionSchemas] = useState<AdmissionSchemaRecord[]>([]);
+    const [extractionSchemas, setExtractionSchemas] = useState<ExtractionSchemaRecord[]>([]);
     const [isRequirementsLoading, setIsRequirementsLoading] = useState(false);
     const [activationIntent, setActivationIntent] = useState<ActivationIntent>(null);
     const [activationPreview, setActivationPreview] = useState<SchoolYearActivationPreview | null>(null);
@@ -422,18 +422,18 @@ export function useSchoolYearsPage() {
         void Promise.all([
             requestWithAdminAuth(`/api/admin/requirements?school_year_id=${schoolYear.id}`),
             requestWithAdminAuth("/api/admin/document-types?status=all"),
-            requestWithAdminAuth("/api/admin/admission-form-schemas?status=all"),
+            requestWithAdminAuth("/api/admin/extraction-schemas?status=all"),
         ])
-            .then(([requirementsPayload, documentTypesPayload, admissionSchemasPayload]) => {
+            .then(([requirementsPayload, documentTypesPayload, extractionSchemasPayload]) => {
                 setSchoolYearRequirements(requirementsPayload as RequirementAssignmentResponse);
                 setDocumentTypes(documentTypesPayload as DocumentTypeApiRecord[]);
-                setAdmissionSchemas(admissionSchemasPayload as AdmissionSchemaRecord[]);
+                setExtractionSchemas(extractionSchemasPayload as ExtractionSchemaRecord[]);
             })
             .catch((error) => {
                 toast.error(error instanceof Error ? error.message : "Failed to load requirements.");
                 setSchoolYearRequirements(null);
                 setDocumentTypes([]);
-                setAdmissionSchemas([]);
+                setExtractionSchemas([]);
             })
             .finally(() => {
                 setIsRequirementsLoading(false);
@@ -450,7 +450,7 @@ export function useSchoolYearsPage() {
             setIsAuditLogsLoading(false);
             setSchoolYearRequirements(null);
             setDocumentTypes([]);
-            setAdmissionSchemas([]);
+            setExtractionSchemas([]);
             setIsRequirementsLoading(false);
         }
     }, []);
@@ -598,7 +598,7 @@ export function useSchoolYearsPage() {
         schoolYearAssignments,
         schoolYearRequirements,
         documentTypes,
-        admissionSchemas,
+        extractionSchemas,
         isRequirementsLoading,
         schoolYears,
         searchQuery,

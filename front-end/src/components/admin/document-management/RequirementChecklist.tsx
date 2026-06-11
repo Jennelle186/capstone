@@ -7,7 +7,7 @@ import {
     FileSearch2,
     GraduationCap,
 } from "lucide-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +19,7 @@ interface RequirementChecklistProps {
     items: DocumentTypeItem[];
     selectedIds: Set<string>;
     onToggle: (documentTypeId: string) => void;
+    renderRowSuffix?: (item: DocumentTypeItem) => ReactNode;
 }
 
 const CODE_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
@@ -44,6 +45,7 @@ export default function RequirementChecklist({
     items,
     selectedIds,
     onToggle,
+    renderRowSuffix,
 }: RequirementChecklistProps) {
     return (
         <div className="grid gap-3 md:grid-cols-2">
@@ -91,6 +93,7 @@ export default function RequirementChecklist({
                                                 ))}
                                             </div>
                                         )}
+                                        {renderRowSuffix?.(item)}
                                     </div>
                                 </div>
                                 <div className="pt-0.5">

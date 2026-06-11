@@ -15,9 +15,11 @@ from ...schemas.document_management import (
     DocumentTypeUpdateRequest,
     RequirementAssignmentRequest,
     RequirementAssignmentResponse,
+    SchemaRegistryResponse,
     StudentClassificationSchema,
 )
 from ...services.document_requirements import (
+    get_schema_registry,
     list_school_year_requirement_ids,
     list_school_year_requirements,
     replace_school_year_requirement_ids,
@@ -153,9 +155,9 @@ async def get_school_year_requirements(
         requirements=[
             {
                 "document_type_id": document_type_id,
-                "admission_form_schema_id": admission_form_schema_id,
+                "extraction_schema_id": extraction_schema_id,
             }
-            for document_type_id, admission_form_schema_id in requirements
+            for document_type_id, extraction_schema_id in requirements
         ],
     )
 
@@ -172,7 +174,7 @@ async def save_school_year_requirements(
             db,
             payload.school_year_id,
             [
-                (requirement.document_type_id, requirement.admission_form_schema_id)
+                (requirement.document_type_id, requirement.extraction_schema_id)
                 for requirement in payload.requirements
             ],
         )
@@ -191,8 +193,17 @@ async def save_school_year_requirements(
         requirements=[
             {
                 "document_type_id": document_type_id,
-                "admission_form_schema_id": admission_form_schema_id,
+                "extraction_schema_id": extraction_schema_id,
             }
-            for document_type_id, admission_form_schema_id in requirements
+            for document_type_id, extraction_schema_id in requirements
         ],
     )
+
+
+@router.get("/schema-registry", response_model=SchemaRegistryResponse)
+async def get_schema_registry_endpoint(
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    del current_user
+    return await get_schema_registry(db)

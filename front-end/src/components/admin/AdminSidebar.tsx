@@ -43,7 +43,15 @@ export function AdminSidebar() {
                     { title: "Advisers", icon: Users, url: "/admin/advisers" },
                     { title: "Departments", icon: Building2, url: "/admin/departments" },
                     { title: "Document Types", icon: FileText, url: "/admin/document-types" },
-                    { title: "Admission Schemas", icon: FileJson, url: "/admin/admission-forms" },
+                    {
+                        title: "Schema Builder",
+                        icon: FileJson,
+                        url: "/admin/extraction-schemas",
+                        children: [
+                            { title: "Builder", url: "/admin/extraction-schemas" },
+                            { title: "Registry", url: "/admin/extraction-schemas/registry" },
+                        ],
+                    },
                     { title: "Requirements", icon: ClipboardCheck, url: "/admin/requirements" },
                     { title: "Reports", icon: BarChart3, url: "/admin/reports" },
                 ],

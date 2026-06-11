@@ -7,13 +7,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import desc, select
 
 from ...database import SessionDep
-from ...models import AdmissionFormSchema, AdmissionFormSchemaStatus
+from ...models import ExtractionSchema, ExtractionSchemaStatus
 from ...rbac import require_admin
-from ...schemas.admission_forms import (
-    AdmissionFormSchemaCreateRequest,
-    AdmissionFormSchemaGenerateResponse,
-    AdmissionFormSchemaResponse,
-    AdmissionFormSchemaUpdateRequest,
+from ...schemas.extraction_schemas import (
+    ExtractionSchemaCreateRequest,
+    ExtractionSchemaGenerateResponse,
+    ExtractionSchemaResponse,
+    ExtractionSchemaUpdateRequest,
 )
 from ...services.llama_extract import (
     extract_data_schema,
@@ -25,8 +25,8 @@ from ...services.llama_extract import (
 router = APIRouter()
 
 
-def serialize_admission_form_schema(schema: AdmissionFormSchema) -> AdmissionFormSchemaResponse:
-    return AdmissionFormSchemaResponse(
+def serialize_extraction_schema(schema: ExtractionSchema) -> ExtractionSchemaResponse:
+    return ExtractionSchemaResponse(
         id=schema.id,
         name=schema.name,
         version_label=schema.version_label,
@@ -34,6 +34,7 @@ def serialize_admission_form_schema(schema: AdmissionFormSchema) -> AdmissionFor
         description=schema.description,
         extraction_schema=schema.schema_json or {},
         fields_json=schema.fields_json or [],
+        document_type_id=schema.document_type_id,
         status=schema.status,
         source_file_name=schema.source_file_name,
         generation_prompt=schema.generation_prompt,
@@ -42,52 +43,61 @@ def serialize_admission_form_schema(schema: AdmissionFormSchema) -> AdmissionFor
     )
 
 
-async def deactivate_other_schemas(db: SessionDep, active_schema_id: UUID | None = None) -> None:
-    stmt = select(AdmissionFormSchema).where(AdmissionFormSchema.status == AdmissionFormSchemaStatus.ACTIVE)
-    if active_schema_id is not None:
-        stmt = stmt.where(AdmissionFormSchema.id != active_schema_id)
-
-    active_schemas = (await db.execute(stmt)).scalars().all()
-    for schema in active_schemas:
-        schema.status = AdmissionFormSchemaStatus.DRAFT
-
-
-@router.get("/admission-form-schemas", response_model=list[AdmissionFormSchemaResponse])
-async def list_admission_form_schemas(
+@router.get("/extraction-schemas", response_model=list[ExtractionSchemaResponse])
+async def list_extraction_schemas(
     status_filter: Literal["draft", "active", "archived", "all"] = Query(default="all", alias="status"),
+    document_type_id: UUID | None = Query(default=None),
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
     del current_user
 
-    stmt = select(AdmissionFormSchema)
+    stmt = select(ExtractionSchema)
     if status_filter != "all":
-        stmt = stmt.where(AdmissionFormSchema.status == AdmissionFormSchemaStatus(status_filter))
+        stmt = stmt.where(ExtractionSchema.status == ExtractionSchemaStatus(status_filter))
+    if document_type_id is not None:
+        stmt = stmt.where(ExtractionSchema.document_type_id == document_type_id)
 
-    stmt = stmt.order_by(desc(AdmissionFormSchema.updated_at), desc(AdmissionFormSchema.created_at))
+    stmt = stmt.order_by(desc(ExtractionSchema.updated_at), desc(ExtractionSchema.created_at))
     schemas = (await db.execute(stmt)).scalars().all()
-    return [serialize_admission_form_schema(schema) for schema in schemas]
+    return [serialize_extraction_schema(schema) for schema in schemas]
+
+
+@router.get("/extraction-schemas/{schema_id}", response_model=ExtractionSchemaResponse)
+async def get_extraction_schema(
+    schema_id: UUID,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    del current_user
+
+    schema = await db.get(ExtractionSchema, schema_id)
+    if schema is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
+
+    return serialize_extraction_schema(schema)
 
 
 @router.post(
-    "/admission-form-schemas",
-    response_model=AdmissionFormSchemaResponse,
+    "/extraction-schemas",
+    response_model=ExtractionSchemaResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_admission_form_schema(
-    payload: AdmissionFormSchemaCreateRequest,
+async def create_extraction_schema(
+    payload: ExtractionSchemaCreateRequest,
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
     del current_user
 
-    schema = AdmissionFormSchema(
+    schema = ExtractionSchema(
         name=payload.name,
         version_label=payload.version_label,
         effective_date=payload.effective_date,
         description=payload.description,
         schema_json=payload.extraction_schema,
         fields_json=[field.model_dump() for field in payload.fields_json],
+        document_type_id=payload.document_type_id,
         status=payload.status,
         source_file_name=payload.source_file_name,
         generation_prompt=payload.generation_prompt,
@@ -95,23 +105,27 @@ async def create_admission_form_schema(
     db.add(schema)
     await db.flush()
 
-    if schema.status == AdmissionFormSchemaStatus.ACTIVE:
-        await deactivate_other_schemas(db, active_schema_id=schema.id)
-
     await db.commit()
     await db.refresh(schema)
-    return serialize_admission_form_schema(schema)
+    return serialize_extraction_schema(schema)
 
 
-@router.post("/admission-form-schemas/generate", response_model=AdmissionFormSchemaGenerateResponse)
-async def generate_admission_form_schema(
-    file: UploadFile = File(...),
+@router.post("/extraction-schemas/generate", response_model=ExtractionSchemaGenerateResponse)
+async def generate_extraction_schema(
+    files: list[UploadFile] = File(...),
     prompt: str | None = Form(default=None),
     current_user: dict = Depends(require_admin),
 ):
     del current_user
 
-    file_obj = await upload_extract_file(file)
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one file is required.",
+        )
+
+    first_file = files[0]
+    file_obj = await upload_extract_file(first_file)
     file_id = file_obj.get("id")
     if not isinstance(file_id, str):
         raise HTTPException(
@@ -123,26 +137,26 @@ async def generate_admission_form_schema(
     data_schema = extract_data_schema(generated_config)
     fields = schema_to_editable_fields(data_schema)
 
-    return AdmissionFormSchemaGenerateResponse(
+    return ExtractionSchemaGenerateResponse(
         extraction_schema=data_schema,
         fields_json=fields,
         file_id=file_id,
-        source_file_name=file.filename,
+        source_file_name=first_file.filename,
     )
 
 
-@router.patch("/admission-form-schemas/{schema_id}", response_model=AdmissionFormSchemaResponse)
-async def update_admission_form_schema(
+@router.patch("/extraction-schemas/{schema_id}", response_model=ExtractionSchemaResponse)
+async def update_extraction_schema(
     schema_id: UUID,
-    payload: AdmissionFormSchemaUpdateRequest,
+    payload: ExtractionSchemaUpdateRequest,
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
     del current_user
 
-    schema = await db.get(AdmissionFormSchema, schema_id)
+    schema = await db.get(ExtractionSchema, schema_id)
     if schema is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admission form schema not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
 
     if "name" in payload.model_fields_set:
         schema.name = payload.name
@@ -156,6 +170,8 @@ async def update_admission_form_schema(
         schema.schema_json = payload.extraction_schema
     if "fields_json" in payload.model_fields_set:
         schema.fields_json = [field.model_dump() for field in payload.fields_json]
+    if "document_type_id" in payload.model_fields_set:
+        schema.document_type_id = payload.document_type_id
     if "status" in payload.model_fields_set:
         schema.status = payload.status
     if "source_file_name" in payload.model_fields_set:
@@ -163,28 +179,24 @@ async def update_admission_form_schema(
     if "generation_prompt" in payload.model_fields_set:
         schema.generation_prompt = payload.generation_prompt
 
-    if schema.status == AdmissionFormSchemaStatus.ACTIVE:
-        await deactivate_other_schemas(db, active_schema_id=schema.id)
-
     await db.commit()
     await db.refresh(schema)
-    return serialize_admission_form_schema(schema)
+    return serialize_extraction_schema(schema)
 
 
-@router.post("/admission-form-schemas/{schema_id}/activate", response_model=AdmissionFormSchemaResponse)
-async def activate_admission_form_schema(
+@router.post("/extraction-schemas/{schema_id}/activate", response_model=ExtractionSchemaResponse)
+async def activate_extraction_schema(
     schema_id: UUID,
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
     del current_user
 
-    schema = await db.get(AdmissionFormSchema, schema_id)
+    schema = await db.get(ExtractionSchema, schema_id)
     if schema is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admission form schema not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
 
-    await deactivate_other_schemas(db, active_schema_id=schema.id)
-    schema.status = AdmissionFormSchemaStatus.ACTIVE
+    schema.status = ExtractionSchemaStatus.ACTIVE
     await db.commit()
     await db.refresh(schema)
-    return serialize_admission_form_schema(schema)
+    return serialize_extraction_schema(schema)

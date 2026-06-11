@@ -1,45 +1,47 @@
-export type AdmissionSchemaStatus = "draft" | "active" | "archived";
+export type ExtractionSchemaStatus = "draft" | "active" | "archived";
 
-export type AdmissionSchemaFieldType = "string" | "number" | "integer" | "boolean";
+export type ExtractionSchemaFieldType = "string" | "number" | "integer" | "boolean";
 
-export interface AdmissionSchemaField {
+export interface ExtractionSchemaField {
     id: string;
     key: string;
-    type: AdmissionSchemaFieldType;
+    type: ExtractionSchemaFieldType;
     description: string;
     required: boolean;
 }
 
-export interface AdmissionSchemaRecord {
+export interface ExtractionSchemaRecord {
     id: string;
     name: string;
     version_label: string | null;
     effective_date: string | null;
     description: string | null;
     schema_json: Record<string, unknown>;
-    fields_json: AdmissionSchemaField[];
-    status: AdmissionSchemaStatus;
+    fields_json: ExtractionSchemaField[];
+    document_type_id: string | null;
+    status: ExtractionSchemaStatus;
     source_file_name: string | null;
     generation_prompt: string | null;
     created_at: string;
     updated_at: string;
 }
 
-export interface AdmissionSchemaPayload {
+export interface ExtractionSchemaPayload {
     name: string;
     version_label: string | null;
     effective_date: string | null;
     description: string | null;
     schema_json: Record<string, unknown>;
-    fields_json: AdmissionSchemaField[];
-    status: AdmissionSchemaStatus;
+    fields_json: ExtractionSchemaField[];
+    document_type_id: string | null;
+    status: ExtractionSchemaStatus;
     source_file_name: string | null;
     generation_prompt: string | null;
 }
 
-export interface AdmissionSchemaGenerateResponse {
+export interface ExtractionSchemaGenerateResponse {
     schema_json: Record<string, unknown>;
-    fields_json: AdmissionSchemaField[];
+    fields_json: ExtractionSchemaField[];
     file_id: string;
     source_file_name: string | null;
 }

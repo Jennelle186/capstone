@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -148,7 +149,7 @@ class DocumentTypeUpdateRequest(BaseModel):
 
 class RequirementAssignmentItem(BaseModel):
     document_type_id: UUID
-    admission_form_schema_id: UUID | None = None
+    extraction_schema_id: UUID | None = None
 
 
 class RequirementAssignmentRequest(BaseModel):
@@ -173,3 +174,31 @@ class RequirementAssignmentResponse(BaseModel):
     school_year_id: UUID
     document_type_ids: list[UUID]
     requirements: list[RequirementAssignmentItem] = Field(default_factory=list)
+
+
+class SchemaRegistrySchemaBrief(BaseModel):
+    id: UUID
+    name: str
+    version_label: str | None = None
+    status: str
+
+
+class SchemaRegistryRequirementInfo(BaseModel):
+    school_year_id: UUID
+    school_year_name: str
+    extraction_schema_id: UUID | None = None
+    extraction_schema_name: str | None = None
+
+
+class SchemaRegistryEntry(BaseModel):
+    document_type_id: UUID
+    document_type_name: str
+    document_type_code: str
+    status: str
+    extraction_type: Literal["structured", "none"]
+    schemas: list[SchemaRegistrySchemaBrief] = Field(default_factory=list)
+    requirements: list[SchemaRegistryRequirementInfo] = Field(default_factory=list)
+
+
+class SchemaRegistryResponse(BaseModel):
+    entries: list[SchemaRegistryEntry] = Field(default_factory=list)
