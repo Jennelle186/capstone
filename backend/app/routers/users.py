@@ -231,11 +231,13 @@ class RequiredDocumentResponse(BaseModel):
     name: str
     code: str
     description: str
+    is_required: bool = True
 
 
 class RequiredDocumentsResponse(BaseModel):
     school_year_id: str | None
     school_year_name: str | None
+    auto_closure_date: str | None
     classification: str | None
     documents: list[RequiredDocumentResponse]
 
@@ -260,6 +262,7 @@ async def get_required_documents(current_user: dict = Depends(require_student), 
     return RequiredDocumentsResponse(
         school_year_id=str(student.school_year_id),
         school_year_name=school_year.name if school_year else None,
+        auto_closure_date=str(school_year.auto_closure_date) if school_year and school_year.auto_closure_date else None,
         classification=student.classification.value if student.classification else None,
         documents=[
             RequiredDocumentResponse(

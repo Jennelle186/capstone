@@ -1,95 +1,82 @@
-import { zodResolver } from "@hookform/resolvers/zod";
-import { motion } from "framer-motion";
-import { useForm, useWatch } from "react-hook-form";
-import { z } from "zod";
+"use client";
 
-import UploadZone from "@/components/student/UploadDocuments/upload-zone";
-import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormMessage,
-} from "@/components/ui/form";
+import * as React from "react";
+import { useSearchParams } from "react-router";
+import { useAuth } from "@clerk/clerk-react";
+import UploadWizard from "@/components/student/UploadDocuments/UploadWizard";
+import StepUpload from "@/components/student/UploadDocuments/upload/StepUpload";
+import StepClassify from "@/components/student/UploadDocuments/classify/StepClassify";
+import StepExtract from "@/components/student/UploadDocuments/extract/StepExtract";
+import StepSubmit from "@/components/student/UploadDocuments/submit/StepSubmit";
+import { fetchWithClerkAuth } from "@/lib/api";
+import type { RequiredDocument } from "@/types/student";
 
-const uploadSchema = z.object({
-  files: z
-    .array(z.instanceof(File))
-    .min(1, "Please upload at least one document")
-    .refine(
-      (files) => files.every((file) => file.size <= 5 * 1024 * 1024),
-      "Each file must be under 5MB"
-    ),
-});
-
-type UploadFormValues = z.infer<typeof uploadSchema>;
-
-const MotionButton = motion.create(Button);
+const CLAMP = (n: number) => Math.max(1, Math.min(4, n));
 
 export default function UploadDocuments() {
-  "use no memo";
-  const form = useForm<UploadFormValues>({
-    resolver: zodResolver(uploadSchema),
-    defaultValues: { files: [] },
-  });
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [requiredDocs, setRequiredDocs] = React.useState<RequiredDocument[]>([]);
+  const [classificationComplete, setClassificationComplete] = React.useState(false);
+  const [extractionComplete, setExtractionComplete] = React.useState(false);
 
-  const files = useWatch({
-    control: form.control,
-    name: "files",
-    defaultValue: [],
-  });
+  const maxAccessibleStep = Math.min(
+    4,
+    extractionComplete ? 4 : classificationComplete ? 3 : 2,
+  );
 
-  const handleFilesChange = (nextFiles: File[]) => {
-    form.setValue("files", nextFiles, { shouldValidate: true });
-  };
+  const rawStep = parseInt(searchParams.get("step") ?? "1", 10) || 1;
+  const step = Math.min(CLAMP(rawStep), maxAccessibleStep);
 
-  const onSubmit = (values: UploadFormValues) => {
-    console.log("Validated form data:", values);
-    console.log(
-      "Files:",
-      values.files.map((file) => ({ name: file.name, type: file.type }))
-    );
-    console.log("Upload data is ready for the backend.");
-    form.reset();
-  };
+  // Redirect if URL step exceeds maxAccessibleStep
+  React.useEffect(() => {
+    const clamped = Math.min(rawStep, maxAccessibleStep);
+    if (clamped !== rawStep) {
+      setSearchParams({ step: String(clamped) }, { replace: true });
+    }
+  }, [rawStep, maxAccessibleStep, setSearchParams]);
+
+  const goToStep = React.useCallback(
+    (n: number) => {
+      const clamped = Math.min(CLAMP(n), maxAccessibleStep);
+      setSearchParams({ step: String(clamped) });
+    },
+    [maxAccessibleStep, setSearchParams],
+  );
+
+  const nextDisabled =
+    (step === 2 && !classificationComplete) ||
+    (step === 3 && !extractionComplete) ||
+    step === 4;
+
+  React.useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetchWithClerkAuth("/api/me/required-documents", token);
+        if (!res.ok) return;
+        const data = (await res.json()) as { documents: RequiredDocument[] };
+        if (!cancelled) setRequiredDocs(data.documents);
+      } catch {
+        // ignore
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, isLoaded, isSignedIn]);
 
   return (
-    <main className="space-y-6">
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="files"
-            render={() => (
-              <FormItem>
-                <FormControl>
-                  <UploadZone files={files} onFilesChange={handleFilesChange} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <div className="flex flex-wrap justify-end gap-2">
-            <MotionButton
-              type="button"
-              variant="outline"
-              whileTap={{ scale: 0.98 }}
-              onClick={() => form.reset()}
-            >
-              Cancel
-            </MotionButton>
-            <MotionButton
-              type="submit"
-              whileTap={{ scale: 0.98 }}
-              className="bg-emerald-600 text-white hover:bg-emerald-700"
-            >
-              Upload
-            </MotionButton>
-          </div>
-        </form>
-      </Form>
-    </main>
+    <UploadWizard step={step} onStepChange={goToStep} nextDisabled={nextDisabled}>
+      {step === 1 && <StepUpload requiredDocuments={requiredDocs} />}
+      {step === 2 && <StepClassify requiredDocuments={requiredDocs} onClassificationChange={setClassificationComplete} />}
+      {step === 3 && <StepExtract onExtractionChange={setExtractionComplete} />}
+      {step === 4 && <StepSubmit />}
+    </UploadWizard>
   );
 }

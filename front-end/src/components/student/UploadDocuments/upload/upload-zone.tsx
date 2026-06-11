@@ -247,7 +247,7 @@ export default function UploadZone({ files, onFilesChange }: UploadZoneProps) {
       <CardHeader className="space-y-2">
         <CardTitle className="text-lg font-bold text-slate-900">Upload Documents</CardTitle>
         <p className="text-sm text-slate-500">
-          Drag & drop files or click to browse (5MB max per file).
+          Drag & drop files or click to browse (25MB max per file).
         </p>
       </CardHeader>
       <CardContent className="space-y-6">

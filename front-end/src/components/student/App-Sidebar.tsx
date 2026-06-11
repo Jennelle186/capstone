@@ -1,4 +1,4 @@
-import { BadgeCheck, LayoutDashboard, LogOut, Upload, UserCog } from 'lucide-react'
+import { LayoutDashboard, LogOut, Upload, UserCog } from 'lucide-react'
 import CommonAppSidebar from '@/components/common/AppSidebar'
 import LogoutConfirmDialog from '@/components/common/LogoutConfirmDialog'
 import type { SidebarGroupConfig } from '@/components/common/AppSidebar'
@@ -39,7 +39,6 @@ export function AppSidebar() {
                 label: 'Pages',
                 items: [
                     { title: 'Upload Documents', icon: Upload, url: '/student/upload' },
-                    { title: 'Verified Documents', icon: BadgeCheck, url: '#' },
                     { title: 'Profile Settings', icon: UserCog, url: '/student/profile' },
                     {
                         title: 'Logout',
