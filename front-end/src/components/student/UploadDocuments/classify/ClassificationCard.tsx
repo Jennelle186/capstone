@@ -95,82 +95,85 @@ export default function ClassificationCard({
     <>
       <div
         className={cn(
-          "group flex flex-col gap-3 rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md",
+          "flex flex-col lg:flex-row lg:items-center gap-4 rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md",
           item.needsReview
             ? "border-amber-300 hover:border-amber-400"
             : "border-slate-200 hover:border-slate-300",
         )}
       >
-        {/* Row 1: icon, filename, badge — clickable for preview */}
+        {/* Left: icon + file info — clickable for preview */}
         <button
           type="button"
           onClick={() => setPreviewOpen(true)}
-          className="flex w-full items-start gap-3 text-left"
+          className="flex items-center gap-4 flex-1 min-w-0 text-left"
         >
-          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100">
+          <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100">
             {isImage ? (
-              <ImageIcon className="h-5 w-5 text-primary" />
+              <ImageIcon className="h-8 w-8 text-primary" />
             ) : (
-              <FileText className="h-5 w-5 text-primary" />
+              <FileText className="h-8 w-8 text-primary" />
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-semibold text-slate-900">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <p className="truncate max-w-[280px] text-sm font-bold text-slate-900">
                 {item.fileName}
               </p>
               {statusBadge ?? <ConfidenceBadge confidence={item.confidence} />}
             </div>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {formatFileSize(item.fileSize)}
-              {item.documentTypeName
-                ? ` • Suggested: ${item.documentTypeName}`
-                : ""}
-            </p>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span>{formatFileSize(item.fileSize)}</span>
+              <span className="w-1 h-1 rounded-full bg-slate-300" />
+              <span>
+                Predicted:{" "}
+                <span className="font-semibold text-primary">
+                  {item.documentTypeName ?? "—"}
+                </span>
+              </span>
+            </div>
           </div>
         </button>
 
-      {/* Row 2: override dropdown + split button */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            Assigned Type
-          </label>
-          <Select
-            value={item.documentTypeId ?? undefined}
-            onValueChange={(val) => onOverride(item.id, val)}
-          >
-            <SelectTrigger
-              className={cn(
-                "w-full",
-                item.needsReview && "border-amber-300 ring-1 ring-amber-200",
-              )}
+        {/* Right: select + split button */}
+        <div className="flex flex-col sm:flex-row items-center gap-3 sm:shrink-0 lg:w-[480px]">
+          <div className="relative w-full">
+            <Select
+              value={item.documentTypeId ?? undefined}
+              onValueChange={(val) => onOverride(item.id, val)}
             >
-              <SelectValue placeholder="Select document type..." />
-            </SelectTrigger>
-            <SelectContent>
-              {documentTypes.map((dt) => (
-                <SelectItem key={dt.id} value={dt.id}>
-                  {dt.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+              <SelectTrigger
+                className={cn(
+                  "w-full h-11",
+                  item.needsReview && "border-amber-300 ring-1 ring-amber-200",
+                )}
+              >
+                <SelectValue placeholder="Select document type..." />
+              </SelectTrigger>
+              <SelectContent>
+                {documentTypes.map((dt) => (
+                  <SelectItem key={dt.id} value={dt.id}>
+                    {dt.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        {item.isCompiledPdf && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl gap-1.5 whitespace-nowrap opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-            onClick={() => onSplit(item.id)}
-          >
-            <Scissors className="h-3.5 w-3.5" />
-            Split this file
-          </Button>
-        )}
+          {item.isCompiledPdf ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto h-11 rounded-xl whitespace-nowrap"
+              onClick={() => onSplit(item.id)}
+            >
+              <Scissors className="h-4 w-4 mr-1" />
+              Split File
+            </Button>
+          ) : (
+            <div className="hidden sm:block w-[104px]" />
+          )}
+        </div>
       </div>
-    </div>
 
       {/* Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>

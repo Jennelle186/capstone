@@ -6,6 +6,7 @@ from typing_extensions import Annotated
 from fastapi import FastAPI
 from fastapi import Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .auth import get_current_user
 from .database import init_db
@@ -15,6 +16,7 @@ from .routers.debug import router as debug_router
 from .routers.users import router as users_router
 from .routers import admin
 from .services.user_sync import ensure_user_row
+from .services.clerk import update_user_personal_names, update_user_public_metadata
 
 
 @asynccontextmanager
@@ -63,18 +65,65 @@ async def read_root() -> dict:
     return {"message": "FastAPI server is running."}
 
 
+class ProfileUpdateRequest(BaseModel):
+    first_name: str = Field(min_length=1, max_length=255)
+    middle_name: str | None = Field(default=None, max_length=255)
+    last_name: str = Field(min_length=1, max_length=255)
+
+
 @app.get("/api/me", tags=["auth"])
 async def read_me(current_user: CurrentUser, db: SessionDep) -> dict:
     # Protected endpoint: returns claims from Clerk-verified session token.
     # Also upserts the user into our DB on first authenticated call.
     user = await ensure_user_row(db, current_user)
+    await db.refresh(user, ["student"])
+    student_number: str | None = None
+    if user.student is not None:
+        student_number = user.student.student_number
     return {
         "userId": current_user.get("sub"),
         "sessionId": current_user.get("sid"),
         "email": user.email,
         "firstName": user.first_name,
         "lastName": user.last_name,
+        "middleName": user.middle_name,
+        "student_number": student_number,
         "role": getattr(user.role, "value", user.role),
+    }
+
+
+@app.patch("/api/me", tags=["auth"])
+async def update_me(
+    body: ProfileUpdateRequest,
+    current_user: CurrentUser,
+    db: SessionDep,
+) -> dict:
+    user = await ensure_user_row(db, current_user)
+
+    # Update Clerk profile.
+    clerk_user_id = current_user.get("sub")
+    if clerk_user_id:
+        await update_user_personal_names(
+            clerk_user_id,
+            first_name=body.first_name,
+            last_name=body.last_name,
+        )
+        await update_user_public_metadata(
+            clerk_user_id,
+            {"middle_name": body.middle_name},
+        )
+
+    # Update local DB.
+    user.first_name = body.first_name
+    user.middle_name = body.middle_name
+    user.last_name = body.last_name
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "firstName": user.first_name,
+        "middleName": user.middle_name,
+        "lastName": user.last_name,
     }
 
 
