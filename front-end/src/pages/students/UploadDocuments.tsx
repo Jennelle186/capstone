@@ -10,7 +10,7 @@ import StepExtract from "@/components/student/UploadDocuments/extract/StepExtrac
 import StepSubmit from "@/components/student/UploadDocuments/submit/StepSubmit";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
-import type { DocumentUploadResponse } from "@/types/submission";
+import type { DocumentUploadResponse, SubmissionDetail } from "@/types/submission";
 
 const CLAMP = (n: number) => Math.max(1, Math.min(4, n));
 
@@ -21,6 +21,7 @@ export default function UploadDocuments() {
   const [classificationComplete, setClassificationComplete] = useState(false);
   const [extractionComplete, setExtractionComplete] = useState(false);
   const [submissions, setSubmissions] = useState<DocumentUploadResponse[]>([]);
+  const [existingSubmissions, setExistingSubmissions] = useState<SubmissionDetail[]>([]);
 
   const maxAccessibleStep = Math.min(
     4,
@@ -59,10 +60,18 @@ export default function UploadDocuments() {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await fetchWithClerkAuth("/api/me/required-documents", token);
-        if (!res.ok) return;
-        const data = (await res.json()) as { documents: RequiredDocument[] };
-        if (!cancelled) setRequiredDocs(data.documents);
+        const [reqRes, docsRes] = await Promise.all([
+          fetchWithClerkAuth("/api/me/required-documents", token),
+          fetchWithClerkAuth("/api/me/documents", token),
+        ]);
+        if (reqRes.ok) {
+          const data = (await reqRes.json()) as { documents: RequiredDocument[] };
+          if (!cancelled) setRequiredDocs(data.documents);
+        }
+        if (docsRes.ok) {
+          const data = (await docsRes.json()) as SubmissionDetail[];
+          if (!cancelled) setExistingSubmissions(data);
+        }
       } catch {
         // ignore
       }
@@ -85,6 +94,7 @@ export default function UploadDocuments() {
           requiredDocuments={requiredDocs}
           getToken={getToken}
           onUploadComplete={handleUploadComplete}
+          existingSubmissions={existingSubmissions}
         />
       )}
       {step === 2 && <StepClassify requiredDocuments={requiredDocs} submissions={submissions} onClassificationChange={setClassificationComplete} />}

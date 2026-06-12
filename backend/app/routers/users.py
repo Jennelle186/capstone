@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, select
+from sqlalchemy.orm import selectinload
 from typing_extensions import Annotated
 
 from ..database import SessionDep
@@ -324,3 +325,51 @@ async def upload_document(
         original_filename=submission.original_filename,
         is_compiled=submission.is_compiled,
     )
+
+
+class SubmissionDetailResponse(BaseModel):
+    id: str
+    status: str
+    file_key: str
+    original_filename: str
+    file_size: str | None = None
+    mime_type: str | None = None
+    is_compiled: bool
+    document_type_name: str | None = None
+    created_at: str
+
+
+@router.get("/api/me/documents", response_model=list[SubmissionDetailResponse], tags=["users"])
+async def list_my_documents(
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> list[SubmissionDetailResponse]:
+    """Return all document submissions for the current student."""
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        return []
+
+    db_result = await db.execute(
+        select(DocumentSubmission)
+        .options(selectinload(DocumentSubmission.document_type))
+        .where(DocumentSubmission.student_id == student.id)
+        .order_by(desc(DocumentSubmission.created_at))
+    )
+    submissions = db_result.scalars().all()
+
+    return [
+        SubmissionDetailResponse(
+            id=str(s.id),
+            status=s.status.value,
+            file_key=s.file_key,
+            original_filename=s.original_filename,
+            file_size=s.file_size,
+            mime_type=s.mime_type,
+            is_compiled=s.is_compiled,
+            document_type_name=s.document_type.name if s.document_type else None,
+            created_at=s.created_at.isoformat() if s.created_at else "",
+        )
+        for s in submissions
+    ]

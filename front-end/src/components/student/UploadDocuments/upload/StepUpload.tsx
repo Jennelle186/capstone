@@ -6,27 +6,20 @@ import {
   FileText,
   Trash2,
   CheckCircle,
-  Lightbulb,
-  ChevronLeft,
-  ChevronRight,
-  ArrowRight,
-  ClipboardList,
   Loader2,
+  Clock,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
-import type { DocumentUploadResponse } from "@/types/submission";
+import type { DocumentUploadResponse, SubmissionDetail } from "@/types/submission";
+import DocumentPreviewDialog, { type PreviewItem } from "./DocumentPreviewDialog";
+import UploadSidebar from "./UploadSidebar";
 
-const MAX_FILE_SIZE = 315 * 1024 * 1024; // 315MB (LlamaCloud limit)
+const MAX_FILE_SIZE = 315 * 1024 * 1024;
 
 type FileItem = {
   id: string;
@@ -52,6 +45,7 @@ interface StepUploadProps {
   requiredDocuments?: RequiredDocument[];
   getToken: () => Promise<string | null>;
   onUploadComplete?: (result: DocumentUploadResponse) => void;
+  existingSubmissions?: SubmissionDetail[];
 }
 
 function isImageFile(file: File) {
@@ -59,7 +53,7 @@ function isImageFile(file: File) {
   return file.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"].includes(ext ?? "");
 }
 
-export default function StepUpload({ requiredDocuments, getToken, onUploadComplete }: StepUploadProps) {
+export default function StepUpload({ requiredDocuments, getToken, onUploadComplete, existingSubmissions }: StepUploadProps) {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -173,29 +167,84 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
     }
   };
 
-  const previewableItems = useMemo(
-    () => files.filter((f) => isPreviewable(f.file)),
-    [files]
-  );
-
-  const activePreview = previewIndex !== null ? previewableItems[previewIndex] : null;
-
-  const handlePrevPreview = () => {
-    setPreviewIndex((prev) =>
-      prev !== null ? (prev - 1 < 0 ? previewableItems.length - 1 : prev - 1) : null
-    );
-  };
-
-  const handleNextPreview = () => {
-    setPreviewIndex((prev) =>
-      prev !== null ? (prev + 1) % previewableItems.length : null
-    );
-  };
+  const previewItems = useMemo<PreviewItem[]>(() => {
+    const items: PreviewItem[] = [];
+    for (const f of files) {
+      if (isPreviewable(f.file)) {
+        items.push({
+          type: "new",
+          id: f.id,
+          file: f.file,
+          previewUrl: f.previewUrl,
+          pdfUrl: f.pdfUrl,
+        });
+      }
+    }
+    for (const sub of existingSubmissions ?? []) {
+      if (sub.status === "uploaded" || sub.status === "flagged") {
+        items.push({ type: "existing", submission: sub });
+      }
+    }
+    return items;
+  }, [files, existingSubmissions]);
 
   return (
     <div className="grid grid-cols-12 gap-4">
       {/* Left: Drop zone + file list */}
       <div className="col-span-12 lg:col-span-8 space-y-4">
+        {/* Previously Uploaded */}
+        {existingSubmissions && existingSubmissions.filter(
+          (s) => s.status === "uploaded" || s.status === "flagged"
+        ).length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+              <Clock className="size-4" />
+              Previously Uploaded
+            </h4>
+            <div className="space-y-1.5">
+              {existingSubmissions
+                .filter((s) => s.status === "uploaded" || s.status === "flagged")
+                .map((sub) => (
+                <div key={sub.id} className="flex items-center gap-3 py-2 px-3 bg-slate-50 rounded-xl">
+                  <FileText className="size-5 text-slate-400" />
+                  <div className="flex-1 overflow-hidden">
+                    <p className="text-sm font-medium text-slate-900 truncate">
+                      {sub.original_filename}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[11px] text-slate-500">
+                        {sub.file_size ? `${(Number(sub.file_size) / 1024 / 1024).toFixed(1)} MB` : "\u2014"}
+                      </span>
+                      <Badge
+                        variant={sub.status === "flagged" ? "destructive" : "outline"}
+                        className={sub.status === "uploaded" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : ""}
+                      >
+                        {sub.status === "flagged" ? "Flagged" : "Uploaded"}
+                      </Badge>
+                    </div>
+                  </div>
+                  {sub.status === "flagged" ? (
+                    <AlertTriangle className="size-5 text-amber-500" />
+                  ) : (
+                    <CheckCircle className="size-5 text-emerald-500" />
+                  )}
+                  <button
+                    onClick={() => {
+                      const idx = previewItems.findIndex(
+                        (p) => p.type === "existing" && p.submission.id === sub.id
+                      );
+                      if (idx >= 0) setPreviewIndex(idx);
+                    }}
+                    className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    <FileText className="size-4 text-slate-500" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Drop zone */}
         <div
           onDragOver={handleDragOver}
@@ -322,7 +371,9 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
                     )}
                     <button
                       onClick={() => {
-                        const idx = previewableItems.findIndex((p) => p.id === item.id);
+                        const idx = previewItems.findIndex(
+                          (p) => p.type === "new" && p.id === item.id
+                        );
                         if (idx >= 0) setPreviewIndex(idx);
                       }}
                       className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
@@ -346,147 +397,17 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
         )}
       </div>
 
-      {/* Right: Required docs + Tips + Trust */}
-      <div className="col-span-12 lg:col-span-4 space-y-4">
-        {/* Required Documents */}
-        {requiredDocuments && requiredDocuments.length > 0 && (
-          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <ClipboardList className="h-5 w-5 text-primary" />
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-primary">
-                Required Documents
-              </h4>
-            </div>
-            <ul className="space-y-2">
-              {requiredDocuments.map((doc) => (
-                <li key={doc.id} className="flex items-center gap-2 text-sm text-slate-700">
-                  {doc.is_required ? (
-                    <span className="text-red-500 font-bold text-base leading-none">*</span>
-                  ) : (
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 flex-shrink-0" />
-                  )}
-                  <span>{doc.name}</span>
-                  {!doc.is_required && (
-                    <span className="text-xs text-slate-400 ml-auto">Optional</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Upload Tips */}
-        <div className="bg-emerald-50/50 rounded-2xl p-5 border border-emerald-200">
-          <div className="flex items-center gap-2 mb-3">
-            <Lightbulb className="h-5 w-5 text-primary" />
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-primary">Upload Tips</h4>
-          </div>
-          <ul className="space-y-3">
-            {[
-              "Ensure documents are well-lit and all four corners are visible.",
-              "High-resolution scans lead to faster verification times.",
-              "Avoid glare on laminated surfaces when using photography.",
-            ].map((tip) => (
-              <li key={tip} className="flex gap-3">
-                <CheckCircle className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-slate-600">{tip}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Academic Trust */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="relative z-10">
-            <h4 className="text-base font-semibold text-slate-900 mb-2">Academic Trust</h4>
-            <p className="text-sm text-slate-500 mb-4">
-              Our systems utilize bank-grade encryption to ensure your personal data remains secure
-              throughout the verification process.
-            </p>
-            <a
-              href="#"
-              className="text-xs font-semibold text-primary flex items-center gap-1 hover:gap-2 transition-all"
-            >
-              View Privacy Policy
-              <ArrowRight className="h-3.5 w-3.5" />
-            </a>
-          </div>
-          <div className="absolute -right-4 -bottom-4 opacity-5 rotate-12">
-            <FileText className="h-28 w-28 text-primary" />
-          </div>
-        </div>
-      </div>
+      {/* Right sidebar */}
+      <UploadSidebar requiredDocuments={requiredDocuments} />
 
       {/* Preview Dialog */}
-      <Dialog open={previewIndex !== null} onOpenChange={(open) => !open && setPreviewIndex(null)}>
-        <DialogContent className="w-[95vw] !max-w-[95vw] h-[95vh] !max-h-[95vh] p-0 gap-0">
-          <div className="flex h-full flex-col">
-            {/* Header */}
-            <DialogHeader className="border-b px-6 py-4">
-              <DialogTitle className="text-base font-semibold text-slate-900">
-                {activePreview?.file.name ?? "Document Preview"}
-              </DialogTitle>
-            </DialogHeader>
-
-            {/* Preview area */}
-            <div className="flex flex-1 items-center justify-center overflow-auto bg-slate-50 p-4">
-              {activePreview?.previewUrl ? (
-                <img
-                  src={activePreview.previewUrl}
-                  alt={activePreview.file.name}
-                  className="max-h-full max-w-full rounded-xl object-contain"
-                />
-              ) : activePreview?.pdfUrl ? (
-                <iframe
-                  title={activePreview.file.name}
-                  src={activePreview.pdfUrl}
-                  className="h-full w-full rounded-xl border border-slate-200 bg-white"
-                />
-              ) : (
-                <div className="flex flex-col items-center gap-3 text-slate-500">
-                  <FileText className="h-10 w-10" />
-                  <span className="text-sm">No preview available.</span>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <DialogFooter className="border-t bg-white px-6 py-4 flex-row items-center justify-between sm:justify-between">
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={previewableItems.length <= 1}
-                  onClick={handlePrevPreview}
-                  className="h-9 w-9 rounded-full"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm font-medium text-slate-600 min-w-16 text-center">
-                  {previewableItems.length
-                    ? `${(previewIndex ?? 0) + 1} / ${previewableItems.length}`
-                    : "0 / 0"}
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={previewableItems.length <= 1}
-                  onClick={handleNextPreview}
-                  className="h-9 w-9 rounded-full"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-              <Button
-                className="bg-primary text-white hover:bg-primary/90 rounded-xl"
-                onClick={() => setPreviewIndex(null)}
-              >
-                Looks good
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DocumentPreviewDialog
+        open={previewIndex !== null}
+        onOpenChange={(open) => !open && setPreviewIndex(null)}
+        items={previewItems}
+        index={previewIndex ?? 0}
+        onIndexChange={setPreviewIndex}
+      />
     </div>
   );
 }
