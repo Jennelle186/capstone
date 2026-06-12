@@ -12,11 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { parseDocumentManagementApiError } from "@/lib/document-management-utils";
@@ -343,15 +344,6 @@ export default function SchemaRegistryPage() {
                                     >
                                         {dialogSchema.status}
                                     </Badge>
-                                    <div className="ml-auto flex items-center gap-2">
-                                        <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)}>
-                                            Close
-                                        </Button>
-                                        <Button size="sm" onClick={() => handleOpenInBuilder(dialogSchema.id)}>
-                                            <Pencil className="mr-2 h-4 w-4" />
-                                            Open in Builder
-                                        </Button>
-                                    </div>
                                 </div>
                             </DialogHeader>
 
@@ -446,6 +438,15 @@ export default function SchemaRegistryPage() {
                                     )}
                                 </div>
                             </div>
+                            <DialogFooter className="shrink-0 border-t px-6 py-4 flex-row justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)}>
+                                    Close
+                                </Button>
+                                <Button size="sm" onClick={() => handleOpenInBuilder(dialogSchema.id)}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Open in Builder
+                                </Button>
+                            </DialogFooter>
                         </>
                     ) : null}
                 </DialogContent>

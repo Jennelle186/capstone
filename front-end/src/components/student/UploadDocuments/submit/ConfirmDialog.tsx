@@ -7,6 +7,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 
 interface ConfirmDialogProps {
@@ -38,7 +39,7 @@ export default function ConfirmDialog({
           your adviser.
         </p>
 
-        <div className="flex gap-3 pt-2">
+        <DialogFooter className="flex gap-3 pt-2 sm:justify-start">
           <Button
             type="button"
             variant="outline"
@@ -57,7 +58,7 @@ export default function ConfirmDialog({
           >
             Confirm &amp; Submit
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

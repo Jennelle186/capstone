@@ -13,6 +13,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -399,8 +400,7 @@ export default function UploadZone({ files, onFilesChange }: UploadZoneProps) {
               </AnimatePresence>
             </div>
 
-            <div className="border-t bg-slate-50/60 px-4 py-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <DialogFooter className="border-t bg-slate-50/60 px-4 py-3 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -440,8 +440,7 @@ export default function UploadZone({ files, onFilesChange }: UploadZoneProps) {
                 >
                   Looks good
                 </Button>
-              </div>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

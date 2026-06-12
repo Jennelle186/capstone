@@ -8,6 +8,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -204,14 +205,14 @@ export default function ClassificationCard({
                 </div>
               )}
             </div>
-            <div className="border-t bg-white px-6 py-4 flex justify-end">
+            <DialogFooter className="border-t bg-white px-6 py-4 flex-row justify-end">
               <Button
                 className="bg-primary text-white hover:bg-primary/90 rounded-xl"
                 onClick={() => setPreviewOpen(false)}
               >
                 Close
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

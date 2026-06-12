@@ -18,6 +18,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { RequiredDocument } from "@/types/student";
@@ -351,41 +352,39 @@ export default function StepUpload({ requiredDocuments }: StepUploadProps) {
             </div>
 
             {/* Footer */}
-            <div className="border-t bg-white px-6 py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={previewableItems.length <= 1}
-                    onClick={handlePrevPreview}
-                    className="h-9 w-9 rounded-full"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <span className="text-sm font-medium text-slate-600 min-w-16 text-center">
-                    {previewableItems.length
-                      ? `${(previewIndex ?? 0) + 1} / ${previewableItems.length}`
-                      : "0 / 0"}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={previewableItems.length <= 1}
-                    onClick={handleNextPreview}
-                    className="h-9 w-9 rounded-full"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
+            <DialogFooter className="border-t bg-white px-6 py-4 flex-row items-center justify-between sm:justify-between">
+              <div className="flex items-center gap-3">
                 <Button
-                  className="bg-primary text-white hover:bg-primary/90 rounded-xl"
-                  onClick={() => setPreviewIndex(null)}
+                  variant="outline"
+                  size="icon"
+                  disabled={previewableItems.length <= 1}
+                  onClick={handlePrevPreview}
+                  className="h-9 w-9 rounded-full"
                 >
-                  Looks good
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm font-medium text-slate-600 min-w-16 text-center">
+                  {previewableItems.length
+                    ? `${(previewIndex ?? 0) + 1} / ${previewableItems.length}`
+                    : "0 / 0"}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={previewableItems.length <= 1}
+                  onClick={handleNextPreview}
+                  className="h-9 w-9 rounded-full"
+                >
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
+              <Button
+                className="bg-primary text-white hover:bg-primary/90 rounded-xl"
+                onClick={() => setPreviewIndex(null)}
+              >
+                Looks good
+              </Button>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

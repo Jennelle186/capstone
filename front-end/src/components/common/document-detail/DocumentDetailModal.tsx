@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 
 export interface ExtractionField {
@@ -100,7 +102,7 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
         className="max-w-[calc(100%-0.5rem)] sm:max-w-none sm:w-[calc(100%-2rem)] sm:max-w-5xl xl:max-w-6xl h-[95vh] sm:h-[90vh] p-0 gap-0 rounded-2xl overflow-hidden flex flex-col"
       >
         {/* Header */}
-        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex items-center justify-between shrink-0 gap-3">
+        <DialogHeader className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex flex-row items-center justify-between shrink-0 gap-3">
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             {item && (
               <div
@@ -139,7 +141,7 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
           >
             <X className="h-4 w-4 sm:h-5 sm:w-5" />
           </Button>
-        </div>
+        </DialogHeader>
 
         {/* Body */}
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
@@ -267,7 +269,7 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
         </div>
 
         {/* Bottom toolbar - desktop only */}
-        <div className="hidden sm:flex shrink-0 items-center justify-between px-6 py-2.5 border-t border-slate-200 bg-white">
+        <DialogFooter className="hidden sm:flex shrink-0 items-center justify-between px-6 py-2.5 border-t border-slate-200 bg-white flex-row">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-500 hover:text-primary">
               <ZoomOut className="h-4 w-4" />
@@ -287,7 +289,7 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
               Print
             </Button>
           </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

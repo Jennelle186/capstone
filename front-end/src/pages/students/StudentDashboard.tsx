@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router";
 import { fetchWithClerkAuth } from "@/lib/api";
 import StatSummaryCards from "@/components/student/Dashboard/StatSummaryCards";
+import AnnouncementBar from "@/components/student/Dashboard/AnnouncementBar";
 import SubmissionsTable from "@/components/student/Dashboard/SubmissionsTable";
 import DocumentDetailModal from "@/components/student/Dashboard/DocumentDetailModal";
 import {
@@ -107,6 +108,9 @@ export default function StudentDashboard() {
 
       {/* Stat Cards */}
       <StatSummaryCards submissions={placeholderSubmissions} />
+
+      {/* Announcements */}
+      <AnnouncementBar />
 
       {/* Submissions Table */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
