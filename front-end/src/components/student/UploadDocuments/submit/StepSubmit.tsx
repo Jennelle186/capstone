@@ -39,7 +39,7 @@ export default function StepSubmit() {
 
   const handleSubmit = () => {
     setSubmitted(true);
-    // eslint-disable-next-line no-console
+     
     console.log("Documents submitted:", items);
   };
 
@@ -86,7 +86,7 @@ export default function StepSubmit() {
           <SubmissionSummary
             items={items}
             onSaveLater={() => {
-              // eslint-disable-next-line no-console
+               
               console.log("Saved for later");
             }}
             onSubmit={() => setShowConfirm(true)}

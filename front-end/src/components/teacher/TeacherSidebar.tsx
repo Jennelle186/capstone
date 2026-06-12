@@ -1,4 +1,4 @@
-import { LayoutDashboard, LogOut, Upload, UserCircle2, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, UserCircle2, Users } from "lucide-react";
 import CommonAppSidebar from "@/components/common/AppSidebar";
 import LogoutConfirmDialog from "@/components/common/LogoutConfirmDialog";
 import type { SidebarGroupConfig } from "@/components/common/AppSidebar";
@@ -58,11 +58,10 @@ export default function TeacherSidebar() {
         ],
       },
       {
-        label: "Pages",
+        label: "Management",
         items: [
-          { title: "Upload", icon: Upload, url: "#" },
-          { title: "Student Profile", icon: Users, url: "#" },
-          { title: "Account", icon: UserCircle2, url: "/adviser/profile" },
+          { title: "My Advisees", icon: Users, url: "/adviser/students" },
+          { title: "Profile Settings", icon: UserCircle2, url: "/adviser/profile" },
 
           {
             title: "Logout",

@@ -115,7 +115,7 @@ export default function StepClassify({ requiredDocuments, onClassificationChange
 
   const handleSplit = React.useCallback((fileId: string) => {
     // Placeholder — split dialog will be built later
-    // eslint-disable-next-line no-console
+     
     console.log("Split requested for file:", fileId);
   }, []);
 

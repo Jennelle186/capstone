@@ -14,6 +14,8 @@ import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
 import AdminLayout from "./layouts/AdminLayout";
 import TeacherDashboard from "./pages/teachers/TeacherDashboard";
 import TeacherProfilePage from "./pages/teachers/TeacherProfilePage";
+import AdviseesPlaceholder from "./pages/teachers/AdviseesPlaceholder";
+import StudentDetailPage from "./pages/teachers/StudentDetailPage";
 import AdminDashboardPage from "./pages/admin/dashboard/AdminDashboardPage";
 import AdvisersPage from "./pages/admin/advisers/AdvisersPage";
 import ReportsPage from "./pages/admin/reports/ReportsPage";
@@ -78,6 +80,13 @@ const AppRoutes = createBrowserRouter([
                 children: [
                     { index: true, element: <Navigate to="dashboard" replace /> },
                     { path: "dashboard", Component: TeacherDashboard },
+                    {
+                        path: "students",
+                        children: [
+                            { index: true, Component: AdviseesPlaceholder },
+                            { path: ":id", Component: StudentDetailPage },
+                        ],
+                    },
                     { path: "profile/*", Component: TeacherProfilePage },
                 ],
             },

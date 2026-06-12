@@ -11,15 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { fetchWithClerkAuth } from "@/lib/api";
-
-type AdviserProfileResponse = {
-  first_name: string | null;
-  middle_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  department: string | null;
-  school_year: string | null;
-};
+import type { AdviserProfileResponse } from "@/types/adviser";
 
 type NameFormState = {
   firstName: string;
