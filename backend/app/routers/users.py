@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+import io
+
+from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, select
 from typing_extensions import Annotated
 
 from ..database import SessionDep
-from ..models import Adviser, DocumentType, ProgramAdviserAssignment, SchoolYear, SchoolYearRequirement, Student, User, UserRole
+from ..models import Adviser, DocumentSubmission, DocumentType, ProgramAdviserAssignment, SchoolYear, SchoolYearRequirement, Student, SubmissionStatus, User, UserRole
 from ..rbac import require_roles, require_student
 from ..routers.admin.program_assignment import get_program_id_to_department_code_map
 from ..services.clerk import update_user_personal_names, update_user_public_metadata
 from ..services.document_requirements import get_required_document_types_for_student
+from ..services.s3 import upload_file as s3_upload
 from ..services.user_sync import ensure_user_row
 
 router = APIRouter()
@@ -273,4 +276,51 @@ async def get_required_documents(current_user: dict = Depends(require_student), 
             )
             for dt in document_types
         ],
+    )
+
+
+class DocumentUploadResponse(BaseModel):
+    id: str
+    status: str
+    file_key: str
+    original_filename: str
+    is_compiled: bool
+
+
+@router.post("/api/me/documents/upload", response_model=DocumentUploadResponse, tags=["users"])
+async def upload_document(
+    file: UploadFile,
+    current_user: StudentClaims,
+    db: SessionDep,
+    is_compiled: bool = False,
+    document_type_id: str | None = None,
+) -> DocumentUploadResponse:
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
+
+    content = await file.read()
+    s3_result = s3_upload(io.BytesIO(content), str(student.id), file.filename or "document.pdf")
+    submission = DocumentSubmission(
+        student_id=student.id,
+        file_key=s3_result["key"],
+        original_filename=file.filename or "document.pdf",
+        mime_type=file.content_type or "application/octet-stream",
+        is_compiled=is_compiled,
+        status=SubmissionStatus.UPLOADED,
+    )
+    if document_type_id:
+        submission.document_type_id = document_type_id
+    db.add(submission)
+    await db.commit()
+    await db.refresh(submission)
+
+    return DocumentUploadResponse(
+        id=str(submission.id),
+        status=submission.status.value,
+        file_key=submission.file_key,
+        original_filename=submission.original_filename,
+        is_compiled=submission.is_compiled,
     )

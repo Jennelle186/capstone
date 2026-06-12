@@ -113,6 +113,7 @@ class Student(Base):
 
     user = relationship("User", back_populates="student")
     school_year = relationship("SchoolYear", foreign_keys=[school_year_id])
+    submissions = relationship("DocumentSubmission", back_populates="student", cascade="all, delete-orphan")
 
 
 class Adviser(Base):
@@ -397,3 +398,44 @@ class AdviserInvitation(Base):
     accepted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SubmissionStatus(str, enum.Enum):
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    CLASSIFIED = "classified"
+    EXTRACTING = "extracting"
+    IN_REVIEW = "in-review"
+    VERIFIED = "verified"
+    FLAGGED = "flagged"
+
+
+class DocumentSubmission(Base):
+    __tablename__ = "document_submissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_key = Column(String(512), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    file_size = Column(String(32), nullable=True)
+    mime_type = Column(String(128), nullable=True)
+    is_compiled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    status = Column(
+        Enum(
+            SubmissionStatus,
+            name="submission_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=SubmissionStatus.UPLOADED,
+        server_default=SubmissionStatus.UPLOADED.value,
+    )
+    classification_result = Column(JSONB, nullable=True)
+    extracted_data = Column(JSONB, nullable=True)
+    llama_job_id = Column(String(255), nullable=True)
+    document_type_id = Column(UUID(as_uuid=True), ForeignKey("document_types.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    student = relationship("Student", back_populates="submissions")
+    document_type = relationship("DocumentType")
