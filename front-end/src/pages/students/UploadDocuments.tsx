@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useAuth } from "@clerk/clerk-react";
 import UploadWizard from "@/components/student/UploadDocuments/UploadWizard";
@@ -10,15 +10,17 @@ import StepExtract from "@/components/student/UploadDocuments/extract/StepExtrac
 import StepSubmit from "@/components/student/UploadDocuments/submit/StepSubmit";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
+import type { DocumentUploadResponse } from "@/types/submission";
 
 const CLAMP = (n: number) => Math.max(1, Math.min(4, n));
 
 export default function UploadDocuments() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [requiredDocs, setRequiredDocs] = React.useState<RequiredDocument[]>([]);
-  const [classificationComplete, setClassificationComplete] = React.useState(false);
-  const [extractionComplete, setExtractionComplete] = React.useState(false);
+  const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
+  const [classificationComplete, setClassificationComplete] = useState(false);
+  const [extractionComplete, setExtractionComplete] = useState(false);
+  const [submissions, setSubmissions] = useState<DocumentUploadResponse[]>([]);
 
   const maxAccessibleStep = Math.min(
     4,
@@ -29,14 +31,14 @@ export default function UploadDocuments() {
   const step = Math.min(CLAMP(rawStep), maxAccessibleStep);
 
   // Redirect if URL step exceeds maxAccessibleStep
-  React.useEffect(() => {
+  useEffect(() => {
     const clamped = Math.min(rawStep, maxAccessibleStep);
     if (clamped !== rawStep) {
       setSearchParams({ step: String(clamped) }, { replace: true });
     }
   }, [rawStep, maxAccessibleStep, setSearchParams]);
 
-  const goToStep = React.useCallback(
+  const goToStep = useCallback(
     (n: number) => {
       const clamped = Math.min(CLAMP(n), maxAccessibleStep);
       setSearchParams({ step: String(clamped) });
@@ -49,7 +51,7 @@ export default function UploadDocuments() {
     (step === 3 && !extractionComplete) ||
     step === 4;
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
 
     let cancelled = false;
@@ -71,10 +73,21 @@ export default function UploadDocuments() {
     };
   }, [getToken, isLoaded, isSignedIn]);
 
+  const handleUploadComplete = useCallback((result: DocumentUploadResponse) => {
+    console.log("Upload complete:", result);
+    setSubmissions((prev) => [...prev, result]);
+  }, []);
+
   return (
     <UploadWizard step={step} onStepChange={goToStep} nextDisabled={nextDisabled}>
-      {step === 1 && <StepUpload requiredDocuments={requiredDocs} />}
-      {step === 2 && <StepClassify requiredDocuments={requiredDocs} onClassificationChange={setClassificationComplete} />}
+      {step === 1 && (
+        <StepUpload
+          requiredDocuments={requiredDocs}
+          getToken={getToken}
+          onUploadComplete={handleUploadComplete}
+        />
+      )}
+      {step === 2 && <StepClassify requiredDocuments={requiredDocs} submissions={submissions} onClassificationChange={setClassificationComplete} />}
       {step === 3 && <StepExtract onExtractionChange={setExtractionComplete} />}
       {step === 4 && <StepSubmit />}
     </UploadWizard>

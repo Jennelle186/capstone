@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   CloudUpload,
   FileText,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ArrowRight,
   ClipboardList,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +22,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
+import type { DocumentUploadResponse } from "@/types/submission";
 
 const MAX_FILE_SIZE = 315 * 1024 * 1024; // 315MB (LlamaCloud limit)
 
@@ -47,6 +50,8 @@ function isPreviewable(file: File) {
 
 interface StepUploadProps {
   requiredDocuments?: RequiredDocument[];
+  getToken: () => Promise<string | null>;
+  onUploadComplete?: (result: DocumentUploadResponse) => void;
 }
 
 function isImageFile(file: File) {
@@ -54,13 +59,15 @@ function isImageFile(file: File) {
   return file.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"].includes(ext ?? "");
 }
 
-export default function StepUpload({ requiredDocuments }: StepUploadProps) {
-  const [files, setFiles] = React.useState<FileItem[]>([]);
-  const [isDragOver, setIsDragOver] = React.useState(false);
-  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
-  const inputRef = React.useRef<HTMLInputElement>(null);
+export default function StepUpload({ requiredDocuments, getToken, onUploadComplete }: StepUploadProps) {
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [uploadingIds, setUploadingIds] = useState<Set<string>>(new Set());
+  const [uploadedIds, setUploadedIds] = useState<Set<string>>(new Set());
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const addFiles = React.useCallback((incoming: FileList | File[]) => {
+  const addFiles = useCallback((incoming: FileList | File[]) => {
     const newFiles = Array.from(incoming).filter((f) => f.size <= MAX_FILE_SIZE);
     const items: FileItem[] = newFiles.map((file, i) => ({
       id: `${file.name}-${file.lastModified}-${file.size}-${Date.now()}-${i}`,
@@ -73,7 +80,7 @@ export default function StepUpload({ requiredDocuments }: StepUploadProps) {
     setFiles((prev) => [...prev, ...items]);
   }, []);
 
-  const removeFile = React.useCallback((id: string) => {
+  const removeFile = useCallback((id: string) => {
     setFiles((prev) => {
       const item = prev.find((f) => f.id === id);
       if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -82,33 +89,91 @@ export default function StepUpload({ requiredDocuments }: StepUploadProps) {
     });
   }, []);
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const uploadOne = useCallback(async (item: FileItem, token: string) => {
+    const formData = new FormData();
+    formData.append("file", item.file);
+    const res = await fetchWithClerkAuth("/api/me/documents/upload", token, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+    }
+    const result: DocumentUploadResponse = await res.json();
+    console.log("Upload success:", result);
+    setUploadedIds((prev) => new Set(prev).add(item.id));
+    onUploadComplete?.(result);
+  }, [onUploadComplete]);
+
+  const handleUpload = useCallback(async (item: FileItem) => {
+    const token = await getToken();
+    if (!token) return;
+    setUploadingIds((prev) => new Set(prev).add(item.id));
+    try {
+      await uploadOne(item, token);
+    } catch (err) {
+      console.error("Upload error:", err);
+    } finally {
+      setUploadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  }, [getToken, uploadOne]);
+
+  const handleUploadAll = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const pending = files.filter((f) => !uploadedIds.has(f.id));
+    const pendingIds = new Set(pending.map((f) => f.id));
+    setUploadingIds((prev) => {
+      const next = new Set(prev);
+      for (const id of pendingIds) next.add(id);
+      return next;
+    });
+    for (const item of pending) {
+      try {
+        await uploadOne(item, token);
+      } catch (err) {
+        console.error(`Upload error for ${item.file.name}:`, err);
+      } finally {
+        setUploadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+      }
+    }
+  }, [getToken, uploadedIds, files, uploadOne]);
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
   };
 
-  const handleDragEnter = (e: React.DragEvent) => {
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(true);
   };
 
-  const handleDragLeave = (e: React.DragEvent) => {
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    if (e.dataTransfer.files?.length) {
+    if (e.dataTransfer?.files?.length) {
       addFiles(e.dataTransfer.files);
     }
   };
 
-  const previewableItems = React.useMemo(
+  const previewableItems = useMemo(
     () => files.filter((f) => isPreviewable(f.file)),
     [files]
   );
@@ -167,7 +232,7 @@ export default function StepUpload({ requiredDocuments }: StepUploadProps) {
             ref={inputRef}
             type="file"
             multiple
-            accept=".pdf,.png,.jpg,.jpeg,.webp"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif,.heic,.heif"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) {
@@ -183,23 +248,39 @@ export default function StepUpload({ requiredDocuments }: StepUploadProps) {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Recently Uploaded ({files.length})
+                Files ({files.length})
+                {uploadedIds.size > 0 && ` \u2022 ${uploadedIds.size}/${files.length} uploaded`}
               </h4>
-              <button
-                onClick={() => {
-                  files.forEach((f) => {
-                    if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
-                    if (f.pdfUrl) URL.revokeObjectURL(f.pdfUrl);
-                  });
-                  setFiles([]);
-                }}
-                className="text-xs font-semibold text-primary hover:underline"
-              >
-                Clear All
-              </button>
+              <div className="flex items-center gap-3">
+                {uploadedIds.size < files.length && uploadingIds.size === 0 && (
+                  <button
+                    onClick={handleUploadAll}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    Upload All
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    files.forEach((f) => {
+                      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+                      if (f.pdfUrl) URL.revokeObjectURL(f.pdfUrl);
+                    });
+                    setFiles([]);
+                    setUploadedIds(new Set());
+                  }}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-700 underline"
+                >
+                  Clear All
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
-              {files.map((item) => (
+              {files.map((item) => {
+                const isUploading = uploadingIds.has(item.id);
+                const isUploaded = uploadedIds.has(item.id);
+
+                return (
                 <div
                   key={item.id}
                   className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 group hover:shadow-sm transition-shadow"
@@ -220,10 +301,25 @@ export default function StepUpload({ requiredDocuments }: StepUploadProps) {
                       {item.file.name}
                     </p>
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                      {formatFileSize(item.file.size)} &bull; Ready to classify
+                      {formatFileSize(item.file.size)}
+                      {isUploaded ? " \u2022 Uploaded to S3" : isUploading ? " \u2022 Uploading..." : " \u2022 Ready to upload"}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-2">
+                    {isUploaded ? (
+                      <CheckCircle className="size-5 text-emerald-500" />
+                    ) : isUploading ? (
+                      <Loader2 className="size-5 text-primary animate-spin" />
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="rounded-xl gap-1.5 bg-primary text-white hover:bg-primary/90 shadow-sm"
+                        onClick={() => handleUpload(item)}
+                      >
+                        <CloudUpload className="size-4" />
+                        Upload
+                      </Button>
+                    )}
                     <button
                       onClick={() => {
                         const idx = previewableItems.findIndex((p) => p.id === item.id);
@@ -231,17 +327,20 @@ export default function StepUpload({ requiredDocuments }: StepUploadProps) {
                       }}
                       className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                     >
-                      <FileText className="h-4 w-4 text-slate-500" />
+                      <FileText className="size-4 text-slate-500" />
                     </button>
+                    {!isUploaded && (
                     <button
                       onClick={() => removeFile(item.id)}
                       className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="size-4" />
                     </button>
+                    )}
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         )}

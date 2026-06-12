@@ -9,3 +9,11 @@ export interface SubmissionItem {
   status: SubmissionCardStatus;
   issues?: string;
 }
+
+export interface DocumentUploadResponse {
+  id: string;
+  status: string;
+  file_key: string;
+  original_filename: string;
+  is_compiled: boolean;
+}
