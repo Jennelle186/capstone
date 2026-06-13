@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   FileText,
   Trash2,
   CheckCircle,
   Clock,
   AlertTriangle,
+  UploadCloud,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -76,8 +78,71 @@ export default function PreviouslyUploadedSection({
   onDeleted,
   getToken,
 }: PreviouslyUploadedSectionProps) {
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [activeRetryId, setActiveRetryId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const displaySubmissions = submissions.filter(
     (s) => s.status === "uploaded" || s.status === "flagged" || s.status === "pending"
+  );
+
+  const handleRetry = useCallback(
+    async (submissionId: string, file: File) => {
+      setRetryingId(submissionId);
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const initiateRes = await fetchWithClerkAuth(
+          `/api/me/documents/${submissionId}/retry`,
+          token,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: file.name,
+              type: file.type || "application/octet-stream",
+              size: file.size,
+            }),
+          },
+        );
+        if (!initiateRes.ok) {
+          const err = await initiateRes.text();
+          throw new Error(`Retry initiate failed: ${err}`);
+        }
+        const presigned = (await initiateRes.json()) as {
+          url: string;
+          fields: Record<string, string>;
+        };
+
+        const formData = new FormData();
+        Object.entries(presigned.fields).forEach(([k, v]) => formData.append(k, v));
+        formData.append("file", file);
+
+        const s3Res = await fetch(presigned.url, {
+          method: "POST",
+          body: formData,
+        });
+        if (!s3Res.ok) {
+          const body = await s3Res.text();
+          throw new Error(`S3 upload failed: ${s3Res.status} — ${body}`);
+        }
+
+        const confirmRes = await fetchWithClerkAuth("/api/me/documents/confirm", token, {
+          method: "POST",
+          body: JSON.stringify({ submission_id: submissionId }),
+        });
+        if (!confirmRes.ok) {
+          throw new Error(`Confirm failed: ${confirmRes.status}`);
+        }
+
+        onDeleted?.();
+      } catch (err) {
+        console.error("Retry error:", err);
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [getToken, onDeleted],
   );
 
   // Sends a DELETE request to remove the submission from both the database and S3 storage
@@ -118,11 +183,29 @@ export default function PreviouslyUploadedSection({
                 <SubmissionStatusBadge status={sub.status} />
               </div>
             </div>
-            {sub.status === "pending" ? (
-              <Clock className="size-5 text-amber-500" />
-            ) : sub.status === "flagged" ? (
+            {sub.status === "pending" && (
+              <button
+                onClick={() => {
+                  setActiveRetryId(sub.id);
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = "";
+                  }
+                  fileInputRef.current?.click();
+                }}
+                disabled={retryingId === sub.id}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+                title="Re-upload"
+              >
+                {retryingId === sub.id ? (
+                  <Loader2 className="size-4 text-primary animate-spin" />
+                ) : (
+                  <UploadCloud className="size-4 text-amber-500" />
+                )}
+              </button>
+            )}
+            {sub.status === "flagged" ? (
               <AlertTriangle className="size-5 text-amber-500" />
-            ) : (
+            ) : sub.status !== "pending" && (
               <CheckCircle className="size-5 text-emerald-500" />
             )}
             <button
@@ -165,6 +248,18 @@ export default function PreviouslyUploadedSection({
             )}
           </div>
         ))}
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file && activeRetryId) {
+              void handleRetry(activeRetryId, file);
+              setActiveRetryId(null);
+            }
+          }}
+        />
       </div>
     </div>
   );

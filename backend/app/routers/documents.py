@@ -170,6 +170,71 @@ async def initiate_upload(
     )
 
 
+class RetryUploadRequest(BaseModel):
+    # Updated metadata for the file being re-uploaded. Optional — if omitted,
+    # the existing submission metadata is reused.
+    name: str | None = None
+    type: str | None = None
+    size: int | None = None
+
+
+@router.post("/api/me/documents/{submission_id}/retry", response_model=InitiateUploadResponse)
+async def retry_upload(
+    submission_id: UUID,
+    current_user: StudentClaims,
+    db: SessionDep,
+    body: RetryUploadRequest | None = None,
+) -> InitiateUploadResponse:
+    """Generate a fresh presigned POST URL for an existing PENDING submission.
+
+    Used when an upload was initiated but the browser never completed the S3 POST
+    (e.g., user closed the tab, network failed). The file_key stays the same;
+    only the presigned URL is refreshed so the browser can retry the upload.
+    """
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found.")
+
+    submission = await db.get(DocumentSubmission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if submission.student_id != student.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to retry this document.")
+
+    if submission.status != SubmissionStatus.PENDING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot retry a document with status '{submission.status.value}'. Only PENDING submissions can be retried.",
+        )
+
+    # Update metadata if the user selected a different file for retry.
+    if body:
+        if body.name:
+            submission.original_filename = body.name
+        if body.type:
+            submission.mime_type = body.type
+        if body.size is not None:
+            submission.file_size = str(body.size)
+        if body.name or body.type or body.size is not None:
+            await db.commit()
+            await db.refresh(submission)
+
+    presigned = s3_generate_presigned_post(
+        submission.file_key,
+        submission.mime_type or "application/octet-stream",
+    )
+
+    return InitiateUploadResponse(
+        submission_id=str(submission.id),
+        url=presigned["url"],
+        fields=presigned["fields"],
+        key=submission.file_key,
+    )
+
+
 @router.post("/api/me/documents/confirm", response_model=ConfirmUploadResponse)
 async def confirm_upload(
     body: ConfirmUploadRequest,
