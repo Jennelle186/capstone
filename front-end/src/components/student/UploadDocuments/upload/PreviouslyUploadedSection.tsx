@@ -56,9 +56,7 @@ export default function PreviouslyUploadedSection({
   const [activeRetryId, setActiveRetryId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const displaySubmissions = submissions.filter(
-    (s) => s.status === "uploaded" || s.status === "flagged" || s.status === "pending"
-  );
+  const displaySubmissions = submissions.filter((s) => s.status !== "verified");
 
   const handleRetry = useCallback(
     async (submissionId: string, file: File) => {
@@ -171,6 +169,8 @@ export default function PreviouslyUploadedSection({
             )}
             {sub.status === "flagged" ? (
               <AlertTriangle className="size-5 text-amber-500" />
+            ) : sub.status === "processing" ? (
+              <Loader2 className="size-5 text-primary animate-spin" />
             ) : sub.status !== "pending" && (
               <CheckCircle className="size-5 text-emerald-500" />
             )}
@@ -185,33 +185,31 @@ export default function PreviouslyUploadedSection({
             >
               <FileText className="size-4 text-slate-500" />
             </button>
-            {sub.status !== "verified" && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <button className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
-                    <Trash2 className="size-4" />
-                  </button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete Document</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Are you sure you want to delete "{sub.original_filename}"? This action cannot
-                      be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      onClick={() => handleDelete(sub.id)}
-                    >
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
+                  <Trash2 className="size-4" />
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Document</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete "{sub.original_filename}"? This action cannot
+                    be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={() => handleDelete(sub.id)}
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         ))}
         <input

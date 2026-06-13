@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -19,6 +19,7 @@ from ..services.s3 import generate_presigned_post as s3_generate_presigned_post
 from ..services.s3 import generate_presigned_url as s3_generate_presigned_url
 from ..services.s3 import head_object as s3_head_object
 from ..services.s3 import make_staging_key
+from ..services.processor import process_submission
 from ..services.user_sync import ensure_user_row
 
 router: APIRouter = APIRouter(tags=["documents"])
@@ -87,6 +88,8 @@ class SubmissionDetailResponse(BaseModel):
     mime_type: str | None = None
     is_compiled: bool
     document_type_name: str | None = None
+    classification_result: dict | None = None
+    llama_job_id: str | None = None
     created_at: str
 
 
@@ -248,11 +251,14 @@ async def confirm_upload(
     body: ConfirmUploadRequest,
     current_user: StudentClaims,
     db: SessionDep,
+    background_tasks: BackgroundTasks,
 ) -> ConfirmUploadResponse:
-    """Verify the file exists in S3 and mark the submission as UPLOADED.
+    """Verify the file exists in S3, mark the submission as UPLOADED, and queue
+    a background task for LlamaCloud classification.
 
     This endpoint is called by the browser after it has successfully POSTed the
-    file to the presigned S3 URL returned by /api/me/documents/initiate.
+    file to the presigned S3 URL returned by /api/me/documents/initiate. The
+    response is returned immediately; processing happens asynchronously.
     """
     user = await ensure_user_row(db, current_user)
     result = await db.execute(select(Student).where(Student.user_id == user.id))
@@ -280,6 +286,10 @@ async def confirm_upload(
     submission.status = SubmissionStatus.UPLOADED
     await db.commit()
     await db.refresh(submission)
+
+    # Kick off LlamaCloud parse + classify in the background so the browser
+    # does not have to wait for the LLM pipeline to finish.
+    background_tasks.add_task(process_submission, submission.id)
 
     return ConfirmUploadResponse(
         id=str(submission.id),
@@ -320,6 +330,8 @@ async def list_my_documents(
             mime_type=s.mime_type,
             is_compiled=s.is_compiled,
             document_type_name=s.document_type.name if s.document_type else None,
+            classification_result=s.classification_result,
+            llama_job_id=s.llama_job_id,
             created_at=s.created_at.isoformat() if s.created_at else "",
         )
         for s in submissions

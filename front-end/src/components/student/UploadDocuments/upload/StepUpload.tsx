@@ -144,7 +144,13 @@ export default function StepUpload({
 
       const presigned = await initiateUpload(item, token);
       await uploadToS3(item, presigned);
-      const confirmed = await confirmUpload(presigned.submission_id, token);
+      // Fetch a fresh token after S3 upload; Clerk tokens can expire during
+      // large file transfers, and confirm_upload validates auth.
+      const confirmToken = await getToken();
+      if (!confirmToken) {
+        throw new Error("Not authenticated");
+      }
+      const confirmed = await confirmUpload(presigned.submission_id, confirmToken);
 
       setUploadedIds((prev) => new Set(prev).add(item.id));
       setErrors((prev) => {
