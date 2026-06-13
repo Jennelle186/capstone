@@ -10,7 +10,7 @@ import StepExtract from "@/components/student/UploadDocuments/extract/StepExtrac
 import StepSubmit from "@/components/student/UploadDocuments/submit/StepSubmit";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
-import type { DocumentUploadResponse, SubmissionDetail } from "@/types/submission";
+import type { ConfirmUploadResponse, SubmissionDetail } from "@/types/submission";
 
 const CLAMP = (n: number) => Math.max(1, Math.min(4, n));
 
@@ -20,7 +20,7 @@ export default function UploadDocuments() {
   const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
   const [classificationComplete, setClassificationComplete] = useState(false);
   const [extractionComplete, setExtractionComplete] = useState(false);
-  const [submissions, setSubmissions] = useState<DocumentUploadResponse[]>([]);
+  const [submissions, setSubmissions] = useState<ConfirmUploadResponse[]>([]);
   const [existingSubmissions, setExistingSubmissions] = useState<SubmissionDetail[]>([]);
 
   const maxAccessibleStep = Math.min(
@@ -82,8 +82,7 @@ export default function UploadDocuments() {
     };
   }, [getToken, isLoaded, isSignedIn]);
 
-  const handleUploadComplete = useCallback((result: DocumentUploadResponse) => {
-    console.log("Upload complete:", result);
+  const handleUploadComplete = useCallback((result: ConfirmUploadResponse) => {
     setSubmissions((prev) => [...prev, result]);
   }, []);
 

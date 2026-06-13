@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import io
+import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -15,7 +15,9 @@ from ..models import DocumentSubmission, SchoolYear, Student, SubmissionStatus
 from ..rbac import require_student
 from ..services.document_requirements import get_required_document_types_for_student
 from ..services.s3 import delete_file as s3_delete_file
-from ..services.s3 import upload_file as s3_upload
+from ..services.s3 import generate_presigned_post as s3_generate_presigned_post
+from ..services.s3 import head_object as s3_head_object
+from ..services.s3 import make_staging_key
 from ..services.user_sync import ensure_user_row
 
 router: APIRouter = APIRouter(tags=["documents"])
@@ -39,7 +41,35 @@ class RequiredDocumentsResponse(BaseModel):
     documents: list[RequiredDocumentResponse]
 
 
-class DocumentUploadResponse(BaseModel):
+class InitiateUploadRequest(BaseModel):
+    # Original filename from the client's file picker.
+    name: str
+    # MIME type reported by the browser (e.g. application/pdf).
+    type: str
+    # File size in bytes.
+    size: int
+    # Optional document type selected by the student.
+    document_type_id: str | None = None
+    # Whether this file is a compiled set of documents that needs splitting.
+    is_compiled: bool = False
+
+
+class InitiateUploadResponse(BaseModel):
+    # Database id for the submission record; used in the confirm step.
+    submission_id: str
+    # Browser must POST the file to this S3 URL.
+    url: str
+    # Hidden form fields that must accompany the POST (key, policy, signature, etc.).
+    fields: dict[str, str]
+    # S3 object key for reference.
+    key: str
+
+
+class ConfirmUploadRequest(BaseModel):
+    submission_id: str
+
+
+class ConfirmUploadResponse(BaseModel):
     id: str
     status: str
     file_key: str
@@ -96,37 +126,89 @@ async def get_required_documents(
     )
 
 
-@router.post("/api/me/documents/upload", response_model=DocumentUploadResponse)
-async def upload_document(
-    file: UploadFile,
+@router.post("/api/me/documents/initiate", response_model=InitiateUploadResponse)
+async def initiate_upload(
+    body: InitiateUploadRequest,
     current_user: StudentClaims,
     db: SessionDep,
-    is_compiled: bool = False,
-    document_type_id: str | None = None,
-) -> DocumentUploadResponse:
+) -> InitiateUploadResponse:
+    """Create a PENDING submission and return a presigned POST URL for direct S3 upload.
+
+    The browser uploads the file directly to S3 using the returned URL and fields,
+    then calls POST /api/me/documents/confirm to mark the submission as UPLOADED.
+    """
     user = await ensure_user_row(db, current_user)
     result = await db.execute(select(Student).where(Student.user_id == user.id))
     student = result.scalar_one_or_none()
     if student is None:
         raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
 
-    content = await file.read()
-    s3_result = s3_upload(io.BytesIO(content), str(student.id), file.filename or "document.pdf")
+    key = make_staging_key(str(student.id), body.name)
+    presigned = s3_generate_presigned_post(key, body.type)
+
     submission = DocumentSubmission(
         student_id=student.id,
-        file_key=s3_result["key"],
-        original_filename=file.filename or "document.pdf",
-        mime_type=file.content_type or "application/octet-stream",
-        is_compiled=is_compiled,
-        status=SubmissionStatus.UPLOADED,
+        file_key=key,
+        original_filename=body.name,
+        mime_type=body.type,
+        file_size=str(body.size),
+        is_compiled=body.is_compiled,
+        status=SubmissionStatus.PENDING,
     )
-    if document_type_id:
-        submission.document_type_id = document_type_id
+    if body.document_type_id:
+        submission.document_type_id = body.document_type_id
+
     db.add(submission)
     await db.commit()
     await db.refresh(submission)
 
-    return DocumentUploadResponse(
+    return InitiateUploadResponse(
+        submission_id=str(submission.id),
+        url=presigned["url"],
+        fields=presigned["fields"],
+        key=key,
+    )
+
+
+@router.post("/api/me/documents/confirm", response_model=ConfirmUploadResponse)
+async def confirm_upload(
+    body: ConfirmUploadRequest,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> ConfirmUploadResponse:
+    """Verify the file exists in S3 and mark the submission as UPLOADED.
+
+    This endpoint is called by the browser after it has successfully POSTed the
+    file to the presigned S3 URL returned by /api/me/documents/initiate.
+    """
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found.")
+
+    try:
+        submission_id = UUID(body.submission_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid submission id.")
+
+    submission = await db.get(DocumentSubmission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if submission.student_id != student.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to confirm this document.")
+
+    # Verify the object actually arrived in S3 before marking it uploaded.
+    # head_object is a synchronous boto3 call, so run it in a thread pool to
+    # avoid blocking the FastAPI event loop for other students.
+    await asyncio.to_thread(s3_head_object, submission.file_key)
+
+    submission.status = SubmissionStatus.UPLOADED
+    await db.commit()
+    await db.refresh(submission)
+
+    return ConfirmUploadResponse(
         id=str(submission.id),
         status=submission.status.value,
         file_key=submission.file_key,

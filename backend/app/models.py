@@ -401,6 +401,7 @@ class AdviserInvitation(Base):
 
 
 class SubmissionStatus(str, enum.Enum):
+    PENDING = "pending"
     UPLOADED = "uploaded"
     PROCESSING = "processing"
     CLASSIFIED = "classified"
@@ -427,8 +428,8 @@ class DocumentSubmission(Base):
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=False,
-        default=SubmissionStatus.UPLOADED,
-        server_default=SubmissionStatus.UPLOADED.value,
+        default=SubmissionStatus.PENDING,
+        server_default=SubmissionStatus.PENDING.value,
     )
     classification_result = Column(JSONB, nullable=True)
     extracted_data = Column(JSONB, nullable=True)

@@ -13,6 +13,8 @@ interface NewFileListProps {
   uploadingIds: Set<string>;
   // Set of file IDs that have finished uploading
   uploadedIds: Set<string>;
+  // Map of file ID to last error message
+  errors: Record<string, string>;
   // Combined preview items for finding the navigation index
   previewItems: PreviewItem[];
   // Upload a single file by its FileItem
@@ -32,6 +34,7 @@ function FileRow({
   item,
   isUploading,
   isUploaded,
+  error,
   previewItems,
   onUpload,
   onPreview,
@@ -40,6 +43,7 @@ function FileRow({
   item: FileItem;
   isUploading: boolean;
   isUploaded: boolean;
+  error?: string;
   previewItems: PreviewItem[];
   onUpload: (item: FileItem) => void;
   onPreview: (index: number) => void;
@@ -65,8 +69,19 @@ function FileRow({
         </p>
         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
           {formatFileSize(item.file.size)}
-          {isUploaded ? " \u2022 Uploaded to S3" : isUploading ? " \u2022 Uploading..." : " \u2022 Ready to upload"}
+          {isUploaded
+            ? " \u2022 Uploaded"
+            : isUploading
+              ? " \u2022 Uploading..."
+              : error
+                ? " \u2022 Upload failed"
+                : " \u2022 Ready to upload"}
         </p>
+        {error && (
+          <p className="text-[11px] text-rose-600 truncate" title={error}>
+            {error}
+          </p>
+        )}
       </div>
       {/* Action buttons */}
       <div className="flex items-center gap-2">
@@ -81,7 +96,7 @@ function FileRow({
             onClick={() => onUpload(item)}
           >
             <CloudUpload className="size-4" />
-            Upload
+            {error ? "Retry" : "Upload"}
           </Button>
         )}
         <button
@@ -156,6 +171,7 @@ export default function NewFileList({
   files,
   uploadingIds,
   uploadedIds,
+  errors,
   previewItems,
   onUpload,
   onUploadAll,
@@ -184,6 +200,7 @@ export default function NewFileList({
             item={item}
             isUploading={uploadingIds.has(item.id)}
             isUploaded={uploadedIds.has(item.id)}
+            error={errors[item.id]}
             previewItems={previewItems}
             onUpload={onUpload}
             onPreview={onPreview}

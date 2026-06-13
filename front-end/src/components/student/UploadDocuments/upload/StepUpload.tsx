@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
-import type { DocumentUploadResponse, SubmissionDetail } from "@/types/submission";
+import type { ConfirmUploadResponse, InitiateUploadResponse, SubmissionDetail } from "@/types/submission";
 import DocumentPreviewDialog, { type PreviewItem } from "./DocumentPreviewDialog";
 import DropZone from "./DropZone";
 import PreviouslyUploadedSection from "./PreviouslyUploadedSection";
@@ -20,7 +20,7 @@ interface StepUploadProps {
   // Clerk auth token provider for authenticated API calls
   getToken: () => Promise<string | null>;
   // Called after each file is uploaded successfully
-  onUploadComplete?: (result: DocumentUploadResponse) => void;
+  onUploadComplete?: (result: ConfirmUploadResponse) => void;
   // Called after a previously uploaded submission is deleted from the server
   onDeleteSubmission?: (id: string) => void;
   // Existing submissions fetched on mount for the resume feature
@@ -43,6 +43,8 @@ export default function StepUpload({
   const [uploadingIds, setUploadingIds] = useState<Set<string>>(new Set());
   // Set of file IDs that have completed upload
   const [uploadedIds, setUploadedIds] = useState<Set<string>>(new Set());
+  // Map of file ID to the last error message for failed uploads
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Adds incoming files to the local selection, filtering out any that exceed the size limit
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -68,44 +70,119 @@ export default function StepUpload({
     });
   }, []);
 
-  // Uploads a single file to the server via the POST documents endpoint
-  const uploadOne = useCallback(async (item: FileItem, token: string) => {
-    const formData = new FormData();
-    formData.append("file", item.file);
-    const res = await fetchWithClerkAuth("/api/me/documents/upload", token, {
-      method: "POST",
-      body: formData,
-    });
-    if (!res.ok) {
-      throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
-    }
-    const result: DocumentUploadResponse = await res.json();
-    setUploadedIds((prev) => new Set(prev).add(item.id));
-    onUploadComplete?.(result);
-  }, [onUploadComplete]);
+  // Requests a presigned POST URL from the backend for the given file.
+  const initiateUpload = useCallback(
+    async (item: FileItem, token: string): Promise<InitiateUploadResponse> => {
+      const res = await fetchWithClerkAuth("/api/me/documents/initiate", token, {
+        method: "POST",
+        body: JSON.stringify({
+          name: item.file.name,
+          type: item.file.type || "application/octet-stream",
+          size: item.file.size,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`Initiate failed: ${res.status} ${res.statusText}`);
+      }
+      return res.json() as Promise<InitiateUploadResponse>;
+    },
+    [],
+  );
 
-  // Wraps uploadOne with auth token fetching and uploading state management
-  const handleUpload = useCallback(async (item: FileItem) => {
-    const token = await getToken();
-    if (!token) return;
-    setUploadingIds((prev) => new Set(prev).add(item.id));
-    try {
-      await uploadOne(item, token);
-    } catch (err) {
-      console.error("Upload error:", err);
-    } finally {
-      setUploadingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(item.id);
+  // Uploads the file directly to S3 using the presigned POST URL and fields.
+  const uploadToS3 = useCallback(
+    async (item: FileItem, presigned: InitiateUploadResponse): Promise<void> => {
+      const formData = new FormData();
+      // Append the policy fields first (key, policy, signature, etc.).
+      Object.entries(presigned.fields).forEach(([key, value]) => {
+        formData.append(key, value);
+      });
+      // Append the file last under the expected field name.
+      formData.append("file", item.file);
+
+      const s3Res = await fetch(presigned.url, {
+        method: "POST",
+        body: formData,
+        // Do not set Authorization or Content-Type headers — S3 uses the
+        // presigned form fields for auth and the browser sets multipart boundaries.
+      });
+
+      if (!s3Res.ok) {
+        const body = await s3Res.text();
+        throw new Error(`S3 upload failed: ${s3Res.status} ${s3Res.statusText} — ${body}`);
+      }
+    },
+    [],
+  );
+
+  // Tells the backend the file is in S3 so it can mark the submission UPLOADED.
+  const confirmUpload = useCallback(
+    async (submissionId: string, token: string): Promise<ConfirmUploadResponse> => {
+      const res = await fetchWithClerkAuth("/api/me/documents/confirm", token, {
+        method: "POST",
+        body: JSON.stringify({ submission_id: submissionId }),
+      });
+      if (!res.ok) {
+        throw new Error(`Confirm failed: ${res.status} ${res.statusText}`);
+      }
+      return res.json() as Promise<ConfirmUploadResponse>;
+    },
+    [],
+  );
+
+  // Uploads a single file end-to-end: initiate → S3 → confirm.
+  const uploadOne = useCallback(
+    async (item: FileItem) => {
+      // Fetch a fresh Clerk token for every file so long batches do not expire it.
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Not authenticated");
+      }
+
+      const presigned = await initiateUpload(item, token);
+      await uploadToS3(item, presigned);
+      const confirmed = await confirmUpload(presigned.submission_id, token);
+
+      setUploadedIds((prev) => new Set(prev).add(item.id));
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
         return next;
       });
-    }
-  }, [getToken, uploadOne]);
+      onUploadComplete?.(confirmed);
+    },
+    [getToken, initiateUpload, uploadToS3, confirmUpload, onUploadComplete],
+  );
 
-  // Uploads all pending files sequentially
+  // Wraps uploadOne with uploading state management.
+  const handleUpload = useCallback(
+    async (item: FileItem) => {
+      setUploadingIds((prev) => new Set(prev).add(item.id));
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      try {
+        await uploadOne(item);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Upload failed";
+        setErrors((prev) => ({ ...prev, [item.id]: message }));
+        console.error("Upload error:", err);
+      } finally {
+        setUploadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+      }
+    },
+    [uploadOne],
+  );
+
+  // Uploads all pending files sequentially so each gets a fresh auth token and
+  // failures can be attributed to a single file without aborting the batch.
   const handleUploadAll = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
     const pending = files.filter((f) => !uploadedIds.has(f.id));
     const pendingIds = new Set(pending.map((f) => f.id));
     setUploadingIds((prev) => {
@@ -113,10 +190,18 @@ export default function StepUpload({
       for (const id of pendingIds) next.add(id);
       return next;
     });
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const id of pendingIds) delete next[id];
+      return next;
+    });
+
     for (const item of pending) {
       try {
-        await uploadOne(item, token);
+        await uploadOne(item);
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Upload failed";
+        setErrors((prev) => ({ ...prev, [item.id]: message }));
         console.error(`Upload error for ${item.file.name}:`, err);
       } finally {
         setUploadingIds((prev) => {
@@ -126,7 +211,7 @@ export default function StepUpload({
         });
       }
     }
-  }, [getToken, uploadedIds, files, uploadOne]);
+  }, [uploadOne, uploadedIds, files]);
 
   // Handles the delete of a previously uploaded submission via the backend DELETE endpoint
   const handleDeleteSubmission = useCallback(async (submissionId: string) => {
@@ -167,7 +252,7 @@ export default function StepUpload({
       }
     }
     for (const sub of existingSubmissions ?? []) {
-      if (sub.status === "uploaded" || sub.status === "flagged") {
+      if (sub.status === "uploaded" || sub.status === "flagged" || sub.status === "pending") {
         items.push({ type: "existing", submission: sub });
       }
     }
@@ -190,6 +275,7 @@ export default function StepUpload({
           files={files}
           uploadingIds={uploadingIds}
           uploadedIds={uploadedIds}
+          errors={errors}
           previewItems={previewItems}
           onUpload={handleUpload}
           onUploadAll={handleUploadAll}

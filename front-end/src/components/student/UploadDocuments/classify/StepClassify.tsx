@@ -6,13 +6,13 @@ import { cn } from "@/lib/utils";
 import ClassificationCard from "@/components/student/UploadDocuments/classify/ClassificationCard";
 import type { ClassificationItem } from "@/types/classification";
 import type { RequiredDocument } from "@/types/student";
-import type { DocumentUploadResponse } from "@/types/submission";
+import type { ConfirmUploadResponse } from "@/types/submission";
 
 type FilterTab = "all" | "needs-review" | "ready";
 
 interface StepClassifyProps {
   requiredDocuments: RequiredDocument[];
-  submissions?: DocumentUploadResponse[];
+  submissions?: ConfirmUploadResponse[];
   onClassificationChange?: (complete: boolean) => void;
 }
 

@@ -10,7 +10,14 @@ export interface SubmissionItem {
   issues?: string;
 }
 
-export interface DocumentUploadResponse {
+export interface InitiateUploadResponse {
+  submission_id: string;
+  url: string;
+  fields: Record<string, string>;
+  key: string;
+}
+
+export interface ConfirmUploadResponse {
   id: string;
   status: string;
   file_key: string;

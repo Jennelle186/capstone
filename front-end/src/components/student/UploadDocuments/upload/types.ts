@@ -6,4 +6,10 @@ export type FileItem = {
   file: File;
   previewUrl?: string;
   pdfUrl?: string;
+  // Populated after a successful initiate call.
+  submissionId?: string;
+  uploadUrl?: string;
+  fields?: Record<string, string>;
+  // Error message from the last upload attempt.
+  error?: string;
 };
