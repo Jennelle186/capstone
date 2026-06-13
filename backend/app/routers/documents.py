@@ -16,6 +16,7 @@ from ..rbac import require_student
 from ..services.document_requirements import get_required_document_types_for_student
 from ..services.s3 import delete_file as s3_delete_file
 from ..services.s3 import generate_presigned_post as s3_generate_presigned_post
+from ..services.s3 import generate_presigned_url as s3_generate_presigned_url
 from ..services.s3 import head_object as s3_head_object
 from ..services.s3 import make_staging_key
 from ..services.user_sync import ensure_user_row
@@ -87,6 +88,13 @@ class SubmissionDetailResponse(BaseModel):
     is_compiled: bool
     document_type_name: str | None = None
     created_at: str
+
+
+class DownloadUrlResponse(BaseModel):
+    # Presigned GET URL that the browser can use in an iframe/img src to view the file.
+    url: str
+    # Number of seconds until the presigned URL expires.
+    expires_in: int
 
 
 @router.get("/api/me/required-documents", response_model=RequiredDocumentsResponse)
@@ -356,3 +364,39 @@ async def delete_document(
     await db.commit()
 
     return {"ok": True}
+
+
+@router.get("/api/me/documents/{submission_id}/download-url", response_model=DownloadUrlResponse)
+async def get_download_url(
+    submission_id: UUID,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> DownloadUrlResponse:
+    """Return a presigned GET URL for viewing a previously uploaded document.
+
+    The URL is only generated for submissions that have actually arrived in S3
+    (UPLOADED or FLAGGED). PENDING or PROCESSING submissions are rejected
+    because the file may not be present yet.
+    """
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found.")
+
+    submission = await db.get(DocumentSubmission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if submission.student_id != student.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to view this document.")
+
+    if submission.status not in (SubmissionStatus.UPLOADED, SubmissionStatus.FLAGGED):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document is not ready for preview (status: {submission.status.value}).",
+        )
+
+    # Presigned URLs expire after one hour by default.
+    url = s3_generate_presigned_url(submission.file_key)
+    return DownloadUrlResponse(url=url, expires_in=3600)

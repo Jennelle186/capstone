@@ -10,7 +10,6 @@ import {
   UploadCloud,
   Loader2,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -25,6 +24,7 @@ import {
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { SubmissionDetail } from "@/types/submission";
 import type { PreviewItem } from "./DocumentPreviewDialog";
+import SubmissionStatusBadge from "./SubmissionStatusBadge";
 
 interface PreviouslyUploadedSectionProps {
   // All existing submissions for the student (filtered internally for display)
@@ -39,32 +39,6 @@ interface PreviouslyUploadedSectionProps {
   onDeleted?: () => void;
   // Clerk auth token provider used for the DELETE API call
   getToken: () => Promise<string | null>;
-}
-
-// Renders the status-appropriate Badge for a submission (Pending Verification, Flagged, Verified, etc.)
-function SubmissionStatusBadge({ status }: { status: string }) {
-  return (
-    <Badge
-      variant={
-        status === "flagged" ? "destructive" :
-          status === "uploaded" ? "secondary" :
-            status === "pending" ? "outline" :
-              status === "verified" ? "outline" :
-                "outline"
-      }
-      className={
-        status === "verified" ? "border-emerald-200 text-emerald-700 bg-emerald-50" :
-          status === "pending" ? "border-amber-200 text-amber-700 bg-amber-50" :
-            ""
-      }
-    >
-      {status === "flagged" ? "Flagged" :
-        status === "uploaded" ? "Pending Verification" :
-          status === "pending" ? "Pending Upload" :
-            status === "verified" ? "Verified" :
-              status}
-    </Badge>
-  );
 }
 
 // Section displaying documents the student has previously uploaded.

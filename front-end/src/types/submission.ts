@@ -36,3 +36,10 @@ export interface SubmissionDetail {
   document_type_name: string | null;
   created_at: string;
 }
+
+export interface DownloadUrlResponse {
+  // Presigned GET URL that can be used in an iframe or img tag for preview.
+  url: string;
+  // Number of seconds until the URL expires.
+  expires_in: number;
+}

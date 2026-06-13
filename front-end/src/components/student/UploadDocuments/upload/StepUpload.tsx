@@ -297,6 +297,7 @@ export default function StepUpload({
         items={previewItems}
         index={previewIndex ?? 0}
         onIndexChange={setPreviewIndex}
+        getToken={getToken}
       />
     </div>
   );

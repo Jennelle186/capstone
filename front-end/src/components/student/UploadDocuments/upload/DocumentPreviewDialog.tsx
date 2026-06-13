@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/carousel";
 import { Badge } from "@/components/ui/badge";
 import type { SubmissionDetail } from "@/types/submission";
+import ExistingSubmissionPreview from "./ExistingSubmissionPreview";
 
 export type PreviewItem =
   | { type: "new"; id: string; file: File; previewUrl?: string; pdfUrl?: string }
@@ -31,6 +32,9 @@ interface DocumentPreviewDialogProps {
   items: PreviewItem[];
   index: number;
   onIndexChange: (index: number) => void;
+  // Clerk auth token provider passed down to fetch the presigned download URL
+  // for previously uploaded documents.
+  getToken: () => Promise<string | null>;
 }
 
 export default function DocumentPreviewDialog({
@@ -39,6 +43,7 @@ export default function DocumentPreviewDialog({
   items,
   index,
   onIndexChange,
+  getToken,
 }: DocumentPreviewDialogProps) {
   const [api, setApi] = useState<CarouselApi>();
 
@@ -109,81 +114,20 @@ export default function DocumentPreviewDialog({
                       ) : (
                         <div className="flex h-full items-center justify-center text-slate-500">
                           <div className="flex flex-col items-center gap-3">
-                            <FileText className="h-10 w-10" />
+                            <FileText className="size-10" />
                             <span className="text-sm">No preview available.</span>
                           </div>
                         </div>
                       )
                     ) : item.type === "existing" ? (
-                      <div className="flex h-full items-center justify-center">
-                        <div className="w-full max-w-lg mx-auto space-y-4 p-6">
-                          <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
-                                <FileText className="size-6 text-slate-400" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-slate-900 truncate">
-                                  {item.submission.original_filename}
-                                </p>
-                                <Badge
-                                  variant={item.submission.status === "flagged" ? "destructive" : "outline"}
-                                  className={item.submission.status === "uploaded" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : ""}
-                                >
-                                  {item.submission.status === "flagged" ? "Flagged" : "Uploaded"}
-                                </Badge>
-                              </div>
-                            </div>
-                            <dl className="space-y-3 text-sm">
-                              <div className="flex justify-between">
-                                <dt className="text-slate-500">Document Type</dt>
-                                <dd className="text-slate-900 font-medium">
-                                  {item.submission.document_type_name ?? "\u2014"}
-                                </dd>
-                              </div>
-                              <div className="flex justify-between">
-                                <dt className="text-slate-500">File Size</dt>
-                                <dd className="text-slate-900 font-medium">
-                                  {item.submission.file_size
-                                    ? `${(Number(item.submission.file_size) / 1024 / 1024).toFixed(1)} MB`
-                                    : "\u2014"}
-                                </dd>
-                              </div>
-                              <div className="flex justify-between">
-                                <dt className="text-slate-500">MIME Type</dt>
-                                <dd className="text-slate-900 font-medium">
-                                  {item.submission.mime_type ?? "\u2014"}
-                                </dd>
-                              </div>
-                              <div className="flex justify-between">
-                                <dt className="text-slate-500">File Key</dt>
-                                <dd className="text-slate-500 font-mono text-[11px] truncate max-w-[200px]">
-                                  {item.submission.file_key}
-                                </dd>
-                              </div>
-                              <div className="flex justify-between">
-                                <dt className="text-slate-500">Uploaded</dt>
-                                <dd className="text-slate-900 font-medium">
-                                  {new Date(item.submission.created_at).toLocaleDateString("en-AU", {
-                                    day: "numeric",
-                                    month: "short",
-                                    year: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </dd>
-                              </div>
-                            </dl>
-                          </div>
-                          <p className="text-xs text-slate-400 text-center">
-                            File preview requires a download endpoint to be configured.
-                          </p>
-                        </div>
-                      </div>
+                      <ExistingSubmissionPreview
+                        submission={item.submission}
+                        getToken={getToken}
+                      />
                     ) : (
                       <div className="flex h-full items-center justify-center text-slate-500">
                         <div className="flex flex-col items-center gap-3">
-                          <FileText className="h-10 w-10" />
+                          <FileText className="size-10" />
                           <span className="text-sm">No preview available.</span>
                         </div>
                       </div>
