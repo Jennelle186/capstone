@@ -12,6 +12,17 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
@@ -45,6 +56,7 @@ interface StepUploadProps {
   requiredDocuments?: RequiredDocument[];
   getToken: () => Promise<string | null>;
   onUploadComplete?: (result: DocumentUploadResponse) => void;
+  onDeleteSubmission?: (id: string) => void;
   existingSubmissions?: SubmissionDetail[];
 }
 
@@ -53,7 +65,7 @@ function isImageFile(file: File) {
   return file.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"].includes(ext ?? "");
 }
 
-export default function StepUpload({ requiredDocuments, getToken, onUploadComplete, existingSubmissions }: StepUploadProps) {
+export default function StepUpload({ requiredDocuments, getToken, onUploadComplete, onDeleteSubmission, existingSubmissions }: StepUploadProps) {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -188,6 +200,21 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
     return items;
   }, [files, existingSubmissions]);
 
+  // Handles the delete of a previously uploaded document submission.
+  // Calls the backend DELETE endpoint which removes the file from S3 and the record from the DB.
+  const handleDeleteSubmission = useCallback(async (submissionId: string) => {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetchWithClerkAuth(`/api/me/documents/${submissionId}`, token, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      console.error("Delete failed:", res.status, res.statusText);
+      return;
+    }
+    onDeleteSubmission?.(submissionId);
+  }, [getToken, onDeleteSubmission]);
+
   return (
     <div className="grid grid-cols-12 gap-4">
       {/* Left: Drop zone + file list */}
@@ -216,10 +243,20 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
                         {sub.file_size ? `${(Number(sub.file_size) / 1024 / 1024).toFixed(1)} MB` : "\u2014"}
                       </span>
                       <Badge
-                        variant={sub.status === "flagged" ? "destructive" : "outline"}
-                        className={sub.status === "uploaded" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : ""}
+                        variant={
+                          sub.status === "flagged" ? "destructive" :
+                          sub.status === "uploaded" ? "secondary" :
+                          sub.status === "verified" ? "outline" :
+                          "outline"
+                        }
+                        className={
+                          sub.status === "verified" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : ""
+                        }
                       >
-                        {sub.status === "flagged" ? "Flagged" : "Uploaded"}
+                        {sub.status === "flagged" ? "Flagged" :
+                         sub.status === "uploaded" ? "Pending Verification" :
+                         sub.status === "verified" ? "Verified" :
+                         sub.status}
                       </Badge>
                     </div>
                   </div>
@@ -239,6 +276,33 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
                   >
                     <FileText className="size-4 text-slate-500" />
                   </button>
+                  {sub.status !== "verified" && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
+                          <Trash2 className="size-4" />
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Document</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{sub.original_filename}"? This action cannot
+                            be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            variant="destructive"
+                            onClick={() => handleDeleteSubmission(sub.id)}
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
               ))}
             </div>
@@ -329,7 +393,7 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
                 const isUploading = uploadingIds.has(item.id);
                 const isUploaded = uploadedIds.has(item.id);
 
-                return (
+  return (
                 <div
                   key={item.id}
                   className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 group hover:shadow-sm transition-shadow"

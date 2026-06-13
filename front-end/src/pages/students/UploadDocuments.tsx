@@ -94,6 +94,9 @@ export default function UploadDocuments() {
           requiredDocuments={requiredDocs}
           getToken={getToken}
           onUploadComplete={handleUploadComplete}
+          onDeleteSubmission={(id) =>
+            setExistingSubmissions((prev) => prev.filter((s) => s.id !== id))
+          }
           existingSubmissions={existingSubmissions}
         />
       )}

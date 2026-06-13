@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi import Depends
@@ -13,6 +14,7 @@ from ..database import SessionDep
 from ..models import DocumentSubmission, SchoolYear, Student, SubmissionStatus
 from ..rbac import require_student
 from ..services.document_requirements import get_required_document_types_for_student
+from ..services.s3 import delete_file as s3_delete_file
 from ..services.s3 import upload_file as s3_upload
 from ..services.user_sync import ensure_user_row
 
@@ -167,3 +169,43 @@ async def list_my_documents(
         )
         for s in submissions
     ]
+
+
+# DELETE /api/me/documents/{submission_id}
+# Deletes a document submission from both the database and S3 storage.
+# Only allows deletion of non-verified documents (uploaded, processing, flagged, etc.).
+# Verified documents are protected from deletion to preserve audit integrity.
+@router.delete("/api/me/documents/{submission_id}")
+async def delete_document(
+    submission_id: UUID,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> dict:
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found.")
+
+    # Fetch the submission and verify it belongs to the current student
+    submission = await db.get(DocumentSubmission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if submission.student_id != student.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this document.")
+
+    # Block deletion of verified documents — they are part of the audit trail
+    if submission.status == SubmissionStatus.VERIFIED:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a verified document.",
+        )
+
+    # Remove the file from S3 before deleting the database record
+    s3_delete_file(submission.file_key)
+
+    await db.delete(submission)
+    await db.commit()
+
+    return {"ok": True}
