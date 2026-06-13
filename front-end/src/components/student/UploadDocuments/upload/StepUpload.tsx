@@ -1,78 +1,50 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
-import {
-  CloudUpload,
-  FileText,
-  Trash2,
-  CheckCircle,
-  Loader2,
-  Clock,
-  AlertTriangle,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogTrigger,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
+import { useCallback, useMemo, useState } from "react";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
 import type { DocumentUploadResponse, SubmissionDetail } from "@/types/submission";
 import DocumentPreviewDialog, { type PreviewItem } from "./DocumentPreviewDialog";
+import DropZone from "./DropZone";
+import PreviouslyUploadedSection from "./PreviouslyUploadedSection";
+import NewFileList from "./NewFileList";
 import UploadSidebar from "./UploadSidebar";
+import { isImageFile, isPreviewable } from "./utils";
+import type { FileItem } from "./types";
 
+// Maximum file size in bytes (315 MB)
 const MAX_FILE_SIZE = 315 * 1024 * 1024;
-
-type FileItem = {
-  id: string;
-  file: File;
-  previewUrl?: string;
-  pdfUrl?: string;
-};
-
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
-
-function isPreviewable(file: File) {
-  if (file.type.startsWith("image/") || file.type === "application/pdf") return true;
-  const ext = file.name.split(".").pop()?.toLowerCase();
-  return ext === "pdf" || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"].includes(ext ?? "");
-}
 
 interface StepUploadProps {
   requiredDocuments?: RequiredDocument[];
+  // Clerk auth token provider for authenticated API calls
   getToken: () => Promise<string | null>;
+  // Called after each file is uploaded successfully
   onUploadComplete?: (result: DocumentUploadResponse) => void;
+  // Called after a previously uploaded submission is deleted from the server
   onDeleteSubmission?: (id: string) => void;
+  // Existing submissions fetched on mount for the resume feature
   existingSubmissions?: SubmissionDetail[];
 }
 
-function isImageFile(file: File) {
-  const ext = file.name.split(".").pop()?.toLowerCase();
-  return file.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"].includes(ext ?? "");
-}
-
-export default function StepUpload({ requiredDocuments, getToken, onUploadComplete, onDeleteSubmission, existingSubmissions }: StepUploadProps) {
+// This is the upload workflow: drop zone, new file list, previously uploaded section, preview dialog, and sidebar.
+export default function StepUpload({
+  requiredDocuments,
+  getToken,
+  onUploadComplete,
+  onDeleteSubmission,
+  existingSubmissions,
+}: StepUploadProps) {
+  // Tracks files the user has selected but not yet uploaded
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [isDragOver, setIsDragOver] = useState(false);
+  // Index into the combined previewItems array, or null when the dialog is closed
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  // Set of file IDs that are currently being uploaded
   const [uploadingIds, setUploadingIds] = useState<Set<string>>(new Set());
+  // Set of file IDs that have completed upload
   const [uploadedIds, setUploadedIds] = useState<Set<string>>(new Set());
-  const inputRef = useRef<HTMLInputElement>(null);
 
+  // Adds incoming files to the local selection, filtering out any that exceed the size limit
   const addFiles = useCallback((incoming: FileList | File[]) => {
     const newFiles = Array.from(incoming).filter((f) => f.size <= MAX_FILE_SIZE);
     const items: FileItem[] = newFiles.map((file, i) => ({
@@ -86,6 +58,7 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
     setFiles((prev) => [...prev, ...items]);
   }, []);
 
+  // Removes a file from the local selection and revokes its object URLs to free memory
   const removeFile = useCallback((id: string) => {
     setFiles((prev) => {
       const item = prev.find((f) => f.id === id);
@@ -95,6 +68,7 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
     });
   }, []);
 
+  // Uploads a single file to the server via the POST documents endpoint
   const uploadOne = useCallback(async (item: FileItem, token: string) => {
     const formData = new FormData();
     formData.append("file", item.file);
@@ -106,11 +80,11 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
       throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
     }
     const result: DocumentUploadResponse = await res.json();
-    console.log("Upload success:", result);
     setUploadedIds((prev) => new Set(prev).add(item.id));
     onUploadComplete?.(result);
   }, [onUploadComplete]);
 
+  // Wraps uploadOne with auth token fetching and uploading state management
   const handleUpload = useCallback(async (item: FileItem) => {
     const token = await getToken();
     if (!token) return;
@@ -128,6 +102,7 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
     }
   }, [getToken, uploadOne]);
 
+  // Uploads all pending files sequentially
   const handleUploadAll = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
@@ -153,32 +128,31 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
     }
   }, [getToken, uploadedIds, files, uploadOne]);
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    if (e.dataTransfer?.files?.length) {
-      addFiles(e.dataTransfer.files);
+  // Handles the delete of a previously uploaded submission via the backend DELETE endpoint
+  const handleDeleteSubmission = useCallback(async (submissionId: string) => {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetchWithClerkAuth(`/api/me/documents/${submissionId}`, token, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      console.error("Delete failed:", res.status, res.statusText);
+      return;
     }
-  };
+    onDeleteSubmission?.(submissionId);
+  }, [getToken, onDeleteSubmission]);
 
+  // Clears all locally selected files and revokes their object URLs
+  const clearAllFiles = useCallback(() => {
+    files.forEach((f) => {
+      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      if (f.pdfUrl) URL.revokeObjectURL(f.pdfUrl);
+    });
+    setFiles([]);
+    setUploadedIds(new Set());
+  }, [files]);
+
+  // Combines new files and existing submissions into a flat array for preview carousel navigation
   const previewItems = useMemo<PreviewItem[]>(() => {
     const items: PreviewItem[] = [];
     for (const f of files) {
@@ -200,271 +174,33 @@ export default function StepUpload({ requiredDocuments, getToken, onUploadComple
     return items;
   }, [files, existingSubmissions]);
 
-  // Handles the delete of a previously uploaded document submission.
-  // Calls the backend DELETE endpoint which removes the file from S3 and the record from the DB.
-  const handleDeleteSubmission = useCallback(async (submissionId: string) => {
-    const token = await getToken();
-    if (!token) return;
-    const res = await fetchWithClerkAuth(`/api/me/documents/${submissionId}`, token, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      console.error("Delete failed:", res.status, res.statusText);
-      return;
-    }
-    onDeleteSubmission?.(submissionId);
-  }, [getToken, onDeleteSubmission]);
-
   return (
     <div className="grid grid-cols-12 gap-4">
-      {/* Left: Drop zone + file list */}
+      {/* Left column: upload controls and file lists */}
       <div className="col-span-12 lg:col-span-8 space-y-4">
-        {/* Previously Uploaded */}
-        {existingSubmissions && existingSubmissions.filter(
-          (s) => s.status === "uploaded" || s.status === "flagged"
-        ).length > 0 && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-2">
-              <Clock className="size-4" />
-              Previously Uploaded
-            </h4>
-            <div className="space-y-1.5">
-              {existingSubmissions
-                .filter((s) => s.status === "uploaded" || s.status === "flagged")
-                .map((sub) => (
-                <div key={sub.id} className="flex items-center gap-3 py-2 px-3 bg-slate-50 rounded-xl">
-                  <FileText className="size-5 text-slate-400" />
-                  <div className="flex-1 overflow-hidden">
-                    <p className="text-sm font-medium text-slate-900 truncate">
-                      {sub.original_filename}
-                    </p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[11px] text-slate-500">
-                        {sub.file_size ? `${(Number(sub.file_size) / 1024 / 1024).toFixed(1)} MB` : "\u2014"}
-                      </span>
-                      <Badge
-                        variant={
-                          sub.status === "flagged" ? "destructive" :
-                          sub.status === "uploaded" ? "secondary" :
-                          sub.status === "verified" ? "outline" :
-                          "outline"
-                        }
-                        className={
-                          sub.status === "verified" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : ""
-                        }
-                      >
-                        {sub.status === "flagged" ? "Flagged" :
-                         sub.status === "uploaded" ? "Pending Verification" :
-                         sub.status === "verified" ? "Verified" :
-                         sub.status}
-                      </Badge>
-                    </div>
-                  </div>
-                  {sub.status === "flagged" ? (
-                    <AlertTriangle className="size-5 text-amber-500" />
-                  ) : (
-                    <CheckCircle className="size-5 text-emerald-500" />
-                  )}
-                  <button
-                    onClick={() => {
-                      const idx = previewItems.findIndex(
-                        (p) => p.type === "existing" && p.submission.id === sub.id
-                      );
-                      if (idx >= 0) setPreviewIndex(idx);
-                    }}
-                    className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                  >
-                    <FileText className="size-4 text-slate-500" />
-                  </button>
-                  {sub.status !== "verified" && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <button className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
-                          <Trash2 className="size-4" />
-                        </button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Document</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to delete "{sub.original_filename}"? This action cannot
-                            be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            variant="destructive"
-                            onClick={() => handleDeleteSubmission(sub.id)}
-                          >
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Drop zone */}
-        <div
-          onDragOver={handleDragOver}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => inputRef.current?.click()}
-          className={cn(
-            "border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[280px] transition-all cursor-pointer",
-            isDragOver
-              ? "border-primary bg-emerald-50"
-              : "border-slate-300 hover:border-primary/50"
-          )}
-        >
-          <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-            <CloudUpload className="h-8 w-8 text-primary" />
-          </div>
-          <h3 className="text-lg font-semibold text-slate-900 mb-1">Drop your documents here</h3>
-          <p className="text-sm text-slate-500 mb-4 text-center max-w-sm">
-            Support for PDF, PNG, and JPG files up to 315MB. Larger files will take longer to
-            process.
-          </p>
-          <Button
-            type="button"
-            className="bg-primary text-white hover:bg-primary/90 rounded-xl"
-            onClick={(e) => {
-              e.stopPropagation();
-              inputRef.current?.click();
-            }}
-          >
-            Select Files from Computer
-          </Button>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif,.heic,.heif"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files?.length) {
-                addFiles(e.target.files);
-                e.target.value = "";
-              }
-            }}
-          />
-        </div>
-
-        {/* File list */}
-        {files.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Files ({files.length})
-                {uploadedIds.size > 0 && ` \u2022 ${uploadedIds.size}/${files.length} uploaded`}
-              </h4>
-              <div className="flex items-center gap-3">
-                {uploadedIds.size < files.length && uploadingIds.size === 0 && (
-                  <button
-                    onClick={handleUploadAll}
-                    className="text-xs font-semibold text-primary hover:underline"
-                  >
-                    Upload All
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    files.forEach((f) => {
-                      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
-                      if (f.pdfUrl) URL.revokeObjectURL(f.pdfUrl);
-                    });
-                    setFiles([]);
-                    setUploadedIds(new Set());
-                  }}
-                  className="text-xs font-semibold text-slate-500 hover:text-slate-700 underline"
-                >
-                  Clear All
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {files.map((item) => {
-                const isUploading = uploadingIds.has(item.id);
-                const isUploaded = uploadedIds.has(item.id);
-
-  return (
-                <div
-                  key={item.id}
-                  className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 group hover:shadow-sm transition-shadow"
-                >
-                  <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    {item.previewUrl ? (
-                      <img
-                        src={item.previewUrl}
-                        alt={item.file.name}
-                        className="h-full w-full object-cover rounded-lg"
-                      />
-                    ) : (
-                      <FileText className="h-5 w-5 text-slate-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 overflow-hidden">
-                    <p className="text-sm font-semibold text-slate-900 truncate">
-                      {item.file.name}
-                    </p>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                      {formatFileSize(item.file.size)}
-                      {isUploaded ? " \u2022 Uploaded to S3" : isUploading ? " \u2022 Uploading..." : " \u2022 Ready to upload"}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isUploaded ? (
-                      <CheckCircle className="size-5 text-emerald-500" />
-                    ) : isUploading ? (
-                      <Loader2 className="size-5 text-primary animate-spin" />
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="rounded-xl gap-1.5 bg-primary text-white hover:bg-primary/90 shadow-sm"
-                        onClick={() => handleUpload(item)}
-                      >
-                        <CloudUpload className="size-4" />
-                        Upload
-                      </Button>
-                    )}
-                    <button
-                      onClick={() => {
-                        const idx = previewItems.findIndex(
-                          (p) => p.type === "new" && p.id === item.id
-                        );
-                        if (idx >= 0) setPreviewIndex(idx);
-                      }}
-                      className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                    >
-                      <FileText className="size-4 text-slate-500" />
-                    </button>
-                    {!isUploaded && (
-                    <button
-                      onClick={() => removeFile(item.id)}
-                      className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                    )}
-                  </div>
-                </div>
-              );
-              })}
-            </div>
-          </div>
-        )}
+        <PreviouslyUploadedSection
+          submissions={existingSubmissions ?? []}
+          previewItems={previewItems}
+          onPreview={setPreviewIndex}
+          onDeleteSubmission={handleDeleteSubmission}
+          getToken={getToken}
+        />
+        <DropZone onFilesAdded={addFiles} />
+        <NewFileList
+          files={files}
+          uploadingIds={uploadingIds}
+          uploadedIds={uploadedIds}
+          previewItems={previewItems}
+          onUpload={handleUpload}
+          onUploadAll={handleUploadAll}
+          onPreview={setPreviewIndex}
+          onRemove={removeFile}
+          onClearAll={clearAllFiles}
+        />
       </div>
-
-      {/* Right sidebar */}
+      {/* Right sidebar: required documents and tips */}
       <UploadSidebar requiredDocuments={requiredDocuments} />
-
-      {/* Preview Dialog */}
+      {/* Full-screen preview dialog with carousel navigation */}
       <DocumentPreviewDialog
         open={previewIndex !== null}
         onOpenChange={(open) => !open && setPreviewIndex(null)}
