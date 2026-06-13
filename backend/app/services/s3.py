@@ -8,6 +8,7 @@ from typing import BinaryIO
 import boto3
 from botocore.config import Config
 from dotenv import load_dotenv
+from botocore.exceptions import ClientError
 from fastapi import HTTPException, status
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -32,7 +33,15 @@ def _get_client():
         endpoint_url=f"https://s3.{region}.amazonaws.com",
         aws_access_key_id=_require_env("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=_require_env("AWS_SECRET_ACCESS_KEY"),
-        config=Config(max_pool_connections=50, connect_timeout=10, read_timeout=30),
+        # Signature Version 4 is required for SSE-KMS operations (presigned POSTs
+        # and uploads to buckets with default SSE-KMS encryption). SigV2 does not
+        # support KMS-managed keys.
+        config=Config(
+            signature_version="s3v4",
+            max_pool_connections=50,
+            connect_timeout=10,
+            read_timeout=30,
+        ),
     )
 
 
@@ -67,7 +76,14 @@ def upload_file(file: BinaryIO, student_id: str, filename: str) -> dict:
     key = _object_key(student_id, filename)
     client = _get_client()
     try:
-        client.upload_fileobj(file, _bucket(), key)
+        # SSE-KMS is the bucket default; be explicit so the object cannot silently
+        # fall back to unencrypted if the bucket default is ever changed.
+        client.upload_fileobj(
+            file,
+            _bucket(),
+            key,
+            ExtraArgs={"ServerSideEncryption": "aws:kms"},
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -103,8 +119,9 @@ def generate_presigned_post(
 ) -> dict:
     """Generate a presigned POST URL so the browser can upload directly to S3.
 
-    The returned policy enforces the object key, Content-Type, and a maximum
-    file size. The browser must POST the file along with the returned fields.
+    The returned policy enforces the object key, Content-Type, server-side
+    encryption (SSE-KMS), and a maximum file size. The browser must POST the
+    file along with the returned fields...from AWS
     """
     client = _get_client()
     bucket = _bucket()
@@ -114,6 +131,12 @@ def generate_presigned_post(
     ]
     if mime_type:
         conditions.append(["eq", "$Content-Type", mime_type])
+
+    # SSE-KMS: Required because the bucket default encryption is SSE-KMS.
+    # The presigned POST policy must declare this so the browser's form data
+    # includes the header and S3 can validate it.
+    fields["x-amz-server-side-encryption"] = "aws:kms"
+    conditions.append({"x-amz-server-side-encryption": "aws:kms"})
 
     try:
         post = client.generate_presigned_post(
@@ -155,12 +178,28 @@ def move_to_production(key: str) -> str:
     bucket = _bucket()
     production_key = key.replace(_staging_prefix(), _production_prefix(), 1)
     try:
+        # Explicitly use SSE-KMS for the production copy so it cannot silently
+        # fall back to a different encryption type if the bucket default changes.
         client.copy_object(
             Bucket=bucket,
             CopySource={"Bucket": bucket, "Key": key},
             Key=production_key,
+            ServerSideEncryption="aws:kms",
         )
+        # Verify the destination object exists before deleting the source, so a
+        # failed copy never results in data loss.
+        client.head_object(Bucket=bucket, Key=production_key)
         client.delete_object(Bucket=bucket, Key=key)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Move to production failed: destination object not found after copy.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"S3 move to production failed: {e}",
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

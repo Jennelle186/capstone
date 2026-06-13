@@ -119,20 +119,12 @@ export default function PreviouslyUploadedSection({
     [getToken, onDeleted],
   );
 
-  // Sends a DELETE request to remove the submission from both the database and S3 storage
+  // deletion to the parent handler (StepUpload.handleDeleteSubmission),
+  // which performs the actual DELETE API call, then triggers a refetch on success.
   const handleDelete = useCallback(async (submissionId: string) => {
-    const token = await getToken();
-    if (!token) return;
-    const res = await fetchWithClerkAuth(`/api/me/documents/${submissionId}`, token, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      console.error("Delete failed:", res.status, res.statusText);
-      return;
-    }
-    onDeleteSubmission(submissionId);
+    await onDeleteSubmission(submissionId);
     onDeleted?.();
-  }, [getToken, onDeleteSubmission, onDeleted]);
+  }, [onDeleteSubmission, onDeleted]);
 
   if (displaySubmissions.length === 0) return null;
 
