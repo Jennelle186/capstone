@@ -33,6 +33,8 @@ interface PreviouslyUploadedSectionProps {
   onPreview: (index: number) => void;
   // Called after a submission is successfully deleted from the server
   onDeleteSubmission: (id: string) => void;
+  // Called after a successful deletion so the parent can refetch fresh data
+  onDeleted?: () => void;
   // Clerk auth token provider used for the DELETE API call
   getToken: () => Promise<string | null>;
 }
@@ -71,6 +73,7 @@ export default function PreviouslyUploadedSection({
   previewItems,
   onPreview,
   onDeleteSubmission,
+  onDeleted,
   getToken,
 }: PreviouslyUploadedSectionProps) {
   const displaySubmissions = submissions.filter(
@@ -89,7 +92,8 @@ export default function PreviouslyUploadedSection({
       return;
     }
     onDeleteSubmission(submissionId);
-  }, [getToken, onDeleteSubmission]);
+    onDeleted?.();
+  }, [getToken, onDeleteSubmission, onDeleted]);
 
   if (displaySubmissions.length === 0) return null;
 
@@ -114,7 +118,9 @@ export default function PreviouslyUploadedSection({
                 <SubmissionStatusBadge status={sub.status} />
               </div>
             </div>
-            {sub.status === "flagged" ? (
+            {sub.status === "pending" ? (
+              <Clock className="size-5 text-amber-500" />
+            ) : sub.status === "flagged" ? (
               <AlertTriangle className="size-5 text-amber-500" />
             ) : (
               <CheckCircle className="size-5 text-emerald-500" />

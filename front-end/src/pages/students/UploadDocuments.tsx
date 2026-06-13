@@ -86,6 +86,16 @@ export default function UploadDocuments() {
     setSubmissions((prev) => [...prev, result]);
   }, []);
 
+  const handleDeleted = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetchWithClerkAuth("/api/me/documents", token);
+    if (res.ok) {
+      const data = (await res.json()) as SubmissionDetail[];
+      setExistingSubmissions(data);
+    }
+  }, [getToken]);
+
   return (
     <UploadWizard step={step} onStepChange={goToStep} nextDisabled={nextDisabled}>
       {step === 1 && (
@@ -96,6 +106,7 @@ export default function UploadDocuments() {
           onDeleteSubmission={(id) =>
             setExistingSubmissions((prev) => prev.filter((s) => s.id !== id))
           }
+          onDeleted={handleDeleted}
           existingSubmissions={existingSubmissions}
         />
       )}

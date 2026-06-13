@@ -23,6 +23,8 @@ interface StepUploadProps {
   onUploadComplete?: (result: ConfirmUploadResponse) => void;
   // Called after a previously uploaded submission is deleted from the server
   onDeleteSubmission?: (id: string) => void;
+  // Called after a successful deletion so the parent can refetch fresh data
+  onDeleted?: () => void;
   // Existing submissions fetched on mount for the resume feature
   existingSubmissions?: SubmissionDetail[];
 }
@@ -33,6 +35,7 @@ export default function StepUpload({
   getToken,
   onUploadComplete,
   onDeleteSubmission,
+  onDeleted,
   existingSubmissions,
 }: StepUploadProps) {
   // Tracks files the user has selected but not yet uploaded
@@ -268,6 +271,7 @@ export default function StepUpload({
           previewItems={previewItems}
           onPreview={setPreviewIndex}
           onDeleteSubmission={handleDeleteSubmission}
+          onDeleted={onDeleted}
           getToken={getToken}
         />
         <DropZone onFilesAdded={addFiles} />
