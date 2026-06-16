@@ -221,3 +221,16 @@ def delete_file(key: str) -> None:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"S3 delete failed: {e}",
         )
+
+
+def download_file(key: str, destination: Path) -> None:
+    """Download an S3 object to a local path, creating parent dirs if needed."""
+    client = _get_client()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        client.download_file(_bucket(), key, str(destination))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"S3 download failed: {e}",
+        )

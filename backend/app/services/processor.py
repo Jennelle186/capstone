@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import select
@@ -9,23 +11,15 @@ from sqlalchemy.orm import selectinload
 
 from ..database import AsyncSessionLocal
 from ..models import DocumentSubmission, DocumentType, DocumentTypeStatus, SubmissionStatus
-from ..services.llama_classify import (
-    LlamaClassifyError,
-    LlamaNoCreditsError,
-    LlamaTimeoutError,
-    classify_document,
-    extract_classification_result,
-    upload_file,
-)
-from ..services.s3 import generate_presigned_url
-
-# Confidence thresholds for automatic classification vs. flagging.
-AUTO_ACCEPT_THRESHOLD = 0.70
-REJECT_THRESHOLD = 0.30
-# LlamaCloud v2 classify rules limit descriptions to 500 characters.
-MAX_RULE_DESCRIPTION_LENGTH = 500
+from .s3 import download_file
+from .vlm_pipeline import process_document
 
 logger = logging.getLogger(__name__)
+
+# Confidence thresholds for automatic classification vs. flagging.
+# These are on a 0-100 scale to match the frontend/LlamaCloud convention.
+AUTO_ACCEPT_THRESHOLD = 70.0
+REJECT_THRESHOLD = 30.0
 
 
 async def _get_active_document_types(session) -> list[DocumentType]:
@@ -39,35 +33,6 @@ async def _get_active_document_types(session) -> list[DocumentType]:
         .order_by(DocumentType.name)
     )
     return list(result.scalars().all())
-
-
-def _build_classification_rules(document_types: list[DocumentType]) -> list[dict[str, str]]:
-    """Build LlamaCloud classify rules from active document types.
-
-    Combines the natural-language classifier_description with the stored keywords
-    for stronger matching.
-    """
-    rules = []
-    for dt in document_types:
-        if not dt.classifier_description:
-            continue
-        description = dt.classifier_description
-        if dt.keywords:
-            if isinstance(dt.keywords, list):
-                keywords = ", ".join(str(k) for k in dt.keywords)
-            else:
-                keywords = str(dt.keywords)
-            if keywords:
-                description += f" Keywords: {keywords}."
-        # LlamaCloud v2 rejects descriptions longer than 500 characters; truncate
-        # gracefully while preserving the most important classifier context.
-        if len(description) > MAX_RULE_DESCRIPTION_LENGTH:
-            description = description[:MAX_RULE_DESCRIPTION_LENGTH].rstrip()
-        rules.append({
-            "type": dt.code,
-            "description": description,
-        })
-    return rules
 
 
 def _find_document_type_by_code(
@@ -98,22 +63,34 @@ async def _save_classification(
     await session.commit()
 
 
+async def _flag_submission(session, submission_id: UUID, classification_result: dict) -> None:
+    """Load the submission and set its status to FLAGGED with the given result."""
+    try:
+        submission = await session.get(DocumentSubmission, submission_id)
+        if submission is None:
+            return
+        submission.status = SubmissionStatus.FLAGGED
+        submission.classification_result = classification_result
+        await session.commit()
+        logger.info("process_submission: flagged %s with %s", submission_id, classification_result)
+    except Exception:
+        logger.exception("Failed to flag submission %s", submission_id)
+
+
 async def process_submission(submission_id: UUID) -> None:
-    """Background task: classify an uploaded document using LlamaCloud.
+    """Background task: classify an uploaded document using the hybrid VLM pipeline.
 
-    The simplified pipeline is:
+    Pipeline:
       UPLOADED -> PROCESSING -> (CLASSIFIED | FLAGGED)
-
-    We skip a separate LlamaParse step because LlamaCloud Classify parses the
-    document internally. The file_id returned by the upload is retained so a
-    future LlamaExtract call can reuse it.
 
     Classification logic:
       - confidence >= AUTO_ACCEPT_THRESHOLD (0.70) => CLASSIFIED
       - REJECT_THRESHOLD (0.30) <= confidence < 0.70 => FLAGGED (low_confidence)
       - confidence < 0.30 or no match => FLAGGED (not_a_required_document)
 
-    Compiled documents are not supported in this phase and are flagged.
+    Compiled documents are now supported: each page is classified and the result
+    includes a compiled_detection section. If the primary type cannot be
+    determined, the submission is flagged.
     """
     async with AsyncSessionLocal() as session:
         try:
@@ -132,69 +109,64 @@ async def process_submission(submission_id: UUID) -> None:
                 )
                 return
 
-            # Compiled documents need LlamaCloud Split, which is deferred.
-            if submission.is_compiled:
-                logger.info("process_submission: compiled document not supported for %s", submission_id)
-                await _save_classification(
-                    session,
-                    submission,
-                    SubmissionStatus.FLAGGED,
-                    {"flag": "compiled_document_not_supported"},
-                )
-                return
-
             submission.status = SubmissionStatus.PROCESSING
             await session.commit()
             logger.info("process_submission: status set to PROCESSING for %s", submission_id)
 
-            # Generate a presigned URL so LlamaCloud can fetch the file from S3.
-            # boto3 is synchronous, so run it in a thread pool to avoid blocking
-            # the FastAPI event loop for other background tasks.
-            presigned_url = await asyncio.to_thread(generate_presigned_url, submission.file_key)
+            # Download the file from S3 to a temporary local path.
+            suffix = Path(submission.original_filename).suffix or ".pdf"
+            with tempfile.TemporaryDirectory() as tmpdir:
+                local_path = Path(tmpdir) / f"{submission_id}{suffix}"
+                await asyncio.to_thread(
+                    download_file,
+                    submission.file_key,
+                    local_path,
+                )
+                logger.info("process_submission: downloaded %s to %s", submission_id, local_path)
 
-            # Upload the file to LlamaCloud and get a file_id for classify/extract.
-            llama_file_id = await upload_file(
-                presigned_url,
-                submission.original_filename,
-                submission.mime_type or "application/octet-stream",
-            )
-            submission.llama_job_id = llama_file_id
-            await session.commit()
-            logger.info("process_submission: uploaded to LlamaCloud file_id=%s for %s", llama_file_id, submission_id)
+                # Run the hybrid VLM pipeline.
+                pipeline_result = await process_document(
+                    local_path,
+                    skip_extraction=False,
+                )
 
-            # Load active document types for classification rules.
-            document_types = await _get_active_document_types(session)
-            rules = _build_classification_rules(document_types)
-            logger.info("process_submission: built %d classification rules for %s", len(rules), submission_id)
+            classification_info = pipeline_result.get("classification", {})
+            doc_type_code = classification_info.get("type")
+            # The frontend expects confidence on a 0-100 scale (LlamaCloud style).
+            raw_confidence = float(classification_info.get("confidence") or 0.0)
+            confidence = raw_confidence * 100 if raw_confidence <= 1.0 else raw_confidence
 
             classification_result = {
-                "llama_file_id": llama_file_id,
+                "type": doc_type_code,
+                "confidence": confidence,
+                "reasoning": classification_info.get("reasoning", ""),
+                "compiled_detection": pipeline_result.get("compiled_detection", {}),
+                "page_count": pipeline_result.get("page_count"),
+                "total_elapsed_ms": pipeline_result.get("total_elapsed_ms"),
+                "classification_mode": pipeline_result.get("classification_mode"),
+                "processing_log": {
+                    "ocr_model": "ibm/granite-docling",
+                    "classify_model": "qwen2.5:3b",
+                    "vlm_fallback": bool(pipeline_result.get("classification_fallback")),
+                },
             }
 
-            if not rules:
-                # No classification rules configured; keep the file_id but do not
-                # auto-classify. The student/admin will need to assign a type.
-                classification_result["note"] = "no_classification_rules_configured"
-                logger.info("process_submission: no rules configured for %s", submission_id)
-                await _save_classification(
-                    session,
-                    submission,
-                    SubmissionStatus.CLASSIFIED,
-                    classification_result,
-                    document_type_id=None,
-                )
-                return
+            # Persist OCR output and extraction separately if available.
+            if "extraction" in pipeline_result:
+                classification_result["extraction"] = pipeline_result["extraction"]
+                submission.extracted_data = pipeline_result["extraction"].get("result")
 
-            # Classify the document against the configured document types.
-            classify_response = await classify_document(llama_file_id, rules)
-            logger.info("process_submission: classify response received for %s", submission_id)
-            match = extract_classification_result(classify_response)
-            logger.info("process_submission: extracted match=%s for %s", match, submission_id)
+            # Load active document types to validate the classification.
+            document_types = await _get_active_document_types(session)
+            matched_type = _find_document_type_by_code(document_types, doc_type_code)
 
-            if match is None:
+            if matched_type is None:
                 classification_result["flag"] = "not_a_required_document"
-                classification_result["confidence"] = 0
-                logger.info("process_submission: no classify match for %s", submission_id)
+                logger.info(
+                    "process_submission: type %s not in required documents for %s",
+                    doc_type_code,
+                    submission_id,
+                )
                 await _save_classification(
                     session,
                     submission,
@@ -204,18 +176,8 @@ async def process_submission(submission_id: UUID) -> None:
                 )
                 return
 
-            confidence = float(match.get("confidence") or 0.0)
-            matched_type = _find_document_type_by_code(document_types, match.get("type"))
-
-            classification_result.update(
-                {
-                    "type": match.get("type"),
-                    "confidence": confidence,
-                    "reasoning": match.get("reasoning", ""),
-                }
-            )
-
-            if confidence >= AUTO_ACCEPT_THRESHOLD and matched_type is not None:
+            # Auto-classify or flag based on confidence.
+            if confidence >= AUTO_ACCEPT_THRESHOLD:
                 logger.info(
                     "process_submission: auto-classified as %s (%.2f) for %s",
                     matched_type.code,
@@ -229,7 +191,7 @@ async def process_submission(submission_id: UUID) -> None:
                     classification_result,
                     document_type_id=matched_type.id,
                 )
-            elif confidence >= REJECT_THRESHOLD and matched_type is not None:
+            elif confidence >= REJECT_THRESHOLD:
                 classification_result["flag"] = "low_confidence"
                 logger.info(
                     "process_submission: low-confidence match %s (%.2f) for %s",
@@ -259,29 +221,6 @@ async def process_submission(submission_id: UUID) -> None:
                     document_type_id=None,
                 )
 
-        except LlamaNoCreditsError as exc:
-            logger.error("LlamaCloud credits exhausted for submission %s: %s", submission_id, exc)
-            await _flag_submission(session, submission_id, {"error": "credits_exhausted"})
-        except LlamaTimeoutError as exc:
-            logger.error("LlamaCloud timeout for submission %s: %s", submission_id, exc)
-            await _flag_submission(session, submission_id, {"error": "processing_timeout"})
-        except LlamaClassifyError as exc:
-            logger.error("LlamaCloud error for submission %s: %s", submission_id, exc)
-            await _flag_submission(session, submission_id, {"error": "llama_error", "detail": str(exc)})
         except Exception as exc:
             logger.exception("Unexpected error processing submission %s", submission_id)
             await _flag_submission(session, submission_id, {"error": "unexpected", "detail": str(exc)})
-
-
-async def _flag_submission(session, submission_id: UUID, classification_result: dict) -> None:
-    """Load the submission and set its status to FLAGGED with the given result."""
-    try:
-        submission = await session.get(DocumentSubmission, submission_id)
-        if submission is None:
-            return
-        submission.status = SubmissionStatus.FLAGGED
-        submission.classification_result = classification_result
-        await session.commit()
-        logger.info("process_submission: flagged %s with %s", submission_id, classification_result)
-    except Exception:
-        logger.exception("Failed to flag submission %s", submission_id)
