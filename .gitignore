@@ -12,3 +12,17 @@ tmp*-cwd
 .env.*.local
 front-end/dist/
 report.docx
+
+# VLM test artifacts
+backend/test_output/
+backend/test_samples/
+backend/test_vlm.py
+backend/test_pipeline.py
+backend/test_concurrency.py
+
+# Planning documents
+*.docx
+SESSION_SUMMARY.md
+
+# Misc
+es_*
