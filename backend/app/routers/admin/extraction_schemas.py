@@ -176,42 +176,39 @@ def _blueprint_to_fields(
 
 @router.post("/extraction-schemas/generate", response_model=ExtractionSchemaGenerateResponse)
 async def generate_extraction_schema(
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] | None = File(default=None),
     prompt: str | None = Form(default=None),
     current_user: dict = Depends(require_admin),
 ):
     del current_user
-    del prompt
 
-    if not files:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one file is required.",
-        )
+    temp_key: str | None = None
+    source_file_name: str | None = None
 
-    first_file = files[0]
-    content = await first_file.read()
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file is empty.",
-        )
+    if files:
+        first_file = files[0]
+        content = await first_file.read()
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty.",
+            )
 
-    import uuid
-    temp_key = f"{_admin_temp_prefix()}{uuid.uuid4().hex}/{first_file.filename or 'upload.pdf'}"
-
-    try:
+        import uuid
+        temp_key = f"{_admin_temp_prefix()}{uuid.uuid4().hex}/{first_file.filename or 'upload.pdf'}"
+        source_file_name = first_file.filename
         upload_file_bytes(temp_key, content)
 
-        blueprint = generate_schema_blueprint(temp_key)
+    try:
+        blueprint = generate_schema_blueprint(file_key=temp_key, description=prompt)
 
-        schema_json, fields = _blueprint_to_fields(blueprint, source_file_name=first_file.filename)
+        schema_json, fields = _blueprint_to_fields(blueprint, source_file_name=source_file_name)
 
         return ExtractionSchemaGenerateResponse(
             extraction_schema=schema_json,
             fields_json=[ExtractionSchemaField(**f) for f in fields],
-            file_id=temp_key,
-            source_file_name=first_file.filename,
+            file_id=temp_key or "",
+            source_file_name=source_file_name,
         )
     except GcpPipelineError as exc:
         raise HTTPException(
@@ -227,10 +224,11 @@ async def generate_extraction_schema(
             detail=f"Schema generation failed: {exc}",
         )
     finally:
-        try:
-            delete_file(temp_key)
-        except Exception:
-            pass
+        if temp_key:
+            try:
+                delete_file(temp_key)
+            except Exception:
+                pass
 
 
 @router.patch("/extraction-schemas/{schema_id}", response_model=ExtractionSchemaResponse)

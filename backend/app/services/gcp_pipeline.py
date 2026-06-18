@@ -360,18 +360,38 @@ OUTPUT FORMAT:
 Return a clean, structured JSON payload matching the AdminSchemaBlueprint definition."""
 
 
-def _build_blueprint_prompt() -> str:
-    return """Analyze this document template and deconstruct its structural layout.
+def _build_blueprint_prompt(description: str | None = None, has_file: bool = True) -> str:
+    if has_file:
+        parts = [
+            "Analyze this document template and deconstruct its structural layout.",
+            "",
+            "Identify every form section, every labeled input field, every choice option (radio buttons, checkboxes, dropdowns), and their hierarchical relationships. For each field, determine if it is required (mandatory) or optional based on printed indicators on the form.",
+            "",
+            "Pay special attention to:",
+            "- Section headers that divide the form into logical blocks",
+            "- Fields that are nested or conditional on a parent selection",
+            "- All printed choice labels next to circles/boxes for radio/checkbox groups",
+            "- The form's title and control/version number at the top",
+        ]
+    else:
+        parts = [
+            "Generate a form schema based purely on the following description.",
+            "There is no document to analyze — invent a reasonable form structure that matches the described purpose.",
+            "",
+            "Create sections and fields that would typically appear on such a form. Include appropriate field types, UI components (text_input, radio_group, dropdown, date_picker, etc.), and choice options where relevant.",
+        ]
 
-Identify every form section, every labeled input field, every choice option (radio buttons, checkboxes, dropdowns), and their hierarchical relationships. For each field, determine if it is required (mandatory) or optional based on printed indicators on the form.
-
-Pay special attention to:
-- Section headers that divide the form into logical blocks
-- Fields that are nested or conditional on a parent selection
-- All printed choice labels next to circles/boxes for radio/checkbox groups
-- The form's title and control/version number at the top
-
-Return a complete AdminSchemaBlueprint JSON."""
+    if description:
+        parts.extend([
+            "",
+            "ADMIN'S EXTRACTION INSTRUCTIONS:",
+            description,
+        ])
+    parts.extend([
+        "",
+        "Return a complete AdminSchemaBlueprint JSON.",
+    ])
+    return "\n".join(parts)
 
 
 def _build_blueprint_schema() -> dict:
@@ -465,11 +485,11 @@ def _build_blueprint_schema() -> dict:
     }
 
 
-def generate_schema_blueprint(file_key: str) -> dict[str, Any]:
+def generate_schema_blueprint(file_key: str | None = None, description: str | None = None) -> dict[str, Any]:
     """Analyze a document template using Gemini and return an AdminSchemaBlueprint.
 
-    The blueprint describes the form's structural layout: sections, fields,
-    choice options, and hierarchical relationships.
+    If file_key is provided, Gemini analyzes the document image; otherwise
+    it generates a blueprint purely from the text description.
     """
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
     bucket = os.getenv("GCS_BUCKET", "")
@@ -482,24 +502,28 @@ def generate_schema_blueprint(file_key: str) -> dict[str, Any]:
         location=location,
     )
 
-    normalized_key = file_key.replace("\\", "/")
-    file_uri = f"gs://{bucket}/{normalized_key}"
-    mime_type = "application/pdf" if normalized_key.lower().endswith(".pdf") else "image/jpeg"
+    has_file = file_key is not None
+    if has_file:
+        normalized_key = file_key.replace("\\", "/")  # type: ignore[union-attr]
+        file_uri = f"gs://{bucket}/{normalized_key}"
+        mime_type = "application/pdf" if normalized_key.lower().endswith(".pdf") else "image/jpeg"
 
-    prompt = _build_blueprint_prompt()
+    prompt = _build_blueprint_prompt(description, has_file=has_file)
     schema = _build_blueprint_schema()
 
-    logger.info("Generating schema blueprint from %s (model=%s)", file_key, model_name)
+    logger.info("Generating schema blueprint (file=%s, model=%s)", file_key, model_name)
+
+    contents = []
+    if has_file:
+        contents.append(types.Part.from_uri(file_uri=file_uri, mime_type=mime_type))  # type: ignore[arg-type]
+    contents.append(types.Part.from_text(text=prompt))
 
     last_error: Exception | None = None
     for attempt in range(4):
         try:
             response = client.models.generate_content(
                 model=model_name,
-                contents=[
-                    types.Part.from_uri(file_uri=file_uri, mime_type=mime_type),
-                    types.Part.from_text(text=prompt),
-                ],
+                contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=ADMIN_SCHEMA_SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",

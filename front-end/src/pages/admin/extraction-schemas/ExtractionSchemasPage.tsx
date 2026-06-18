@@ -317,7 +317,7 @@ export default function ExtractionSchemasPage() {
     };
 
     const handleGenerateSchema = async () => {
-        if (sampleFiles.length === 0 || isGenerating) return;
+        if (isGenerating) return;
 
         const formData = new FormData();
         sampleFiles.forEach((file) => formData.append("files", file));

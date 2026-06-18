@@ -104,7 +104,6 @@ export default function SchemaBuilderCard({
     documentTypes,
     selectedSchemaId,
     formState,
-    sampleFiles,
     isSaving,
     isGenerating,
     isActionPending,
@@ -181,7 +180,7 @@ export default function SchemaBuilderCard({
                         <Button
                             type="button"
                             variant="outline"
-                            disabled={sampleFiles.length === 0 || isGenerating}
+                            disabled={isGenerating}
                             onClick={() => { void onGenerate(); }}
                         >
                             {isGenerating ? (
@@ -318,6 +317,19 @@ export default function SchemaBuilderCard({
                                 onFormStatePatch({ description: event.target.value })
                             }
                             placeholder="Describe the document type this schema is intended for."
+                        />
+                    </div>
+                    <div className="space-y-2 lg:col-span-2">
+                        <Label htmlFor="generation-prompt">
+                            Generation Prompt <span className="text-xs text-muted-foreground">(optional)</span>
+                        </Label>
+                        <Textarea
+                            id="generation-prompt"
+                            value={formState.generation_prompt ?? ""}
+                            onChange={(event) =>
+                                onFormStatePatch({ generation_prompt: event.target.value })
+                            }
+                            placeholder='Defaults to "extract all key-value pairs" if left blank. Be specific about which fields to extract, e.g. "only extract financial fields from this tax form".'
                         />
                     </div>
                 </section>
