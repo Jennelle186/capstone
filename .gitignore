@@ -13,15 +13,11 @@ tmp*-cwd
 front-end/dist/
 report.docx
 
-# VLM / AWS test artifacts
+# Test artifacts
 backend/test_output/
 backend/test_samples/
-backend/test_vlm.py
 backend/test_pipeline.py
 backend/test_concurrency.py
-backend/test_async_textract_admission.py
-backend/test_bedrock_connection.py
-backend/test_textract_full_extraction.py
 
 # Planning documents
 *.docx

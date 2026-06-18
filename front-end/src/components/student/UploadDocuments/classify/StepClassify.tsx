@@ -128,73 +128,62 @@ export default function StepClassify({
     const pending = items.filter((i) => i.status === "pending" || i.status === "needs-review");
     if (pending.length === 0) return;
 
+    const pendingIds = new Set(pending.map((p) => p.id));
+
     setClassifyingAll(true);
     setClassifyingIds((prev) => {
       const next = new Set(prev);
-      for (const item of pending) next.add(item.id);
+      for (const id of pendingIds) next.add(id);
       return next;
     });
 
     setItems((prev) =>
       prev.map((item) => {
-        if (pending.some((p) => p.id === item.id)) {
+        if (pendingIds.has(item.id)) {
           return { ...item, status: "processing" as ClassificationStatus, needsReview: false };
         }
         return item;
       }),
     );
 
-    for (const item of pending) {
-      try {
-        const res = await fetchWithClerkAuth(`/api/me/documents/${item.id}/classify`, token, {
-          method: "POST",
-        });
+    try {
+      const res = await fetchWithClerkAuth("/api/me/documents/classify-all", token, {
+        method: "POST",
+        body: JSON.stringify({ submission_ids: Array.from(pendingIds) }),
+      });
 
-        if (res.ok) {
-          const updated = await res.json();
-          setItems((prev) =>
-            prev.map((i) => {
-              if (i.id !== item.id) return i;
-              return submissionToItem(updated);
-            }),
-          );
-        } else {
-          const err = await res.json().catch(() => null);
-          console.error(`Classification failed for ${item.id}:`, err);
-          setItems((prev) =>
-            prev.map((i) => {
-              if (i.id !== item.id) return i;
-              return { ...i, status: "needs-review" as ClassificationStatus, needsReview: true };
-            }),
-          );
-        }
-      } catch (err) {
-        console.error(`Classification error for ${item.id}:`, err);
+      if (res.ok) {
+        const updated: SubmissionDetail[] = await res.json();
         setItems((prev) =>
-          prev.map((i) => {
-            if (i.id !== item.id) return i;
-            return { ...i, status: "needs-review" as ClassificationStatus, needsReview: true };
+          prev.map((item) => {
+            const match = updated.find((u) => u.id === item.id);
+            return match ? submissionToItem(match) : item;
           }),
         );
+        onSubmissionsUpdate?.(updated);
+      } else {
+        const err = await res.json().catch(() => null);
+        console.error("Classify all failed:", err);
+        setItems((prev) =>
+          prev.map((item) =>
+            pendingIds.has(item.id)
+              ? { ...item, status: "needs-review" as ClassificationStatus, needsReview: true }
+              : item,
+          ),
+        );
       }
-
-      setClassifyingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(item.id);
-        return next;
-      });
+    } catch (err) {
+      console.error("Classify all error:", err);
+      setItems((prev) =>
+        prev.map((item) =>
+          pendingIds.has(item.id)
+            ? { ...item, status: "needs-review" as ClassificationStatus, needsReview: true }
+            : item,
+        ),
+      );
     }
 
-    if (onSubmissionsUpdate) {
-      const token2 = await getToken();
-      if (!token2) { setClassifyingAll(false); return; }
-      const fresh = await fetchWithClerkAuth("/api/me/documents", token2);
-      if (fresh.ok) {
-        const data = await fresh.json();
-        onSubmissionsUpdate(data);
-      }
-    }
-
+    setClassifyingIds(new Set());
     setClassifyingAll(false);
   }, [items, getToken, onSubmissionsUpdate]);
 

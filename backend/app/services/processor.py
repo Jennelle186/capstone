@@ -8,13 +8,12 @@ from sqlalchemy import select
 
 from ..database import AsyncSessionLocal
 from ..models import DocumentSubmission, DocumentType, DocumentTypeStatus, SubmissionStatus
-from ..services.aws_pipeline import (
-    TextractError,
-    UnsupportedDocumentError,
+from ..services.gcp_pipeline import (
+    GcpPipelineError,
     process_document_sync,
 )
 
-AUTO_ACCEPT_THRESHOLD = 0.70
+AUTO_ACCEPT_THRESHOLD = 0.80
 REJECT_THRESHOLD = 0.30
 
 logger = logging.getLogger(__name__)
@@ -116,52 +115,13 @@ async def process_submission(submission_id: UUID) -> None:
             )
 
             extracted_text_length = result.get("extracted_text_length")
-            textract_job_id = result.get("textract_job_id")
-            if textract_job_id:
-                submission.llama_job_id = textract_job_id
-
-            if result.get("flag") == "unsupported_file_format":
-                classification_result["flag"] = "unsupported_file_format"
-                classification_result["confidence"] = 0.0
-                classification_result["reasoning"] = result.get("reasoning", "Textract does not support this document format.")
-                if extracted_text_length is not None:
-                    classification_result["extracted_text_length"] = extracted_text_length
-                logger.info(
-                    "process_submission: unsupported file format for %s",
-                    submission_id,
-                )
-                await _save_classification(
-                    session,
-                    submission,
-                    SubmissionStatus.FLAGGED,
-                    classification_result,
-                    document_type_id=None,
-                )
-                return
-
-            if result.get("flag") == "text_too_short":
-                classification_result["flag"] = "text_too_short"
-                classification_result["confidence"] = 0.0
-                classification_result["extracted_text_length"] = extracted_text_length
-                logger.info(
-                    "process_submission: text too short (%d chars) for %s",
-                    extracted_text_length,
-                    submission_id,
-                )
-                await _save_classification(
-                    session,
-                    submission,
-                    SubmissionStatus.FLAGGED,
-                    classification_result,
-                    document_type_id=None,
-                )
-                return
-
             match_data = result.get("match")
-            if match_data is None:
+            classification_result["source"] = (match_data or {}).get("source", "keyword")
+
+            if match_data is None or not match_data.get("type"):
                 classification_result["flag"] = "not_a_required_document"
                 classification_result["confidence"] = 0.0
-                classification_result["reasoning"] = result.get("reasoning", "No keywords matched.")
+                classification_result["reasoning"] = (match_data or {}).get("reasoning", "Document does not match any required type.")
                 if extracted_text_length is not None:
                     classification_result["extracted_text_length"] = extracted_text_length
                 logger.info("process_submission: no match for %s", submission_id)
@@ -232,12 +192,9 @@ async def process_submission(submission_id: UUID) -> None:
                     document_type_id=None,
                 )
 
-        except UnsupportedDocumentError as exc:
-            logger.error("Unsupported document format for submission %s: %s", submission_id, exc)
-            await _flag_submission(session, submission_id, {"flag": "unsupported_file_format", "reasoning": str(exc)})
-        except TextractError as exc:
-            logger.error("Textract error for submission %s: %s", submission_id, exc)
-            await _flag_submission(session, submission_id, {"error": "textract_error", "detail": str(exc)})
+        except GcpPipelineError as exc:
+            logger.error("Pipeline error for submission %s: %s", submission_id, exc)
+            await _flag_submission(session, submission_id, {"error": "pipeline_error", "detail": str(exc)})
         except Exception as exc:
             logger.exception("Unexpected error processing submission %s", submission_id)
             await _flag_submission(session, submission_id, {"error": "unexpected", "detail": str(exc)})

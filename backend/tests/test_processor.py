@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from app.models import SubmissionStatus
+from app.services.gcp_pipeline import GcpPipelineError
 from app.services.processor import process_submission
 
 
@@ -52,28 +53,19 @@ def _make_pipeline_result(
     confidence=0.0,
     reasoning="",
     source="keyword",
-    flag=None,
     extracted_text_length=500,
 ):
     result = {
         "extracted_text_length": extracted_text_length,
-        "textract_job_id": None,
     }
-    if flag:
-        result["flag"] = flag
-        result["confidence"] = confidence
-        if flag == "not_a_required_document":
-            result["reasoning"] = "No keywords matched."
-        elif flag == "unsupported_file_format":
-            result["reasoning"] = reasoning or "Unsupported document format."
-        return result
-    result["match"] = {
-        "type": match_type,
-        "confidence": confidence,
-        "reasoning": reasoning,
-        "source": source,
-    }
-    result["status"] = "classified"
+    if match_type:
+        result["match"] = {
+            "type": match_type,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "source": source,
+        }
+        result["status"] = "classified"
     return result
 
 
@@ -88,7 +80,7 @@ async def test_process_submission_classifies_high_confidence_match() -> None:
         match_type="ADMISSION_FORM",
         confidence=0.95,
         reasoning="Matched 2/2 keywords",
-        source="bedrock",
+        source="gemini",
     )
 
     with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
@@ -102,7 +94,7 @@ async def test_process_submission_classifies_high_confidence_match() -> None:
     assert submission.document_type_id == doc_type.id
     assert submission.classification_result["type"] == "ADMISSION_FORM"
     assert submission.classification_result["confidence"] == 0.95
-    assert submission.classification_result["source"] == "bedrock"
+    assert submission.classification_result["source"] == "gemini"
 
 
 @pytest.mark.asyncio
@@ -136,7 +128,7 @@ async def test_process_submission_flags_when_no_match() -> None:
 
     session = _mock_session(submission, document_types=[doc_type])
 
-    pipeline_result = _make_pipeline_result(flag="not_a_required_document", confidence=0.0)
+    pipeline_result = _make_pipeline_result()
 
     with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
         mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
@@ -191,13 +183,10 @@ async def test_process_submission_skips_when_not_uploaded() -> None:
         await process_submission(submission.id)
 
     assert submission.status == SubmissionStatus.FLAGGED
-    assert submission.llama_job_id is None
 
 
 @pytest.mark.asyncio
-async def test_process_submission_flags_on_textract_error() -> None:
-    from app.services.aws_pipeline import TextractError
-
+async def test_process_submission_flags_on_pipeline_error() -> None:
     submission = _submission(status=SubmissionStatus.UPLOADED)
     doc_type = _doc_type(code="ADMISSION_FORM", classifier_description="Admission form.")
     session = _mock_session(submission, document_types=[doc_type])
@@ -206,72 +195,8 @@ async def test_process_submission_flags_on_textract_error() -> None:
         mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
         mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.services.processor.asyncio.to_thread", side_effect=TextractError("Textract failed")):
+        with patch("app.services.processor.asyncio.to_thread", side_effect=GcpPipelineError("Gemini classification failed")):
             await process_submission(submission.id)
 
     assert submission.status == SubmissionStatus.FLAGGED
-    assert submission.classification_result["error"] == "textract_error"
-
-
-@pytest.mark.asyncio
-async def test_process_submission_flags_text_too_short() -> None:
-    submission = _submission(status=SubmissionStatus.UPLOADED)
-    doc_type = _doc_type(code="ADMISSION_FORM", classifier_description="Admission form.")
-
-    session = _mock_session(submission, document_types=[doc_type])
-
-    pipeline_result = _make_pipeline_result(flag="text_too_short", confidence=0.0, extracted_text_length=45)
-
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
-            await process_submission(submission.id)
-
-    assert submission.status == SubmissionStatus.FLAGGED
-    assert submission.classification_result["flag"] == "text_too_short"
-
-
-@pytest.mark.asyncio
-async def test_process_submission_flags_unsupported_file_format() -> None:
-    submission = _submission(status=SubmissionStatus.UPLOADED)
-    doc_type = _doc_type(code="ADMISSION_FORM", classifier_description="Admission form.")
-
-    session = _mock_session(submission, document_types=[doc_type])
-
-    pipeline_result = _make_pipeline_result(
-        flag="unsupported_file_format",
-        confidence=0.0,
-        reasoning="Textract does not support this document format",
-        extracted_text_length=0,
-    )
-
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
-            await process_submission(submission.id)
-
-    assert submission.status == SubmissionStatus.FLAGGED
-    assert submission.classification_result["flag"] == "unsupported_file_format"
-
-
-@pytest.mark.asyncio
-async def test_process_submission_flags_on_unsupported_document_error() -> None:
-    from app.services.aws_pipeline import UnsupportedDocumentError
-
-    submission = _submission(status=SubmissionStatus.UPLOADED)
-    doc_type = _doc_type(code="ADMISSION_FORM", classifier_description="Admission form.")
-    session = _mock_session(submission, document_types=[doc_type])
-
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.processor.asyncio.to_thread", side_effect=UnsupportedDocumentError("Unsupported format")):
-            await process_submission(submission.id)
-
-    assert submission.status == SubmissionStatus.FLAGGED
-    assert submission.classification_result["flag"] == "unsupported_file_format"
+    assert submission.classification_result["error"] == "pipeline_error"

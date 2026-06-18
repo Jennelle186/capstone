@@ -86,17 +86,14 @@ export default function PreviouslyUploadedSection({
           fields: Record<string, string>;
         };
 
-        const formData = new FormData();
-        Object.entries(presigned.fields).forEach(([k, v]) => formData.append(k, v));
-        formData.append("file", file);
-
-        const s3Res = await fetch(presigned.url, {
-          method: "POST",
-          body: formData,
+        const gcsRes = await fetch(presigned.url, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type },
         });
-        if (!s3Res.ok) {
-          const body = await s3Res.text();
-          throw new Error(`S3 upload failed: ${s3Res.status} — ${body}`);
+        if (!gcsRes.ok) {
+          const body = await gcsRes.text();
+          throw new Error(`GCS upload failed: ${gcsRes.status} — ${body}`);
         }
 
         const confirmRes = await fetchWithClerkAuth("/api/me/documents/confirm", token, {

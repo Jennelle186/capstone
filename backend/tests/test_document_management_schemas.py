@@ -34,9 +34,9 @@ def test_requirement_assignment_request_dedupes_document_type_ids() -> None:
 
 def test_download_url_response_serializes_url_and_expiry() -> None:
     payload = DownloadUrlResponse(
-        url="https://s3.ap-southeast-1.amazonaws.com/bucket/key?X-Amz-Signature=abc",
+        url="https://storage.googleapis.com/bucket/key?X-Goog-Signature=abc",
         expires_in=3600,
     )
 
-    assert payload.url.startswith("https://s3.ap-southeast-1.amazonaws.com/")
+    assert payload.url.startswith("https://storage.googleapis.com/")
     assert payload.expires_in == 3600

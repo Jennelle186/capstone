@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,9 @@ from .routers.users import router as users_router
 from .routers import admin
 from .services.user_sync import ensure_user_row
 from .services.clerk import update_user_personal_names, update_user_public_metadata
+from .services.gcp_storage import ensure_bucket_cors
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -26,6 +30,10 @@ async def lifespan(app: FastAPI):
     # This uses SQLAlchemy `Base.metadata.create_all` under the hood; Alembic is still the right tool for migrations.
     if os.getenv("AUTO_CREATE_TABLES", "").lower() in {"1", "true", "yes"}:
         await init_db()
+    try:
+        ensure_bucket_cors()
+    except Exception as exc:
+        logger.warning("Failed to configure GCS bucket CORS: %s", exc)
     yield
 
 

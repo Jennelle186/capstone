@@ -92,27 +92,18 @@ export default function StepUpload({
     [],
   );
 
-  // Uploads the file directly to S3 using the presigned POST URL and fields.
+  // Uploads the file directly to GCS using the presigned signed URL.
   const uploadToS3 = useCallback(
     async (item: FileItem, presigned: InitiateUploadResponse): Promise<void> => {
-      const formData = new FormData();
-      // Append the policy fields first (key, policy, signature, etc.).
-      Object.entries(presigned.fields).forEach(([key, value]) => {
-        formData.append(key, value);
-      });
-      // Append the file last under the expected field name.
-      formData.append("file", item.file);
-
-      const s3Res = await fetch(presigned.url, {
-        method: "POST",
-        body: formData,
-        // Do not set Authorization or Content-Type headers — S3 uses the
-        // presigned form fields for auth and the browser sets multipart boundaries.
+      const gcsRes = await fetch(presigned.url, {
+        method: "PUT",
+        body: item.file,
+        headers: { "Content-Type": item.file.type },
       });
 
-      if (!s3Res.ok) {
-        const body = await s3Res.text();
-        throw new Error(`S3 upload failed: ${s3Res.status} ${s3Res.statusText} — ${body}`);
+      if (!gcsRes.ok) {
+        const body = await gcsRes.text();
+        throw new Error(`GCS upload failed: ${gcsRes.status} ${gcsRes.statusText} — ${body}`);
       }
     },
     [],

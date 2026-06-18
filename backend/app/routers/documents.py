@@ -25,13 +25,14 @@ from ..models import (
     SubmissionStatus,
 )
 from ..rbac import require_student
-from ..services.aws_pipeline import _extract_text, _get_s3_bucket, extract_document_fields, get_raw_kie_pairs
 from ..services.document_requirements import get_required_document_types_for_student
-from ..services.s3 import delete_file as s3_delete_file
-from ..services.s3 import generate_presigned_post as s3_generate_presigned_post
-from ..services.s3 import generate_presigned_url as s3_generate_presigned_url
-from ..services.s3 import head_object as s3_head_object
-from ..services.s3 import make_staging_key
+from ..services.gcp_storage import (
+    delete_file as gcs_delete_file,
+    generate_presigned_post as gcs_generate_presigned_post,
+    generate_presigned_url as gcs_generate_presigned_url,
+    head_object as gcs_head_object,
+    make_staging_key,
+)
 from ..services.processor import process_submission
 from ..services.user_sync import ensure_user_row
 
@@ -173,7 +174,7 @@ async def initiate_upload(
         raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
 
     key = make_staging_key(str(student.id), body.name)
-    presigned = s3_generate_presigned_post(key, body.type)
+    presigned = gcs_generate_presigned_post(key, body.type)
 
     submission = DocumentSubmission(
         student_id=student.id,
@@ -251,7 +252,7 @@ async def retry_upload(
             await db.commit()
             await db.refresh(submission)
 
-    presigned = s3_generate_presigned_post(
+    presigned = gcs_generate_presigned_post(
         submission.file_key,
         submission.mime_type or "application/octet-stream",
     )
@@ -295,9 +296,9 @@ async def confirm_upload(
         raise HTTPException(status_code=403, detail="You do not have permission to confirm this document.")
 
     # Verify the object actually arrived in S3 before marking it uploaded.
-    # head_object is a synchronous boto3 call, so run it in a thread pool to
+    # head_object is a synchronous GCS call, so run it in a thread pool to
     # avoid blocking the FastAPI event loop for other students.
-    await asyncio.to_thread(s3_head_object, submission.file_key)
+    await asyncio.to_thread(gcs_head_object, submission.file_key)
 
     submission.status = SubmissionStatus.UPLOADED
     await db.commit()
@@ -384,8 +385,8 @@ async def delete_document(
             detail="Cannot delete a verified document.",
         )
 
-    # Remove the file from S3 before deleting the database record
-    s3_delete_file(submission.file_key)
+    # Remove the file from GCS before deleting the database record
+    gcs_delete_file(submission.file_key)
 
     await db.delete(submission)
     await db.commit()
@@ -488,19 +489,19 @@ async def classify_all_documents(
                 raise HTTPException(status_code=404, detail="One or more documents not found.")
 
             for submission in submissions:
+                if submission.status not in eligible_statuses:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Cannot classify a document with status '{submission.status.value}'. "
+                            "Only UPLOADED or FLAGGED documents can be classified."
+                        ),
+                    )
                 if submission.student_id != student.id:
                     raise HTTPException(
                         status_code=403,
                         detail="You do not have permission to classify one or more documents.",
                     )
-                    if submission.status not in eligible_statuses:
-                        raise HTTPException(
-                            status_code=409,
-                            detail=(
-                                f"Cannot classify a document with status '{submission.status.value}'. "
-                                "Only UPLOADED or FLAGGED documents can be classified."
-                            ),
-                        )
         else:
             submissions = []
     else:
@@ -515,16 +516,12 @@ async def classify_all_documents(
     if submissions:
         await db.commit()
 
-    semaphore = asyncio.Semaphore(3)
-
-    async def _process_one(submission_id: UUID) -> None:
-        async with semaphore:
-            await process_submission(submission_id)
-
-    await asyncio.gather(
-        *(_process_one(submission.id) for submission in submissions),
-        return_exceptions=True,
-    )
+    for submission in submissions:
+        try:
+            await process_submission(submission.id)
+        except Exception:
+            logger.exception("classify_all: submission %s failed", submission.id)
+        await asyncio.sleep(2)
 
     if submissions:
         result = await db.execute(
@@ -591,73 +588,8 @@ async def _run_extractions_background(
     submission_ids: list[UUID],
     school_year_id: UUID | None,
 ) -> None:
-    """Background task: run KIE extraction for classified submissions."""
-    async with AsyncSessionLocal() as db:
-        try:
-            result = await db.execute(
-                select(DocumentSubmission)
-                .options(selectinload(DocumentSubmission.document_type))
-                .where(DocumentSubmission.id.in_(submission_ids))
-            )
-            submissions = list(result.scalars().all())
-            if not submissions:
-                return
-
-            schemas_by_type: dict[UUID, ExtractionSchema] = {}
-            if school_year_id:
-                req_result = await db.execute(
-                    select(SchoolYearRequirement).where(
-                        SchoolYearRequirement.school_year_id == school_year_id,
-                        SchoolYearRequirement.extraction_schema_id.isnot(None),
-                    )
-                )
-                requirements = list(req_result.scalars().all())
-                schema_ids = {r.extraction_schema_id for r in requirements if r.extraction_schema_id}
-                if schema_ids:
-                    schema_result = await db.execute(
-                        select(ExtractionSchema).where(
-                            ExtractionSchema.id.in_(schema_ids),
-                            ExtractionSchema.status != ExtractionSchemaStatus.ARCHIVED,
-                        )
-                    )
-                    all_schemas = {s.id: s for s in schema_result.scalars().all()}
-                    for req in requirements:
-                        if req.document_type_id and req.extraction_schema_id and req.extraction_schema_id in all_schemas:
-                            schemas_by_type[req.document_type_id] = all_schemas[req.extraction_schema_id]
-
-            semaphore = asyncio.Semaphore(3)
-
-            async def _extract_one(sub: DocumentSubmission) -> None:
-                async with semaphore:
-                    schema = schemas_by_type.get(sub.document_type_id)
-                    if schema is None or not schema.fields_json:
-                        return
-                    try:
-                        extracted = await asyncio.to_thread(
-                            extract_document_fields,
-                            sub.file_key,
-                            schema.fields_json,
-                        )
-                        if isinstance(extracted, dict):
-                            try:
-                                bucket = _get_s3_bucket()
-                                raw_text, _ = _extract_text(bucket, sub.file_key)
-                                extracted["_ocr_text"] = raw_text
-                            except Exception:
-                                pass
-                        sub.extracted_data = extracted
-                        sub.status = SubmissionStatus.CLASSIFIED
-                    except Exception as exc:
-                        logger.exception("Extraction failed for submission %s: %s", sub.id, exc)
-                        if sub.classification_result is None or not isinstance(sub.classification_result, dict):
-                            sub.classification_result = {}
-                        sub.classification_result["extraction_error"] = str(exc)
-                        sub.status = SubmissionStatus.FLAGGED
-
-            await asyncio.gather(*(_extract_one(sub) for sub in submissions), return_exceptions=True)
-            await db.commit()
-        except Exception as exc:
-            logger.exception("Extraction background task failed: %s", exc)
+    """Background task: run extraction for classified submissions."""
+    logger.warning("GCP extraction pipeline not yet implemented; skipping %d submissions", len(submission_ids))
 
 
 @router.post("/api/me/documents/extract-all", response_model=list[SubmissionDetailResponse])
@@ -958,5 +890,5 @@ async def get_download_url(
         )
 
     # Presigned URLs expire after one hour by default.
-    url = s3_generate_presigned_url(submission.file_key)
+    url = gcs_generate_presigned_url(submission.file_key)
     return DownloadUrlResponse(url=url, expires_in=3600)

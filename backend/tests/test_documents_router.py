@@ -88,8 +88,8 @@ def test_initiate_upload_returns_presigned_post(client, mock_user, mock_student)
     app.dependency_overrides[get_db_session] = override_get_db_session_initiate
 
     with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.s3_generate_presigned_post", return_value={
-            "url": "https://s3.example.com/staging",
+        with patch("app.routers.documents.gcs_generate_presigned_post", return_value={
+            "url": "https://storage.googleapis.com/bucket/staging",
             "fields": {"key": "staging/student/file.pdf", "policy": "abc"},
             "key": "staging/student/file.pdf",
         }):
@@ -100,7 +100,7 @@ def test_initiate_upload_returns_presigned_post(client, mock_user, mock_student)
 
     assert response.status_code == 200
     data = response.json()
-    assert data["url"] == "https://s3.example.com/staging"
+    assert data["url"] == "https://storage.googleapis.com/bucket/staging"
     assert data["fields"]["key"] == "staging/student/file.pdf"
     assert "submission_id" in data
 
@@ -128,7 +128,7 @@ def test_confirm_upload_verifies_s3_and_marks_uploaded(client, mock_user, mock_s
     app.dependency_overrides[get_db_session] = override_get_db_session_confirm
 
     with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.s3_head_object", return_value={"ContentLength": 1024}):
+        with patch("app.routers.documents.gcs_head_object", return_value={"ContentLength": 1024}):
             response = client.post(
                 "/api/me/documents/confirm",
                 json={"submission_id": str(submission_id)},
@@ -141,7 +141,7 @@ def test_confirm_upload_verifies_s3_and_marks_uploaded(client, mock_user, mock_s
 
 
 def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
-    doc_type = SimpleNamespace(name="Admission Form")
+    doc_type = SimpleNamespace(name="Admission Form", code="ADMISSION_FORM")
     submission = SimpleNamespace(
         id=uuid4(),
         status=SubmissionStatus.CLASSIFIED,
@@ -153,6 +153,7 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
         document_type_id=None,
         document_type=doc_type,
         classification_result={"type": "ADMISSION_FORM", "confidence": 0.95},
+        extracted_data=None,
         llama_job_id="llama-file-id",
         created_at=None,
     )
@@ -197,12 +198,12 @@ def test_get_download_url_returns_presigned_url(client, mock_user, mock_student)
     app.dependency_overrides[get_db_session] = override_get_db_session_download
 
     with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.s3_generate_presigned_url", return_value="https://s3.example.com/view"):
+        with patch("app.routers.documents.gcs_generate_presigned_url", return_value="https://storage.googleapis.com/bucket/view"):
             response = client.get(f"/api/me/documents/{submission_id}/download-url")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["url"] == "https://s3.example.com/view"
+    assert data["url"] == "https://storage.googleapis.com/bucket/view"
     assert data["expires_in"] == 3600
 
 
@@ -225,7 +226,7 @@ def test_delete_document_removes_submission_and_s3_object(client, mock_user, moc
     app.dependency_overrides[get_db_session] = override_get_db_session_delete
 
     with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.s3_delete_file") as mock_s3_delete:
+        with patch("app.routers.documents.gcs_delete_file") as mock_s3_delete:
             response = client.delete(f"/api/me/documents/{submission_id}")
 
     assert response.status_code == 200

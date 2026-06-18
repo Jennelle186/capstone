@@ -1,0 +1,331 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+
+from ..models import DocumentType
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+logger = logging.getLogger(__name__)
+
+MIN_TEXT_LENGTH = 100
+AUTO_ACCEPT_THRESHOLD = 0.80
+REJECT_THRESHOLD = 0.30
+
+
+class GcpPipelineError(Exception):
+    pass
+
+
+SYSTEM_INSTRUCTION = """You are an expert document processing AI for an academic institution.
+
+TASK: CLASSIFICATION
+Analyze the document and classify it into exactly ONE of the provided document types.
+
+CONSTRAINTS:
+- If the document does not match any type, set type to null and confidence to 0
+- Do not include any text outside the JSON response"""
+
+
+@dataclass
+class ClassificationMatch:
+    type_code: str | None
+    confidence: float
+    reasoning: str
+    source: str = "keyword"
+
+
+def get_document_text(file_key: str) -> str:
+    return ""
+
+
+def _normalize_text(text: str) -> str:
+    return text.lower().strip()
+
+
+def _word_set(text: str) -> set[str]:
+    return {w.strip().strip(":.,;") for w in text.split() if len(w) > 2}
+
+
+def classify_with_keywords(
+    text: str,
+    document_types: list[DocumentType],
+) -> ClassificationMatch | None:
+    if not text.strip():
+        return None
+
+    text_lower = text.lower()
+    best_match: ClassificationMatch | None = None
+
+    for dt in document_types:
+        keywords = dt.keywords if isinstance(dt.keywords, list) else []
+        description = (dt.classifier_description or "").strip()
+
+        if not keywords and not description:
+            continue
+
+        matched = 0
+        for kw in keywords:
+            kw_str = str(kw).strip().lower()
+            if not kw_str:
+                continue
+            pattern = r"\b" + re.escape(kw_str) + r"\b"
+            if re.search(pattern, text_lower):
+                matched += 1
+
+        min_required = max(1, len(keywords) * 0.3) if keywords else 0
+        if keywords and matched < min_required:
+            continue
+
+        if keywords and matched == 0:
+            continue
+
+        if matched >= 5:
+            keyword_score = 0.80 + 0.20 * (matched / len(keywords))
+        elif matched >= 3:
+            keyword_score = 0.65 + 0.15 * (matched / len(keywords))
+        elif matched >= 2:
+            keyword_score = 0.50 + 0.20 * (matched / len(keywords))
+        elif matched == 1:
+            if len(keywords) <= 2:
+                keyword_score = 0.45 + 0.10 * (matched / len(keywords))
+            else:
+                keyword_score = 0.30 + 0.10 * (matched / len(keywords))
+        else:
+            keyword_score = 0.0
+
+        desc_bonus = 0.0
+        if description:
+            desc_words = [w.lower().strip(":.,;") for w in description.split() if len(w) > 3]
+            if desc_words:
+                desc_matched = sum(1 for w in desc_words if w in text_lower)
+                if desc_matched >= len(desc_words) * 0.4:
+                    desc_ratio = desc_matched / len(desc_words)
+                    desc_bonus = 0.15 * desc_ratio
+
+        confidence = min(keyword_score + desc_bonus, 1.0)
+
+        if confidence < REJECT_THRESHOLD:
+            continue
+
+        if best_match is None or confidence > best_match.confidence:
+            reasons = []
+            if matched > 0 and keywords:
+                reasons.append(f"Matched {matched}/{len(keywords)} keywords")
+            if desc_bonus > 0:
+                desc_words = [w.lower().strip(":.,;") for w in description.split() if len(w) > 3]
+                if desc_words:
+                    desc_matched_count = sum(1 for w in desc_words if w in text_lower)
+                    reasons.append(f"Description match: {desc_matched_count}/{len(desc_words)} words")
+            reasoning = "; ".join(reasons) if reasons else "No specific matches"
+            best_match = ClassificationMatch(
+                type_code=dt.code,
+                confidence=round(confidence, 4),
+                reasoning=reasoning,
+                source="keyword",
+            )
+
+    return best_match
+
+
+def _build_classification_schema(document_types: list[DocumentType]) -> dict:
+    type_codes = [dt.code for dt in document_types]
+    return {
+        "type": "object",
+        "properties": {
+            "type": {
+                "type": "string",
+                "nullable": True,
+                "description": f"Document type code. One of: {', '.join(type_codes)} or null if no match.",
+            },
+            "confidence": {"type": "number", "description": "Confidence score 0-1"},
+            "reasoning": {"type": "string", "description": "Brief explanation"},
+        },
+        "required": ["type", "confidence", "reasoning"],
+    }
+
+
+def _build_classification_prompt(document_types: list[DocumentType]) -> str:
+    lines = ["Classify the document into exactly ONE of the following types.", ""]
+    lines.append("Available document types:")
+    for dt in document_types:
+        keywords = dt.keywords if isinstance(dt.keywords, list) else []
+        kw_str = ", ".join(str(k) for k in keywords) if keywords else "none"
+        desc = dt.classifier_description or dt.description or ""
+        lines.append(f"- {dt.code} ({dt.name}): {desc}. Keywords: {kw_str}")
+    lines.append("")
+    lines.append('Respond with JSON: {"type": "<CODE or null>", "confidence": 0.0-1.0, "reasoning": "why this classification"}')
+    return "\n".join(lines)
+
+
+def classify_with_gemini(
+    file_key: str,
+    document_types: list[DocumentType],
+) -> ClassificationMatch:
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    bucket = os.getenv("GCS_BUCKET", "")
+    model_name = os.getenv("VERTEX_AI_MODEL")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    client = genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+    )
+
+    prompt = _build_classification_prompt(document_types)
+    schema = _build_classification_schema(document_types)
+
+    normalized_key = file_key.replace("\\", "/")
+    file_uri = f"gs://{bucket}/{normalized_key}"
+    mime_type = "application/pdf" if normalized_key.lower().endswith(".pdf") else "image/jpeg"
+
+    logger.info("Sending %s to Gemini for classification (model=%s)", file_key, model_name)
+
+    last_error: Exception | None = None
+    for attempt in range(4):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[
+                    types.Part.from_uri(file_uri=file_uri, mime_type=mime_type),
+                    types.Part.from_text(text=prompt),
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+                    temperature=0.0,
+                ),
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            error_text = str(exc)
+            if "429" in error_text and attempt < 3:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Rate limited (%s), retry %d/3 in %ss...", file_key, attempt + 1, wait
+                )
+                time.sleep(wait)
+                continue
+            logger.error("Gemini classification failed for %s: %s", file_key, exc)
+            raise GcpPipelineError(f"Gemini classification failed: {exc}") from exc
+
+    if last_error is not None:
+        raise GcpPipelineError(f"Gemini classification failed after retries: {last_error}") from last_error
+
+    if not response.text or not response.text.strip():
+        logger.error("Gemini returned empty response for %s", file_key)
+        raise GcpPipelineError("Gemini returned empty response")
+
+    try:
+        result = json.loads(response.text.strip())
+    except (json.JSONDecodeError, AttributeError) as exc:
+        logger.error("Gemini returned invalid JSON for %s: %s", file_key, response.text[:500])
+        raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc
+
+    type_code = result.get("type")
+    confidence = float(result.get("confidence", 0.0))
+    reasoning = result.get("reasoning", "")
+
+    if not type_code:
+        return ClassificationMatch(
+            type_code=None,
+            confidence=0.0,
+            reasoning=reasoning or "Document does not match any required type",
+            source="gemini",
+        )
+
+    return ClassificationMatch(
+        type_code=type_code,
+        confidence=min(max(confidence, 0.0), 1.0),
+        reasoning=reasoning,
+        source="gemini",
+    )
+
+
+def classify_document(
+    file_key: str,
+    document_types: list[DocumentType],
+) -> dict[str, Any]:
+    text = get_document_text(file_key)
+    text_length = len(text)
+
+    if text_length < MIN_TEXT_LENGTH:
+        logger.info(
+            "Scanned document (no extractable text), skipping keyword classifier for %s",
+            file_key,
+        )
+        match = None
+    else:
+        match = classify_with_keywords(text, document_types)
+
+    if match is not None and match.confidence >= AUTO_ACCEPT_THRESHOLD:
+        logger.info(
+            "Keyword auto-classified %s as %s (%.2f)",
+            file_key, match.type_code, match.confidence,
+        )
+        return {
+            "match": {
+                "type": match.type_code,
+                "confidence": match.confidence,
+                "reasoning": match.reasoning,
+                "source": "keyword",
+            },
+            "status": "classified",
+            "extracted_text_length": text_length,
+        }
+
+    if match is not None and match.confidence >= REJECT_THRESHOLD:
+        logger.info(
+            "Keyword low-confidence %s as %s (%.2f), sending to Gemini",
+            file_key, match.type_code, match.confidence,
+        )
+        gemini_match = classify_with_gemini(file_key, document_types)
+        source = f"keyword({match.confidence})→gemini"
+        return {
+            "match": {
+                "type": gemini_match.type_code,
+                "confidence": gemini_match.confidence,
+                "reasoning": gemini_match.reasoning,
+                "source": source,
+            },
+            "status": "classified" if gemini_match.confidence >= AUTO_ACCEPT_THRESHOLD and gemini_match.type_code else "flagged_low_confidence",
+            "extracted_text_length": text_length,
+        }
+
+    logger.info("Keywords rejected %s, sending to Gemini as fallback", file_key)
+    gemini_match = classify_with_gemini(file_key, document_types)
+    source = f"gemini"
+    return {
+        "match": {
+            "type": gemini_match.type_code,
+            "confidence": gemini_match.confidence,
+            "reasoning": gemini_match.reasoning,
+            "source": source,
+        },
+        "status": "classified" if gemini_match.confidence >= AUTO_ACCEPT_THRESHOLD and gemini_match.type_code else "flagged_not_required",
+        "extracted_text_length": text_length,
+    }
+
+
+def process_document_sync(
+    file_key: str,
+    document_types: list[DocumentType],
+) -> dict[str, Any]:
+    result = classify_document(file_key, document_types)
+    return result
