@@ -108,7 +108,6 @@ class SubmissionDetailResponse(BaseModel):
     document_type_code: str | None = None
     classification_result: dict | None = None
     extracted_data: dict | None = None
-    llama_job_id: str | None = None
     created_at: str
 
 
@@ -347,7 +346,7 @@ async def list_my_documents(
             classification_result=s.classification_result,
             extracted_data=s.extracted_data,
             document_type_code=s.document_type.code if s.document_type else None,
-            llama_job_id=s.llama_job_id,
+
             created_at=s.created_at.isoformat() if s.created_at else "",
         )
         for s in submissions
@@ -435,7 +434,6 @@ async def classify_document(
         document_type_id=str(submission.document_type_id) if submission.document_type_id else None,
         document_type_name=submission.document_type.name if submission.document_type else None,
         classification_result=submission.classification_result,
-        llama_job_id=submission.llama_job_id,
         created_at=submission.created_at.isoformat() if submission.created_at else "",
     )
 
@@ -547,7 +545,6 @@ async def classify_all_documents(
             classification_result=submission.classification_result,
             extracted_data=submission.extracted_data,
             document_type_code=submission.document_type.code if submission.document_type else None,
-            llama_job_id=submission.llama_job_id,
             created_at=submission.created_at.isoformat() if submission.created_at else "",
         )
         for submission in updated_submissions
@@ -675,7 +672,6 @@ async def extract_all_documents(
             classification_result=sub.classification_result,
             extracted_data=sub.extracted_data,
             document_type_code=None,
-            llama_job_id=sub.llama_job_id,
             created_at=sub.created_at.isoformat() if sub.created_at else "",
         )
         for sub in submissions
@@ -853,7 +849,6 @@ async def confirm_classification(
         document_type_id=str(submission.document_type_id) if submission.document_type_id else None,
         document_type_name=submission.document_type.name if submission.document_type else None,
         classification_result=submission.classification_result,
-        llama_job_id=submission.llama_job_id,
         created_at=submission.created_at.isoformat() if submission.created_at else "",
     )
 

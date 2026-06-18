@@ -114,6 +114,9 @@ export function getSchemaFields(
     schema: Record<string, unknown>,
     fallback: ExtractionSchemaField[],
 ): ExtractionSchemaField[] {
+    if (fallback.some((f) => f.ui_component || f.options || f.section_id)) {
+        return fallback;
+    }
     const fields = flattenSchemaToFields(schema);
     return fields.length > 0 ? fields : fallback.length > 0 ? fallback : [createField()];
 }
@@ -271,7 +274,11 @@ export function preparePayload(form: ExtractionSchemaPayload): ExtractionSchemaP
         source_file_name: form.source_file_name?.trim() || null,
         generation_prompt: form.generation_prompt?.trim() || null,
         fields_json: fields,
-        schema_json: hasSchemaProperties(form.schema_json) ? form.schema_json : buildJsonSchema(fields),
+        schema_json: typeof form.schema_json?.type === "string" && form.schema_json.type !== "object"
+            ? form.schema_json
+            : hasSchemaProperties(form.schema_json)
+                ? form.schema_json
+                : buildJsonSchema(fields),
     };
 }
 

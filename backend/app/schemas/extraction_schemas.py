@@ -12,12 +12,23 @@ from ..models import ExtractionSchemaStatus
 SchemaFieldType = Literal["string", "number", "integer", "boolean"]
 
 
+class FieldOption(BaseModel):
+    value: str = Field(description="System key for the option (snake_case).")
+    label: str = Field(description="The literal text printed on the form.")
+
+
 class ExtractionSchemaField(BaseModel):
     id: str = Field(min_length=1)
     key: str = Field(min_length=1, max_length=120)
     type: SchemaFieldType = "string"
     description: str = ""
     required: bool = False
+    ui_component: str | None = Field(default=None, description="UI entry type: text_input, radio_group, checkbox_group, dropdown, date_picker")
+    hierarchy_level: int = Field(default=1, description="Nesting depth: 1 for top-level, 2+ for nested items")
+    parent_field_id: str | None = Field(default=None, description="If nested under another field, reference its field_id")
+    options: list[FieldOption] | None = Field(default=None, description="For choice inputs, the list of options printed on the form")
+    section_id: str | None = Field(default=None, description="Logical section this field belongs to")
+    section_title: str | None = Field(default=None, description="Visual header title of the section")
 
     @field_validator("key")
     @classmethod
@@ -32,6 +43,30 @@ class ExtractionSchemaField(BaseModel):
     def trim_description(cls, value: str) -> str:
         return value.strip()
 
+
+class AdminBuilderField(BaseModel):
+    field_id: str = Field(description="Unique system identifier (e.g. 'enrollment_status').")
+    label: str = Field(description="The physical text label next to the input area.")
+    data_type: str = Field(description="System primitive: 'string', 'number', 'boolean', 'array'.")
+    ui_component: str = Field(description="UI entry type: 'text_input', 'radio_group', 'checkbox_group', 'dropdown', 'date_picker'.")
+    hierarchy_level: int = Field(default=1, description="Nesting depth: 1 for base fields, 2+ for items nested under a parent.")
+    parent_field_id: str | None = Field(default=None, description="If nested under another field, reference its field_id.")
+    required: bool = Field(default=False, description="Whether this field is mandatory (marked with asterisk, 'required' label, or cannot be left blank).")
+    options: list[FieldOption] | None = Field(default=None, description="For choice inputs, all options printed on the page.")
+
+
+class AdminBuilderSection(BaseModel):
+    section_id: str = Field(description="Unique key for the logical form block (e.g. 'admission_details').")
+    section_title: str = Field(description="The visual header title of the block (e.g. 'STUDENT PERSONAL DATA').")
+    fields: list[AdminBuilderField] = Field(description="The structured list of fields under this section.")
+
+
+class AdminSchemaBlueprint(BaseModel):
+    form_name: str = Field(description="The overarching document name at the top header.")
+    form_control_id: str = Field(description="Document routing/version code (e.g. 'WMSU-AO-FR-001.02').")
+    sections: list[AdminBuilderSection] = Field(description="The top-level logical sections dividing the form layout.")
+
+
 class ExtractionSchemaBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -45,6 +80,7 @@ class ExtractionSchemaBase(BaseModel):
     status: ExtractionSchemaStatus = ExtractionSchemaStatus.DRAFT
     source_file_name: str | None = Field(default=None, max_length=255)
     generation_prompt: str | None = None
+    sample_file_keys: list[str] | None = None
 
     @field_validator("name")
     @classmethod

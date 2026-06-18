@@ -433,7 +433,6 @@ class DocumentSubmission(Base):
     )
     classification_result = Column(JSONB, nullable=True)
     extracted_data = Column(JSONB, nullable=True)
-    llama_job_id = Column(String(255), nullable=True)
     document_type_id = Column(UUID(as_uuid=True), ForeignKey("document_types.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

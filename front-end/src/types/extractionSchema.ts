@@ -2,12 +2,23 @@ export type ExtractionSchemaStatus = "draft" | "active" | "archived";
 
 export type ExtractionSchemaFieldType = "string" | "number" | "integer" | "boolean";
 
+export interface FieldOption {
+    value: string;
+    label: string;
+}
+
 export interface ExtractionSchemaField {
     id: string;
     key: string;
     type: ExtractionSchemaFieldType;
     description: string;
     required: boolean;
+    ui_component?: string | null;
+    hierarchy_level?: number;
+    parent_field_id?: string | null;
+    options?: FieldOption[] | null;
+    section_id?: string | null;
+    section_title?: string | null;
 }
 
 export interface ExtractionSchemaRecord {

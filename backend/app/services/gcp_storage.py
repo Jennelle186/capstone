@@ -34,6 +34,10 @@ def _bucket() -> storage.Bucket:
     return client.bucket(_require_env("GCS_BUCKET"))
 
 
+def _admin_temp_prefix() -> str:
+    return os.getenv("GCS_ADMIN_TEMP_PREFIX", "admin-temp/")
+
+
 def _staging_prefix() -> str:
     return os.getenv("GCS_STAGING_PREFIX", "staging/")
 
@@ -49,6 +53,15 @@ def make_staging_key(student_id: str, filename: str) -> str:
     """Return a unique staging GCS key for a student's document upload."""
     ext = Path(filename).suffix or ".pdf"
     return f"{_staging_prefix()}{student_id}/{uuid.uuid4().hex}{ext}"
+
+
+def upload_file_bytes(key: str, content: bytes, content_type: str = "application/pdf") -> str:
+    """Upload raw bytes to GCS. Returns the key for later operations."""
+    bucket = _bucket()
+    blob = bucket.blob(key)
+    blob.content_type = content_type
+    blob.upload_from_string(content, content_type=content_type)
+    return key
 
 
 def generate_presigned_url(key: str, expires_in: int = 3600) -> str:

@@ -329,3 +329,211 @@ def process_document_sync(
 ) -> dict[str, Any]:
     result = classify_document(file_key, document_types)
     return result
+
+
+# ── Admin Schema Blueprint Generation ──────────────────────────────────────
+
+
+ADMIN_SCHEMA_SYSTEM_INSTRUCTION = """You are an expert Document Layout Architect and Meta-Schema Compiler.
+
+TASK:
+Analyze the provided document template. Your goal is NOT to extract a user's typed answers, but to deconstruct the form's structural layout, field connections, and option trees to generate an Admin Form Builder configuration schema.
+
+CRITICAL: For every field, determine whether it is REQUIRED (mandatory) or optional. A field is required if:
+- The form explicitly labels it with an asterisk (*), "(required)" text, or similar indicator
+- The form instructions state the field must be filled out
+- The field has no blank/empty option in a choice group
+- The field is essential and cannot reasonably be left empty
+  Fields without any such indicator should be marked as optional (required: false).
+
+DECONSTRUCTION RULES:
+1. SECTIONS: Group fields into logical sections based on visual boundaries and headers (e.g., "Admission Details", "Family Background").
+2. HIERARCHY & LEVELS:
+   - Assign 'hierarchy_level: 1' to base fields within a section.
+   - If a group of fields belongs to a parental selection node (e.g., checkboxes nested underneath a "Track" or "Strand" choice), increment the hierarchy_level and set the 'parent_field_id'.
+3. OPTIONS & CONNECTIONS: When an item consists of multiple printed text options next to selectable circles/boxes (like Enrollment Status, Semester, or Gender):
+   - Set the ui_component to "radio_group" (if single choice) or "checkbox_group" (if multiple choice).
+   - Enumerate EVERY choice item visible on the document into the "options" array. Keep labels verbatim.
+   - For simple text inputs use "text_input", for dates use "date_picker", for dropdown menus use "dropdown".
+
+OUTPUT FORMAT:
+Return a clean, structured JSON payload matching the AdminSchemaBlueprint definition."""
+
+
+def _build_blueprint_prompt() -> str:
+    return """Analyze this document template and deconstruct its structural layout.
+
+Identify every form section, every labeled input field, every choice option (radio buttons, checkboxes, dropdowns), and their hierarchical relationships. For each field, determine if it is required (mandatory) or optional based on printed indicators on the form.
+
+Pay special attention to:
+- Section headers that divide the form into logical blocks
+- Fields that are nested or conditional on a parent selection
+- All printed choice labels next to circles/boxes for radio/checkbox groups
+- The form's title and control/version number at the top
+
+Return a complete AdminSchemaBlueprint JSON."""
+
+
+def _build_blueprint_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "form_name": {
+                "type": "string",
+                "description": "The overarching document name found at the top header.",
+            },
+            "form_control_id": {
+                "type": "string",
+                "description": "Document routing/version code (e.g. WMSU-AO-FR-001.02).",
+            },
+            "sections": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section_id": {
+                            "type": "string",
+                            "description": "Unique key for the logical form block (e.g. admission_details).",
+                        },
+                        "section_title": {
+                            "type": "string",
+                            "description": "The visual header title of the block (e.g. STUDENT PERSONAL DATA).",
+                        },
+                        "fields": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "field_id": {
+                                        "type": "string",
+                                        "description": "Unique system identifier (e.g. enrollment_status).",
+                                    },
+                                    "label": {
+                                        "type": "string",
+                                        "description": "The physical text label next to the input area on the page.",
+                                    },
+                                    "data_type": {
+                                        "type": "string",
+                                        "description": "System primitive: string, number, boolean, array.",
+                                    },
+                                    "ui_component": {
+                                        "type": "string",
+                                        "description": "UI entry type: text_input, radio_group, checkbox_group, dropdown, date_picker.",
+                                    },
+                                    "hierarchy_level": {
+                                        "type": "integer",
+                                        "description": "Nesting depth: 1 for base fields, 2+ for conditional nested items.",
+                                    },
+                                    "required": {
+                                        "type": "boolean",
+                                        "description": "Whether this field is mandatory on the form (marked with an asterisk, 'required' label, or cannot be left blank).",
+                                    },
+                                    "parent_field_id": {
+                                        "type": "string",
+                                        "nullable": True,
+                                        "description": "If nested under another field, reference its field_id.",
+                                    },
+                                    "options": {
+                                        "type": "array",
+                                        "nullable": True,
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "value": {
+                                                    "type": "string",
+                                                    "description": "System key for the option (e.g. freshman).",
+                                                },
+                                                "label": {
+                                                    "type": "string",
+                                                    "description": "The literal text printed on the form (e.g. Freshman).",
+                                                },
+                                            },
+                                            "required": ["value", "label"],
+                                        },
+                                        "description": "For choice inputs, all options printed on the page.",
+                                    },
+                                },
+                                "required": ["field_id", "label", "data_type", "ui_component", "required"],
+                            },
+                        },
+                    },
+                    "required": ["section_id", "section_title", "fields"],
+                },
+            },
+        },
+        "required": ["form_name", "form_control_id", "sections"],
+    }
+
+
+def generate_schema_blueprint(file_key: str) -> dict[str, Any]:
+    """Analyze a document template using Gemini and return an AdminSchemaBlueprint.
+
+    The blueprint describes the form's structural layout: sections, fields,
+    choice options, and hierarchical relationships.
+    """
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    bucket = os.getenv("GCS_BUCKET", "")
+    model_name = os.getenv("VERTEX_AI_MODEL")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    client = genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+    )
+
+    normalized_key = file_key.replace("\\", "/")
+    file_uri = f"gs://{bucket}/{normalized_key}"
+    mime_type = "application/pdf" if normalized_key.lower().endswith(".pdf") else "image/jpeg"
+
+    prompt = _build_blueprint_prompt()
+    schema = _build_blueprint_schema()
+
+    logger.info("Generating schema blueprint from %s (model=%s)", file_key, model_name)
+
+    last_error: Exception | None = None
+    for attempt in range(4):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[
+                    types.Part.from_uri(file_uri=file_uri, mime_type=mime_type),
+                    types.Part.from_text(text=prompt),
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=ADMIN_SCHEMA_SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+                    temperature=0.0,
+                ),
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            error_text = str(exc)
+            if "429" in error_text and attempt < 3:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Rate limited (%s), retry %d/3 in %ss...", file_key, attempt + 1, wait
+                )
+                time.sleep(wait)
+                continue
+            logger.error("Gemini blueprint generation failed for %s: %s", file_key, exc)
+            raise GcpPipelineError(f"Gemini blueprint generation failed: {exc}") from exc
+
+    if last_error is not None:
+        raise GcpPipelineError(f"Gemini blueprint generation failed after retries: {last_error}") from last_error
+
+    if not response.text or not response.text.strip():
+        logger.error("Gemini returned empty response for %s", file_key)
+        raise GcpPipelineError("Gemini returned empty blueprint response")
+
+    try:
+        result = json.loads(response.text.strip())
+    except (json.JSONDecodeError, AttributeError) as exc:
+        logger.error("Gemini returned invalid JSON for %s: %s", file_key, response.text[:500])
+        raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc
+
+    return result

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from typing import Literal
+import logging
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import desc, select
 
 from ...database import SessionDep
@@ -11,16 +14,14 @@ from ...models import ExtractionSchema, ExtractionSchemaStatus
 from ...rbac import require_admin
 from ...schemas.extraction_schemas import (
     ExtractionSchemaCreateRequest,
+    ExtractionSchemaField,
     ExtractionSchemaGenerateResponse,
     ExtractionSchemaResponse,
     ExtractionSchemaUpdateRequest,
+    FieldOption,
 )
-from ...services.llama_extract import (
-    extract_data_schema,
-    generate_schema_from_file,
-    schema_to_editable_fields,
-    upload_extract_file,
-)
+from ...services.gcp_pipeline import GcpPipelineError, generate_schema_blueprint
+from ...services.gcp_storage import _admin_temp_prefix, delete_file, upload_file_bytes
 
 router = APIRouter()
 
@@ -110,6 +111,69 @@ async def create_extraction_schema(
     return serialize_extraction_schema(schema)
 
 
+def _blueprint_to_fields(
+    blueprint: dict[str, Any],
+    source_file_name: str | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Convert an AdminSchemaBlueprint into schema_json + flat fields_json.
+
+    The schema_json stores the full blueprint for the frontend tree renderer.
+    fields_json is a flat list of ExtractionSchemaFields with hierarchy/options
+    preserved as optional attributes.
+    """
+    sections = blueprint.get("sections", [])
+    fields: list[dict[str, Any]] = []
+    auto_id = 0
+
+    for section in sections:
+        section_id = section.get("section_id", f"section_{auto_id}")
+        section_title = section.get("section_title", "")
+        for bf in section.get("fields", []):
+            field_id = bf.get("field_id", f"field_{auto_id}")
+            label = bf.get("label", "")
+            data_type = bf.get("data_type", "string")
+            mapped_type = data_type if data_type in ("string", "number", "integer", "boolean") else "string"
+            ui_component = bf.get("ui_component", "text_input")
+            hierarchy_level = bf.get("hierarchy_level", 1)
+            parent_field_id = bf.get("parent_field_id")
+            raw_options = bf.get("options")
+            options = []
+            if isinstance(raw_options, list):
+                for opt in raw_options:
+                    if isinstance(opt, dict):
+                        options.append(
+                            FieldOption(
+                                value=str(opt.get("value", "")),
+                                label=str(opt.get("label", "")),
+                            )
+                        )
+
+            fields.append({
+                "id": f"gen_{auto_id}_{field_id}",
+                "key": field_id,
+                "type": mapped_type,
+                "description": label,
+                "required": bf.get("required", False),
+                "ui_component": ui_component,
+                "hierarchy_level": hierarchy_level,
+                "parent_field_id": parent_field_id,
+                "options": [o.model_dump() for o in options] if options else None,
+                "section_id": section_id,
+                "section_title": section_title,
+            })
+            auto_id += 1
+
+    schema_json: dict[str, Any] = {
+        "type": "AdminSchemaBlueprint",
+        "form_name": blueprint.get("form_name", ""),
+        "form_control_id": blueprint.get("form_control_id", ""),
+        "sections": blueprint.get("sections", []),
+        "source_file_name": source_file_name,
+    }
+
+    return schema_json, fields
+
+
 @router.post("/extraction-schemas/generate", response_model=ExtractionSchemaGenerateResponse)
 async def generate_extraction_schema(
     files: list[UploadFile] = File(...),
@@ -117,6 +181,7 @@ async def generate_extraction_schema(
     current_user: dict = Depends(require_admin),
 ):
     del current_user
+    del prompt
 
     if not files:
         raise HTTPException(
@@ -125,24 +190,47 @@ async def generate_extraction_schema(
         )
 
     first_file = files[0]
-    file_obj = await upload_extract_file(first_file)
-    file_id = file_obj.get("id")
-    if not isinstance(file_id, str):
+    content = await first_file.read()
+    if not content:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Llama file upload did not return a file id.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
         )
 
-    generated_config = await generate_schema_from_file(file_id=file_id, prompt=prompt)
-    data_schema = extract_data_schema(generated_config)
-    fields = schema_to_editable_fields(data_schema)
+    import uuid
+    temp_key = f"{_admin_temp_prefix()}{uuid.uuid4().hex}/{first_file.filename or 'upload.pdf'}"
 
-    return ExtractionSchemaGenerateResponse(
-        extraction_schema=data_schema,
-        fields_json=fields,
-        file_id=file_id,
-        source_file_name=first_file.filename,
-    )
+    try:
+        upload_file_bytes(temp_key, content)
+
+        blueprint = generate_schema_blueprint(temp_key)
+
+        schema_json, fields = _blueprint_to_fields(blueprint, source_file_name=first_file.filename)
+
+        return ExtractionSchemaGenerateResponse(
+            extraction_schema=schema_json,
+            fields_json=[ExtractionSchemaField(**f) for f in fields],
+            file_id=temp_key,
+            source_file_name=first_file.filename,
+        )
+    except GcpPipelineError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Schema generation failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Schema generation failed: {exc}",
+        )
+    finally:
+        try:
+            delete_file(temp_key)
+        except Exception:
+            pass
 
 
 @router.patch("/extraction-schemas/{schema_id}", response_model=ExtractionSchemaResponse)
