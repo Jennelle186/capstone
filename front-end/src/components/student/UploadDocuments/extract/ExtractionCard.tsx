@@ -1,6 +1,8 @@
 "use client";
 
-import * as React from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useForm, FormProvider } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   FileText,
   Image,
@@ -26,20 +28,39 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import ExtractionField from "@/components/student/UploadDocuments/extract/ExtractionField";
+import { buildZodSchema, buildDefaultValues } from "@/lib/extraction-validation";
 import type { ExtractionItem, ExtractedField } from "@/types/extraction";
 
 interface ExtractionCardProps {
   item: ExtractionItem;
-  onFieldChange: (itemId: string, fieldId: string, value: string) => void;
+  onAutoSave: (itemId: string, fieldKey: string, value: string) => void;
+  onValidationChange: (itemId: string, isValid: boolean) => void;
 }
 
-function ConfidenceBadge({
-  label,
-  needsReview,
-}: {
-  label: string;
-  needsReview: boolean;
-}) {
+interface SectionGroup {
+  sectionId: string | null;
+  sectionTitle: string | null;
+  fields: ExtractedField[];
+}
+
+function groupBySection(fields: ExtractedField[]): SectionGroup[] {
+  const grouped: Record<string, SectionGroup> = {};
+  for (const field of fields) {
+    const sid = field.section_id ?? "__nosection__";
+    if (!grouped[sid]) {
+      grouped[sid] = {
+        sectionId: field.section_id ?? null,
+        sectionTitle: field.section_title ?? null,
+        fields: [],
+      };
+    }
+    grouped[sid].fields.push(field);
+  }
+  const order = ["__nosection__", ...Object.keys(grouped).filter((k) => k !== "__nosection__")];
+  return order.filter((k) => grouped[k]).map((k) => grouped[k]);
+}
+
+function ConfidenceBadge({ label, needsReview }: { label: string; needsReview: boolean }) {
   if (needsReview) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-[10px] font-bold uppercase text-red-700">
@@ -87,45 +108,81 @@ function DocumentIcon({ fileName, needsReview }: { fileName: string; needsReview
   return <FileText className="h-5 w-5 text-primary" />;
 }
 
-function FieldsGrid({
-  fields,
-  cardNeedsReview,
-  onFieldChange,
-  compact,
-}: {
-  fields: ExtractedField[];
-  cardNeedsReview: boolean;
-  onFieldChange: (fieldId: string, value: string) => void;
-  compact?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "grid gap-4",
-        compact ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3",
-      )}
-    >
-      {fields.map((field) => (
-        <ExtractionField
-          key={field.id}
-          field={field}
-          cardNeedsReview={cardNeedsReview}
-          onFieldChange={onFieldChange}
-        />
-      ))}
-    </div>
-  );
-}
+export default function ExtractionCard({ item, onAutoSave, onValidationChange }: ExtractionCardProps) {
+  const [isOpen, setIsOpen] = useState(true);
+  const [isMaximized, setIsMaximized] = useState(false);
 
-export default function ExtractionCard({ item, onFieldChange }: ExtractionCardProps) {
-  const [isOpen, setIsOpen] = React.useState(true);
-  const [isMaximized, setIsMaximized] = React.useState(false);
+  const sections = useMemo(() => groupBySection(item.fields), [item.fields]);
 
-  const handleFieldChange = (fieldId: string, value: string) => {
-    onFieldChange(item.id, fieldId, value);
-  };
+  const zodSchema = useMemo(() => buildZodSchema(item.fields), [item.fields]);
+  const defaultValues = useMemo(() => buildDefaultValues(item.fields), [item.fields]);
+
+  const form = useForm({
+    resolver: zodResolver(zodSchema),
+    defaultValues,
+    mode: "onBlur",
+  });
 
   const needsReview = item.needsReview;
+  const isValid = form.formState.isValid;
+
+  useEffect(() => {
+    onValidationChange(item.id, isValid);
+  }, [item.id, isValid, onValidationChange]);
+
+  const handleAutoSave = (fieldKey: string, value: string) => {
+    onAutoSave(item.id, fieldKey, value);
+  };
+
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
+  const toggleSection = (sid: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sid)) next.delete(sid);
+      else next.add(sid);
+      return next;
+    });
+  };
+
+  const formContent = (
+    <div className="space-y-6">
+      {sections.map((section) => {
+        const sid = section.sectionId ?? "__nosection__";
+        const isCollapsed = collapsedSections.has(sid);
+        return (
+          <div key={sid}>
+            {section.sectionId && (
+              <button
+                type="button"
+                onClick={() => toggleSection(sid)}
+                className="mb-3 flex w-full cursor-pointer items-center gap-2 border-b pb-2 text-left"
+              >
+                {isCollapsed
+                  ? <ChevronDown className="h-4 w-4 text-muted-foreground -rotate-90 transition-transform" />
+                  : <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform" />
+                }
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {section.sectionTitle ?? section.sectionId}
+                </h4>
+              </button>
+            )}
+            {!isCollapsed && (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {section.fields.map((field) => (
+                  <ExtractionField
+                    key={field.id}
+                    field={field}
+                    onAutoSave={handleAutoSave}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
@@ -135,13 +192,11 @@ export default function ExtractionCard({ item, onFieldChange }: ExtractionCardPr
           needsReview ? "border-red-300" : "border-slate-200",
         )}
       >
-        {/* Left accent bar */}
         {needsReview && (
           <div className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-red-500" />
         )}
 
         <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-          {/* Card header — clickable trigger */}
           <CollapsibleTrigger asChild>
             <div className="mb-5 flex cursor-pointer items-start justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -187,18 +242,14 @@ export default function ExtractionCard({ item, onFieldChange }: ExtractionCardPr
             </div>
           </CollapsibleTrigger>
 
-          {/* Fields grid (collapsible) */}
           <CollapsibleContent>
-            <FieldsGrid
-              fields={item.fields}
-              cardNeedsReview={needsReview}
-              onFieldChange={handleFieldChange}
-            />
+            <FormProvider {...form}>
+              <form>{formContent}</form>
+            </FormProvider>
           </CollapsibleContent>
         </Collapsible>
       </div>
 
-      {/* Maximized dialog */}
       <Dialog open={isMaximized} onOpenChange={setIsMaximized}>
         <DialogContent className="flex max-h-[90vh] w-[90vw] flex-col gap-0 !max-w-[90vw] p-0">
           <DialogHeader className="flex flex-row items-center justify-between border-b px-6 py-4">
@@ -222,11 +273,9 @@ export default function ExtractionCard({ item, onFieldChange }: ExtractionCardPr
             </div>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-6">
-            <FieldsGrid
-              fields={item.fields}
-              cardNeedsReview={needsReview}
-              onFieldChange={handleFieldChange}
-            />
+            <FormProvider {...form}>
+              <form>{formContent}</form>
+            </FormProvider>
           </div>
         </DialogContent>
       </Dialog>

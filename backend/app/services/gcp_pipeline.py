@@ -208,6 +208,7 @@ def classify_with_gemini(
                     response_schema=schema,
                     media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
                     temperature=0.0,
+                    http_options=types.HttpOptions(timeout=60_000),
                 ),
             )
             last_error = None
@@ -530,6 +531,7 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
                     response_schema=schema,
                     media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
                     temperature=0.0,
+                    http_options=types.HttpOptions(timeout=60_000),
                 ),
             )
             last_error = None
@@ -556,6 +558,128 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
 
     try:
         result = json.loads(response.text.strip())
+    except (json.JSONDecodeError, AttributeError) as exc:
+        logger.error("Gemini returned invalid JSON for %s: %s", file_key, response.text[:500])
+        raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc
+
+    return result
+
+
+# ── Student Field Extraction ────────────────────────────────────────────────
+
+
+EXTRACTION_SYSTEM_INSTRUCTION = """You are a precise document data extraction AI for an academic institution.
+
+TASK:
+Extract the specified fields from the provided document. Return each field's value exactly as it appears on the document.
+
+RULES:
+1. Return values exactly as printed — do not paraphrase, correct spelling, or reformat
+2. For checkboxes/radio buttons: return the label text of the selected option(s)
+3. For dates: return in DD/MM/YYYY or YYYY-MM-DD format as printed
+4. For numbers: return the raw numeric string including decimals if present
+5. If a field's value is not found in the document, return an empty string for that field
+6. Set confidence to 0.0–1.0 based on how clearly the value was found"""
+
+
+EXTRACTION_PROMPT_TEMPLATE = """Extract the following fields from this document and return them as a JSON object.
+
+Field definitions:
+{field_definitions}
+
+For each field, return {{"value": "<extracted text>", "confidence": <0.0-1.0>}}.
+If a field is not found, set value to "" and confidence to 0.0.
+Return ONLY a valid JSON object, no markdown, no explanation."""
+
+
+def extract_fields_from_document(
+    file_key: str,
+    fields: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Extract field values from a document using Gemini.
+
+    Args:
+        file_key: GCS path to the document.
+        fields: List of field definitions, each containing at minimum
+                ``key``, ``type``, and ``description`` keys, and optionally
+                ``options`` (list of dicts with ``value``/``label``) and
+                ``required``.
+
+    Returns:
+        Dict mapping each field key to {value, confidence}.
+    """
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    bucket = os.getenv("GCS_BUCKET", "")
+    model_name = os.getenv("VERTEX_AI_MODEL")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    client = genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+    )
+
+    normalized_key = file_key.replace("\\", "/")
+    file_uri = f"gs://{bucket}/{normalized_key}"
+    mime_type = "application/pdf" if normalized_key.lower().endswith(".pdf") else "image/jpeg"
+
+    field_lines: list[str] = []
+    for f in fields:
+        key = f.get("key", "unknown")
+        desc = f.get("description", "")
+        ftype = f.get("type", "string")
+        required = f.get("required", False)
+        raw_options = f.get("options")
+        options_str = ""
+        if isinstance(raw_options, list) and raw_options:
+            labels = [o.get("label", o.get("value", "")) for o in raw_options if isinstance(o, dict)]
+            options_str = f" [options: {', '.join(labels)}]"
+        req_str = " (required)" if required else ""
+        field_lines.append(f"  - {key} ({ftype}){req_str}: {desc}{options_str}")
+
+    prompt = EXTRACTION_PROMPT_TEMPLATE.format(field_definitions="\n".join(field_lines))
+
+    logger.info("Extracting %d fields from %s (model=%s)", len(fields), file_key, model_name)
+
+    last_error: Exception | None = None
+    for attempt in range(4):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[
+                    types.Part.from_uri(file_uri=file_uri, mime_type=mime_type),
+                    types.Part.from_text(text=prompt),
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+                    temperature=0.0,
+                    http_options=types.HttpOptions(timeout=60_000),
+                ),
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            error_text = str(exc)
+            if "429" in error_text and attempt < 3:
+                wait = 2 ** attempt
+                logger.warning("Rate limited (%s), retry %d/3 in %ss...", file_key, attempt + 1, wait)
+                time.sleep(wait)
+                continue
+            logger.error("Gemini extraction failed for %s: %s", file_key, exc)
+            raise GcpPipelineError(f"Gemini extraction failed: {exc}") from exc
+
+    if last_error is not None:
+        raise GcpPipelineError(f"Gemini extraction failed after retries: {last_error}") from last_error
+
+    if not response.text or not response.text.strip():
+        logger.error("Gemini returned empty extraction response for %s", file_key)
+        raise GcpPipelineError("Gemini returned empty extraction response")
+
+    try:
+        result: dict[str, dict[str, Any]] = json.loads(response.text.strip())
     except (json.JSONDecodeError, AttributeError) as exc:
         logger.error("Gemini returned invalid JSON for %s: %s", file_key, response.text[:500])
         raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc

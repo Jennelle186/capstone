@@ -1,3 +1,8 @@
+export interface ExtractionFieldOption {
+  value: string;
+  label: string;
+}
+
 export interface ExtractionFieldResponse {
   id: string;
   key: string;
@@ -8,6 +13,12 @@ export interface ExtractionFieldResponse {
   source_key: string | null;
   confidence: number;
   needs_review: boolean;
+  ui_component: string | null;
+  options: ExtractionFieldOption[] | null;
+  section_id: string | null;
+  section_title: string | null;
+  hierarchy_level: number;
+  parent_field_id: string | null;
 }
 
 export interface ExtractionItemResponse {
@@ -29,6 +40,13 @@ export interface ExtractedField {
   key: string;
   type: string;
   confidence: number;
+  required: boolean;
+  ui_component: string | null;
+  options: ExtractionFieldOption[] | null;
+  section_id: string | null;
+  section_title: string | null;
+  hierarchy_level: number;
+  parent_field_id: string | null;
 }
 
 export type ExtractionConfidence = "high" | "medium" | "low" | "needs-review";
@@ -38,6 +56,7 @@ export interface ExtractionItem {
   fileName: string;
   documentTypeName: string;
   documentTypeCode: string | null;
+  status: string;
   confidenceLabel: ExtractionConfidence;
   needsReview: boolean;
   fields: ExtractedField[];
@@ -53,6 +72,13 @@ export function toExtractionItem(resp: ExtractionItemResponse): ExtractionItem {
     key: f.key,
     type: f.type,
     confidence: f.confidence,
+    required: f.required,
+    ui_component: f.ui_component,
+    options: f.options,
+    section_id: f.section_id,
+    section_title: f.section_title,
+    hierarchy_level: f.hierarchy_level,
+    parent_field_id: f.parent_field_id,
   }));
 
   const hasReview = fields.some((f) => f.needsReview);
@@ -77,6 +103,7 @@ export function toExtractionItem(resp: ExtractionItemResponse): ExtractionItem {
     fileName: resp.file_name,
     documentTypeName: resp.document_type_name ?? "",
     documentTypeCode: resp.document_type_code,
+    status: resp.status,
     confidenceLabel,
     needsReview: hasReview,
     fields,

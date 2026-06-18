@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from uuid import UUID
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -26,6 +25,7 @@ from ..models import (
 )
 from ..rbac import require_student
 from ..services.document_requirements import get_required_document_types_for_student
+from ..services.gcp_pipeline import GcpPipelineError, extract_fields_from_document
 from ..services.gcp_storage import (
     delete_file as gcs_delete_file,
     generate_presigned_post as gcs_generate_presigned_post,
@@ -564,6 +564,12 @@ class ExtractionFieldResponse(BaseModel):
     source_key: str | None = None
     confidence: float = 0.0
     needs_review: bool = True
+    ui_component: str | None = None
+    options: list[dict[str, str]] | None = None
+    section_id: str | None = None
+    section_title: str | None = None
+    hierarchy_level: int = 1
+    parent_field_id: str | None = None
 
 
 class ExtractionItemResponse(BaseModel):
@@ -581,26 +587,159 @@ class ExtractAllRequest(BaseModel):
     submission_ids: list[str] | None = None
 
 
+async def _extract_single(
+    submission_id: UUID,
+    field_defs: list,
+) -> None:
+    """Extract fields from a single submission via Gemini.
+    Each call uses its own isolated session so concurrent execution
+    does not share SQLAlchemy identity maps.
+    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(DocumentSubmission).where(DocumentSubmission.id == submission_id)
+        )
+        submission = result.scalar_one_or_none()
+        if not submission:
+            return
+
+        try:
+            logger.info("Extracting %d fields from %s via Gemini", len(field_defs), submission.file_key)
+
+            extracted = await asyncio.to_thread(
+                extract_fields_from_document,
+                submission.file_key,
+                field_defs,
+            )
+
+            existing = dict(submission.extracted_data or {}) if isinstance(submission.extracted_data, dict) else {}
+
+            for field_def in field_defs:
+                field_key = field_def.get("key", "")
+                field_id = field_def.get("id", "")
+                gemini_result = extracted.get(field_key, {})
+                if isinstance(gemini_result, dict):
+                    value = str(gemini_result.get("value", "") or "")
+                    confidence = gemini_result.get("confidence", 0.0)
+                else:
+                    value = str(gemini_result) if gemini_result else ""
+                    confidence = 0.0
+
+                options = field_def.get("options") or []
+                if options:
+                    matched = next(
+                        (o["value"] for o in options if o.get("label", "").lower() == value.lower()),
+                        next(
+                            (o["value"] for o in options if o.get("value", "").lower() == value.lower()),
+                            None,
+                        ),
+                    )
+                    if matched:
+                        value = matched
+
+                if field_def.get("ui_component") == "date_picker" and value and "/" in value:
+                    parts = value.split("/")
+                    if len(parts) == 3 and len(parts[2]) == 4:
+                        value = f"{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+
+                existing[field_id] = {
+                    "value": value,
+                    "confidence": confidence,
+                    "needs_review": confidence < 0.7,
+                    "source_key": field_key,
+                }
+
+            existing["_ocr_text"] = ""
+            existing["_raw_kie_pairs"] = extracted
+
+            submission.extracted_data = existing
+            submission.status = SubmissionStatus.CLASSIFIED
+            attributes.flag_modified(submission, "extracted_data")
+            logger.info("Extraction complete for submission %s", submission.id)
+
+        except GcpPipelineError as exc:
+            logger.error("Gemini extraction failed for submission %s: %s", submission.id, exc)
+            submission.status = SubmissionStatus.FLAGGED
+        except Exception as exc:
+            logger.exception("Unexpected error extracting submission %s", submission.id)
+            submission.status = SubmissionStatus.FLAGGED
+
+        await db.commit()
+
+
 async def _run_extractions_background(
     submission_ids: list[UUID],
     school_year_id: UUID | None,
 ) -> None:
-    """Background task: run extraction for classified submissions."""
-    logger.warning("GCP extraction pipeline not yet implemented; skipping %d submissions", len(submission_ids))
+    """Extract field data for pre-validated submissions.
+
+    All IDs passed here have already passed the pre-flight schema check
+    in extract_all_documents. We re-load schemas in our own session and
+    process with bounded concurrency.
+    """
+    from sqlalchemy import select as sa_select
+
+    async with AsyncSessionLocal() as schema_db:
+        result = await schema_db.execute(
+            sa_select(DocumentSubmission)
+            .where(DocumentSubmission.id.in_(submission_ids))
+        )
+        submissions = list(result.scalars().all())
+        if not submissions:
+            return
+
+        schemas_by_type: dict[UUID, ExtractionSchema] = {}
+        if school_year_id:
+            req_result = await schema_db.execute(
+                sa_select(SchoolYearRequirement)
+                .where(
+                    SchoolYearRequirement.school_year_id == school_year_id,
+                    SchoolYearRequirement.extraction_schema_id.isnot(None),
+                )
+            )
+            for req in req_result.scalars().all():
+                if not req.document_type_id:
+                    continue
+                schema = await schema_db.get(ExtractionSchema, req.extraction_schema_id)
+                if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
+                    schemas_by_type[req.document_type_id] = schema
+        else:
+            logger.warning("Student has no school_year_id, cannot look up extraction schemas")
+
+        tasks: list[tuple[UUID, list]] = []
+        for sub in submissions:
+            schema = schemas_by_type.get(sub.document_type_id)
+            if schema is None or not schema.fields_json:
+                logger.error(
+                    "Submission %s (doc_type=%s) has no schema despite pre-flight check",
+                    sub.id, sub.document_type_id,
+                )
+                continue
+            tasks.append((sub.id, schema.fields_json))
+
+        if not tasks:
+            return
+
+    semaphore = asyncio.Semaphore(2)
+
+    async def worker(sub_id: UUID, fields: list) -> None:
+        async with semaphore:
+            await _extract_single(sub_id, fields)
+
+    await asyncio.gather(*(worker(sub_id, fields) for sub_id, fields in tasks))
 
 
 @router.post("/api/me/documents/extract-all", response_model=list[SubmissionDetailResponse])
 async def extract_all_documents(
     current_user: StudentClaims,
     db: SessionDep,
-    background_tasks: BackgroundTasks,
     body: ExtractAllRequest | None = None,
 ) -> list[SubmissionDetailResponse]:
-    """Trigger KIE extraction for classified document submissions.
+    """Extract field data for classified document submissions.
 
-    Validates ownership and eligibility synchronously, sets status to
-    PROCESSING, then schedules extraction in a background task.
-    Returns immediately so the frontend does not block.
+    Database-first gatekeeping: only submissions with a valid, non-archived
+    extraction schema AND no existing extracted_data are set to PROCESSING
+    and passed to the background extraction task.
     """
     user = await ensure_user_row(db, current_user)
     result = await db.execute(select(Student).where(Student.user_id == user.id))
@@ -621,7 +760,9 @@ async def extract_all_documents(
 
         if unique_ids:
             result = await db.execute(
-                select(DocumentSubmission).where(DocumentSubmission.id.in_(unique_ids))
+                select(DocumentSubmission)
+                .options(selectinload(DocumentSubmission.document_type))
+                .where(DocumentSubmission.id.in_(unique_ids))
             )
             submissions = list(result.scalars().all())
 
@@ -640,7 +781,9 @@ async def extract_all_documents(
             submissions = []
     else:
         result = await db.execute(
-            select(DocumentSubmission).where(
+            select(DocumentSubmission)
+            .options(selectinload(DocumentSubmission.document_type))
+            .where(
                 DocumentSubmission.student_id == student.id,
                 DocumentSubmission.status.in_(eligible_statuses),
                 DocumentSubmission.document_type_id.isnot(None),
@@ -651,12 +794,57 @@ async def extract_all_documents(
     if not submissions:
         return []
 
-    submission_ids = [sub.id for sub in submissions]
-    for sub in submissions:
-        sub.status = SubmissionStatus.PROCESSING
-    await db.commit()
+    # ── Pre-flight schema check ──────────────────────────────────────────
+    # Fetch extraction schemas for the student's school year so we can
+    # determine eligibility BEFORE flipping any status to PROCESSING.
+    schemas_by_type: dict[UUID, ExtractionSchema] = {}
+    if student.school_year_id:
+        req_result = await db.execute(
+            select(SchoolYearRequirement)
+            .where(
+                SchoolYearRequirement.school_year_id == student.school_year_id,
+                SchoolYearRequirement.extraction_schema_id.isnot(None),
+            )
+        )
+        for req in req_result.scalars().all():
+            if not req.document_type_id:
+                continue
+            schema = await db.get(ExtractionSchema, req.extraction_schema_id)
+            if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
+                schemas_by_type[req.document_type_id] = schema
 
-    background_tasks.add_task(_run_extractions_background, submission_ids, student.school_year_id)
+    # Classify each submission into one of three buckets:
+    #   - cached:   has extracted_data already (idempotency)
+    #   - eligible: has a valid schema AND no extracted_data → will get PROCESSING
+    #   - skipped:  no schema for its document_type → stays CLASSIFIED
+    cached: list[DocumentSubmission] = []
+    eligible: list[DocumentSubmission] = []
+    skipped: list[DocumentSubmission] = []
+
+    for sub in submissions:
+        if sub.extracted_data:
+            cached.append(sub)
+        elif sub.document_type_id and sub.document_type_id in schemas_by_type:
+            eligible.append(sub)
+        else:
+            skipped.append(sub)
+
+    # Only flip PROCESSING on submissions that passed the schema check.
+    if eligible:
+        eligible_ids = [sub.id for sub in eligible]
+        for sub in eligible:
+            sub.status = SubmissionStatus.PROCESSING
+        await db.commit()
+
+        # Run extraction in the background so the POST returns immediately.
+        asyncio.create_task(
+            _run_extractions_background(eligible_ids, student.school_year_id)
+        )
+
+    logger.info(
+        "extract-all: %d cached, %d eligible (→ PROCESSING), %d skipped (no schema)",
+        len(cached), len(eligible), len(skipped),
+    )
 
     return [
         SubmissionDetailResponse(
@@ -668,10 +856,10 @@ async def extract_all_documents(
             mime_type=sub.mime_type,
             is_compiled=sub.is_compiled,
             document_type_id=str(sub.document_type_id) if sub.document_type_id else None,
-            document_type_name=None,
+            document_type_name=sub.document_type.name if sub.document_type else None,
             classification_result=sub.classification_result,
             extracted_data=sub.extracted_data,
-            document_type_code=None,
+            document_type_code=sub.document_type.code if sub.document_type else None,
             created_at=sub.created_at.isoformat() if sub.created_at else "",
         )
         for sub in submissions
@@ -700,7 +888,7 @@ async def list_extractions(
         .options(selectinload(DocumentSubmission.document_type))
         .where(
             DocumentSubmission.student_id == student.id,
-            DocumentSubmission.status.in_((SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED)),
+            DocumentSubmission.status.in_((SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED, SubmissionStatus.PROCESSING)),
             DocumentSubmission.document_type_id.isnot(None),
         )
     )
@@ -714,15 +902,17 @@ async def list_extractions(
     if student.school_year_id:
         req_result = await db.execute(
             select(SchoolYearRequirement)
-            .options(selectinload(SchoolYearRequirement.extraction_schema))
             .where(
                 SchoolYearRequirement.school_year_id == student.school_year_id,
                 SchoolYearRequirement.extraction_schema_id.isnot(None),
             )
         )
         for req in req_result.scalars().all():
-            if req.document_type_id and req.extraction_schema and req.extraction_schema.status != ExtractionSchemaStatus.ARCHIVED:
-                schemas_by_type[req.document_type_id] = req.extraction_schema
+            if not req.document_type_id:
+                continue
+            schema = await db.get(ExtractionSchema, req.extraction_schema_id)
+            if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
+                schemas_by_type[req.document_type_id] = schema
 
     items: list[ExtractionItemResponse] = []
     for sub in submissions:
@@ -736,14 +926,12 @@ async def list_extractions(
         if isinstance(extracted, dict):
             raw_entry = extracted.get("_raw_kie_pairs", {})
             if isinstance(raw_entry, dict):
-                raw_json = raw_entry.get("value", "")
-                if raw_json:
-                    try:
-                        parsed = json.loads(raw_json)
-                        if isinstance(parsed, dict):
-                            raw_kie_data = parsed
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                for k, v in raw_entry.items():
+                    if isinstance(v, dict):
+                        raw_val = v.get("value")
+                        raw_kie_data[k] = "" if raw_val is None else str(raw_val)
+                    else:
+                        raw_kie_data[k] = str(v)
         fields: list[ExtractionFieldResponse] = []
         for field_def in (schema.fields_json or []):
             field_id = field_def.get("id", "")
@@ -754,7 +942,7 @@ async def list_extractions(
                 confidence = 1.0
                 source_key = None
             elif isinstance(existing, dict):
-                value = existing.get("value", "")
+                value = str(existing.get("value", "") or "")
                 needs_review = existing.get("needs_review", True)
                 confidence = existing.get("confidence", 0.0)
                 source_key = existing.get("source_key")
@@ -763,6 +951,24 @@ async def list_extractions(
                 needs_review = True
                 confidence = 0.0
                 source_key = None
+
+            if value:
+                options = field_def.get("options") or []
+                if options:
+                    matched = next(
+                        (o["value"] for o in options if o.get("label", "").lower() == value.lower()),
+                        next(
+                            (o["value"] for o in options if o.get("value", "").lower() == value.lower()),
+                            None,
+                        ),
+                    )
+                    if matched:
+                        value = matched
+
+                if field_def.get("ui_component") == "date_picker" and "/" in value:
+                    parts = value.split("/")
+                    if len(parts) == 3 and len(parts[2]) == 4:
+                        value = f"{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
 
             fields.append(ExtractionFieldResponse(
                 id=field_id,
@@ -774,6 +980,12 @@ async def list_extractions(
                 source_key=source_key,
                 confidence=confidence,
                 needs_review=needs_review,
+                ui_component=field_def.get("ui_component"),
+                options=field_def.get("options"),
+                section_id=field_def.get("section_id"),
+                section_title=field_def.get("section_title"),
+                hierarchy_level=field_def.get("hierarchy_level", 1),
+                parent_field_id=field_def.get("parent_field_id"),
             ))
 
         if fields:
@@ -789,6 +1001,60 @@ async def list_extractions(
             ))
 
     return items
+
+
+class SaveExtractionFieldRequest(BaseModel):
+    field_id: str
+    value: str
+
+
+@router.patch("/api/me/documents/{submission_id}/extraction", response_model=ExtractionFieldResponse)
+async def save_extraction_field(
+    submission_id: UUID,
+    body: SaveExtractionFieldRequest,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> ExtractionFieldResponse:
+    """Save a single extracted field value for a document submission.
+
+    Stores the field value in `extracted_data` JSONB, keyed by field_id.
+    Also sets `needs_review` to False once the user has touched the field.
+    """
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found.")
+
+    submission = await db.get(DocumentSubmission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+    if submission.student_id != student.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to edit this submission.")
+
+    extracted = submission.extracted_data or {}
+    if not isinstance(extracted, dict):
+        extracted = {}
+
+    extracted[body.field_id] = {
+        "value": body.value,
+        "needs_review": False,
+        "confidence": 1.0,
+        "source_key": "manual",
+    }
+
+    submission.extracted_data = extracted
+    await db.commit()
+    await db.refresh(submission)
+
+    return ExtractionFieldResponse(
+        id=body.field_id,
+        key=body.field_id,
+        value=body.value,
+        needs_review=False,
+        confidence=1.0,
+        source_key="manual",
+    )
 
 
 class ConfirmClassificationRequest(BaseModel):

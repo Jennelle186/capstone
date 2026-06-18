@@ -33,9 +33,8 @@ interface StepClassifyProps {
 function submissionToItem(s: SubmissionDetail): ClassificationItem {
   const result = s.classification_result as Record<string, unknown> | null;
   const confidence = typeof result?.["confidence"] === "number" ? Math.round(result["confidence"] * 100) : null;
-  const flag = typeof result?.["flag"] === "string" ? result["flag"] : null;
   const acceptedByUser = result?.["accepted_by_user"] === true;
-  const isFlagged = (s.status === "flagged" || (flag !== null && flag !== undefined)) && !acceptedByUser;
+  const isFlagged = s.status === "flagged" && !acceptedByUser;
 
   let status: ClassificationStatus;
   if (acceptedByUser) {

@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, FileSearch, Loader2 } from "lucide-react";
 import { fetchWithClerkAuth } from "@/lib/api";
 import ExtractionCard from "@/components/student/UploadDocuments/extract/ExtractionCard";
@@ -22,30 +22,39 @@ export default function StepExtract({
   extractAllError = null,
   onExtractionReady,
 }: StepExtractProps) {
-  const [items, setItems] = React.useState<ExtractionItem[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [items, setItems] = useState<ExtractionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const validationState = useRef<Record<string, boolean>>({});
 
-  const fetchExtractions = React.useCallback(async () => {
-    const token = await getToken();
+  const getTokenRef = useRef(getToken);
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  const fetchExtractions = useCallback(async () => {
+    const token = await getTokenRef.current();
     if (!token) { setLoading(false); return; }
     const res = await fetchWithClerkAuth("/api/me/documents/extractions", token);
     if (res.ok) {
       const data = (await res.json()) as ExtractionItemResponse[];
-      console.log("Extractions response:", JSON.stringify(data, null, 2));
-      data.forEach((d) => {
-        console.log(`Raw OCR text for ${d.file_name}:`, d.ocr_text);
-        console.log(`Raw KIE pairs for ${d.file_name}:`, d.raw_kie);
-      });
       setItems(data.map(toExtractionItem));
     }
     setLoading(false);
-  }, [getToken]);
+  }, []);
 
-  React.useEffect(() => {
-    void fetchExtractions();
+  useEffect(() => {
+    fetchExtractions();
   }, [fetchExtractions]);
 
-  React.useEffect(() => {
+  const prevExtracting = useRef(isExtractingAll);
+  useEffect(() => {
+    if (prevExtracting.current && !isExtractingAll) {
+      fetchExtractions();
+    }
+    prevExtracting.current = isExtractingAll;
+  }, [isExtractingAll, fetchExtractions]);
+
+  useEffect(() => {
     if (isExtractingAll) return;
     if (!loading) {
       const complete = items.length > 0 && items.every((i) => !i.needsReview);
@@ -53,40 +62,67 @@ export default function StepExtract({
     }
   }, [items, loading, isExtractingAll, onExtractionChange]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isExtractingAll) return;
     const interval = setInterval(() => {
-      void fetchExtractions();
+      fetchExtractions();
     }, 2000);
     return () => clearInterval(interval);
   }, [isExtractingAll, fetchExtractions]);
 
-  React.useEffect(() => {
-    if (isExtractingAll && items.length > 0) {
+  useEffect(() => {
+    if (isExtractingAll && items.length > 0 && items.every((i) => i.status !== "processing")) {
       onExtractionReady?.();
     }
   }, [isExtractingAll, items, onExtractionReady]);
 
-  const handleFieldChange = React.useCallback(
-    (itemId: string, fieldId: string, value: string) => {
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.id !== itemId) return item;
-          return {
-            ...item,
-            fields: item.fields.map((f) =>
-              f.id === fieldId ? { ...f, value } : f,
-            ),
-          };
-        }),
+  useEffect(() => {
+    if (!isExtractingAll) return;
+    const timeout = setTimeout(() => {
+      onExtractionReady?.();
+    }, 120_000);
+    return () => clearTimeout(timeout);
+  }, [isExtractingAll, onExtractionReady]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const valid = items.every((item) => validationState.current[item.id] !== false);
+    onExtractionChange?.(valid);
+  }, [items, onExtractionChange]);
+
+  const handleAutoSave = useCallback(async (itemId: string, fieldKey: string, value: string) => {
+    try {
+      const token = await getTokenRef.current();
+      if (!token) return;
+
+      const res = await fetchWithClerkAuth(
+        `/api/me/documents/${itemId}/extraction`,
+        token,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ field_id: fieldKey, value }),
+        },
       );
-    },
-    [],
-  );
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        console.error("Auto-save failed:", errBody);
+      }
+    } catch (error) {
+      console.error("Auto-save error:", error);
+    }
+  }, []);
+
+  const handleValidationChange = useCallback((itemId: string, isValid: boolean) => {
+    validationState.current[itemId] = isValid;
+  }, []);
+
+  const processingItems = items.filter((i) => i.status === "processing");
+  const doneItems = items.filter((i) => i.status !== "processing");
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div>
         <h2 className="text-[28px] font-semibold tracking-tight text-slate-900">
           Review Extracted Data
@@ -96,20 +132,6 @@ export default function StepExtract({
         </p>
       </div>
 
-      {/* Extracting Banner */}
-      {isExtractingAll && (
-        <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
-          <Loader2 className="h-5 w-5 animate-spin flex-shrink-0 text-blue-600" />
-          <div>
-            <p className="text-sm font-semibold">Extracting data from your documents…</p>
-            <p className="text-xs text-blue-700 mt-0.5">
-              This may take a moment for each file.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Extraction Error Banner */}
       {extractAllError && !isExtractingAll && (
         <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
           <FileSearch className="h-5 w-5 flex-shrink-0 text-red-600" />
@@ -120,15 +142,13 @@ export default function StepExtract({
         </div>
       )}
 
-      {/* Loading State */}
-      {loading && !isExtractingAll && (
+      {loading && doneItems.length === 0 && processingItems.length === 0 && !isExtractingAll && (
         <div className="flex flex-col items-center gap-3 py-16 text-slate-400">
           <Loader2 className="h-12 w-12 animate-spin" />
-          <p className="text-sm font-medium">Loading extraction data…</p>
+          <p className="text-sm font-medium">Loading extraction data...</p>
         </div>
       )}
 
-      {/* Empty State */}
       {!loading && items.length === 0 && !isExtractingAll && (
         <div className="flex flex-col items-center gap-3 py-16 text-slate-400">
           <Database className="h-12 w-12" />
@@ -139,14 +159,37 @@ export default function StepExtract({
         </div>
       )}
 
-      {/* Extraction Cards */}
-      {items.length > 0 && (
+      {processingItems.length > 0 && (
         <div className="space-y-5">
-          {items.map((item) => (
+          {processingItems.map((item) => (
+            <div
+              key={item.id}
+              className="relative rounded-2xl border border-blue-200 bg-blue-50 p-6 shadow-sm"
+            >
+              <div className="flex items-center gap-4">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                <div>
+                  <p className="text-sm font-semibold text-blue-900">
+                    {item.fileName}
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    {item.documentTypeName} &mdash; Extracting data...
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {doneItems.length > 0 && (
+        <div className="space-y-5">
+          {doneItems.map((item) => (
             <ExtractionCard
               key={item.id}
               item={item}
-              onFieldChange={handleFieldChange}
+              onAutoSave={handleAutoSave}
+              onValidationChange={handleValidationChange}
             />
           ))}
         </div>

@@ -50,9 +50,8 @@ function isImageFile(fileName: string) {
 function submissionToItem(s: SubmissionDetail): ClassificationItem {
   const result = s.classification_result as Record<string, unknown> | null;
   const confidence = typeof result?.["confidence"] === "number" ? Math.round(result["confidence"] * 100) : null;
-  const flag = typeof result?.["flag"] === "string" ? result["flag"] : null;
   const acceptedByUser = result?.["accepted_by_user"] === true;
-  const isFlagged = (s.status === "flagged" || (flag !== null && flag !== undefined)) && !acceptedByUser;
+  const isFlagged = s.status === "flagged" && !acceptedByUser;
 
   let status: ClassificationStatus;
   if (acceptedByUser) {
@@ -312,6 +311,11 @@ export default function ClassificationCard({
               )}
               {isClassifying ? "Classifying…" : "Classify"}
             </Button>
+          ) : item.status === "classified" || item.status === "overridden" ? (
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 whitespace-nowrap">
+              <CheckCircle className="h-4 w-4" />
+              Confirmed
+            </div>
           ) : (
             <>
               <Select

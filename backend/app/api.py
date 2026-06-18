@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 
 from typing_extensions import Annotated
@@ -26,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure app-level loggers emit at INFO so background task logs are visible.
+    # Uvicorn configures its own handlers on the `uvicorn.*` loggers with
+    # propagate=False, so this does not interfere with access/error formatting.
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if not root.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
+        root.addHandler(handler)
+
     # For local dev convenience: set AUTO_CREATE_TABLES=true to create tables on startup.
     # This uses SQLAlchemy `Base.metadata.create_all` under the hood; Alembic is still the right tool for migrations.
     if os.getenv("AUTO_CREATE_TABLES", "").lower() in {"1", "true", "yes"}:

@@ -25,6 +25,7 @@ export default function UploadDocuments() {
   const [classifyAllError, setClassifyAllError] = useState<string | null>(null);
   const [isExtractingAll, setIsExtractingAll] = useState(false);
   const [extractAllError, setExtractAllError] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
   const newlyUploadedIdsRef = useRef<Set<string>>(new Set());
 
   const maxAccessibleStep = Math.min(
@@ -33,15 +34,16 @@ export default function UploadDocuments() {
   );
 
   const rawStep = parseInt(searchParams.get("step") ?? "1", 10) || 1;
-  const step = Math.min(CLAMP(rawStep), maxAccessibleStep);
+  const step = initialLoading ? CLAMP(rawStep) : Math.min(CLAMP(rawStep), maxAccessibleStep);
 
-  // Redirect if URL step exceeds maxAccessibleStep
+  // Redirect if URL step exceeds maxAccessibleStep (after initial load only)
   useEffect(() => {
+    if (initialLoading) return;
     const clamped = Math.min(rawStep, maxAccessibleStep);
     if (clamped !== rawStep) {
       setSearchParams({ step: String(clamped) }, { replace: true });
     }
-  }, [rawStep, maxAccessibleStep, setSearchParams]);
+  }, [rawStep, maxAccessibleStep, setSearchParams, initialLoading]);
 
   const goToStep = useCallback(
     async (n: number) => {
@@ -90,33 +92,48 @@ export default function UploadDocuments() {
       }
 
       if (step === 2 && n === 3) {
+        const targetSubs = existingSubmissions.filter(
+          (s) => s.document_type_id && (s.status === "classified" || s.status === "flagged")
+        );
+        const targetIds = targetSubs.map((s) => s.id);
+
+        if (targetIds.length === 0) {
+          setSearchParams({ step: "3" }, { replace: true });
+          return;
+        }
+
+        // Skip POST if all submissions already have extracted data (page reload).
+        const allExtracted = targetSubs.every((s) => s.extracted_data);
+        if (allExtracted) {
+          setIsExtractingAll(false);
+          setSearchParams({ step: "3" }, { replace: true });
+          return;
+        }
+
         setIsExtractingAll(true);
         setExtractAllError(null);
 
-        setSearchParams({ step: "3" });
+        setSearchParams({ step: "3" }, { replace: true });
 
         const token = await getToken();
-        if (!token) { return; }
+        if (!token) { setIsExtractingAll(false); return; }
 
-        const targetIds = existingSubmissions
-          .filter((s) => s.document_type_id && (s.status === "classified" || s.status === "flagged"))
-          .map((s) => s.id);
-
-        if (targetIds.length > 0) {
-          try {
-            const res = await fetchWithClerkAuth("/api/me/documents/extract-all", token, {
-              method: "POST",
-              body: JSON.stringify({ submission_ids: targetIds }),
-            });
-            if (!res.ok) {
-              const err = await res.json().catch(() => null);
-              setExtractAllError(err?.detail ?? "Extraction failed for some documents.");
-            }
-          } catch (err) {
-            setExtractAllError(err instanceof Error ? err.message : "Extraction request failed.");
+        try {
+          const res = await fetchWithClerkAuth("/api/me/documents/extract-all", token, {
+            method: "POST",
+            body: JSON.stringify({ submission_ids: targetIds }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => null);
+            setExtractAllError(err?.detail ?? "Extraction failed for some documents.");
+            setIsExtractingAll(false);
           }
+          // On success: keep isExtractingAll=true so StepExtract polls.
+          // onExtractionReady will set it to false when data arrives.
+        } catch (err) {
+          setExtractAllError(err instanceof Error ? err.message : "Extraction request failed.");
+          setIsExtractingAll(false);
         }
-
         return;
       }
 
@@ -151,10 +168,25 @@ export default function UploadDocuments() {
         }
         if (docsRes.ok) {
           const data = (await docsRes.json()) as SubmissionDetail[];
-          if (!cancelled) setExistingSubmissions(data);
+          if (!cancelled) {
+            setExistingSubmissions(data);
+            const hasClassifiedOrFlagged = data.some(
+              (s) => s.status === "classified" || s.status === "flagged"
+            );
+            setClassificationComplete(hasClassifiedOrFlagged);
+            const classifiedWithSchema = data.filter(
+              (s) => s.document_type_id && (s.status === "classified" || s.status === "flagged")
+            );
+            setExtractionComplete(
+              classifiedWithSchema.length > 0 &&
+              classifiedWithSchema.every((s) => s.extracted_data)
+            );
+          }
         }
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
     };
     void load();
