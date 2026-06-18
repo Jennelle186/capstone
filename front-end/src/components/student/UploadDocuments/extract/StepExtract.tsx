@@ -1,58 +1,71 @@
 "use client";
 
 import * as React from "react";
-import { Database } from "lucide-react";
+import { Database, FileSearch, Loader2 } from "lucide-react";
+import { fetchWithClerkAuth } from "@/lib/api";
 import ExtractionCard from "@/components/student/UploadDocuments/extract/ExtractionCard";
-import type { ExtractionItem } from "@/types/extraction";
-const MOCK_ITEMS: ExtractionItem[] = [
-  {
-    id: "ext-1",
-    fileName: "Undergraduate_Transcript.pdf",
-    documentTypeName: "Academic Transcript",
-    confidenceLabel: "high",
-    needsReview: false,
-    fields: [
-      { id: "f-1-1", label: "Full Name", value: "Johnathon Quincy Doe", needsReview: false },
-      { id: "f-1-2", label: "Institution", value: "State University of Tech", needsReview: false },
-      { id: "f-1-3", label: "GPA / Score", value: "3.92", needsReview: false },
-    ],
-  },
-  {
-    id: "ext-2",
-    fileName: "Identity_Proof_Scan.jpg",
-    documentTypeName: "Government ID",
-    confidenceLabel: "low",
-    needsReview: true,
-    fields: [
-      { id: "f-2-1", label: "Document Number", value: "A-99XX-1123", needsReview: true },
-      { id: "f-2-2", label: "Date of Birth", value: "May 14, 2001", needsReview: false },
-      { id: "f-2-3", label: "Expiry Date", value: "Jan 20, 2029", needsReview: false },
-    ],
-  },
-  {
-    id: "ext-3",
-    fileName: "Letter_of_Recommendation.pdf",
-    documentTypeName: "Recommendation Letter",
-    confidenceLabel: "medium",
-    needsReview: false,
-    fields: [
-      { id: "f-3-1", label: "Referee Name", value: "Dr. Sarah Miller", needsReview: false },
-      { id: "f-3-2", label: "Relationship", value: "Senior Professor", needsReview: false },
-    ],
-  },
-];
+import { toExtractionItem } from "@/types/extraction";
+import type { ExtractionItem, ExtractionItemResponse } from "@/types/extraction";
 
 interface StepExtractProps {
   onExtractionChange?: (complete: boolean) => void;
+  getToken: () => Promise<string | null>;
+  isExtractingAll?: boolean;
+  extractAllError?: string | null;
+  onExtractionReady?: () => void;
 }
 
-export default function StepExtract({ onExtractionChange }: StepExtractProps) {
-  const [items, setItems] = React.useState<ExtractionItem[]>(MOCK_ITEMS);
+export default function StepExtract({
+  onExtractionChange,
+  getToken,
+  isExtractingAll = false,
+  extractAllError = null,
+  onExtractionReady,
+}: StepExtractProps) {
+  const [items, setItems] = React.useState<ExtractionItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const fetchExtractions = React.useCallback(async () => {
+    const token = await getToken();
+    if (!token) { setLoading(false); return; }
+    const res = await fetchWithClerkAuth("/api/me/documents/extractions", token);
+    if (res.ok) {
+      const data = (await res.json()) as ExtractionItemResponse[];
+      console.log("Extractions response:", JSON.stringify(data, null, 2));
+      data.forEach((d) => {
+        console.log(`Raw OCR text for ${d.file_name}:`, d.ocr_text);
+        console.log(`Raw KIE pairs for ${d.file_name}:`, d.raw_kie);
+      });
+      setItems(data.map(toExtractionItem));
+    }
+    setLoading(false);
+  }, [getToken]);
 
   React.useEffect(() => {
-    const complete = items.length > 0 && items.every((i) => !i.needsReview);
-    onExtractionChange?.(complete);
-  }, [items, onExtractionChange]);
+    void fetchExtractions();
+  }, [fetchExtractions]);
+
+  React.useEffect(() => {
+    if (isExtractingAll) return;
+    if (!loading) {
+      const complete = items.length > 0 && items.every((i) => !i.needsReview);
+      onExtractionChange?.(complete);
+    }
+  }, [items, loading, isExtractingAll, onExtractionChange]);
+
+  React.useEffect(() => {
+    if (!isExtractingAll) return;
+    const interval = setInterval(() => {
+      void fetchExtractions();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [isExtractingAll, fetchExtractions]);
+
+  React.useEffect(() => {
+    if (isExtractingAll && items.length > 0) {
+      onExtractionReady?.();
+    }
+  }, [isExtractingAll, items, onExtractionReady]);
 
   const handleFieldChange = React.useCallback(
     (itemId: string, fieldId: string, value: string) => {
@@ -83,13 +96,51 @@ export default function StepExtract({ onExtractionChange }: StepExtractProps) {
         </p>
       </div>
 
-      {/* Extraction Cards */}
-      {items.length === 0 ? (
+      {/* Extracting Banner */}
+      {isExtractingAll && (
+        <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
+          <Loader2 className="h-5 w-5 animate-spin flex-shrink-0 text-blue-600" />
+          <div>
+            <p className="text-sm font-semibold">Extracting data from your documents…</p>
+            <p className="text-xs text-blue-700 mt-0.5">
+              This may take a moment for each file.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Extraction Error Banner */}
+      {extractAllError && !isExtractingAll && (
+        <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
+          <FileSearch className="h-5 w-5 flex-shrink-0 text-red-600" />
+          <div>
+            <p className="text-sm font-semibold">Some documents could not be extracted</p>
+            <p className="text-xs text-red-700 mt-0.5">{extractAllError}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && !isExtractingAll && (
+        <div className="flex flex-col items-center gap-3 py-16 text-slate-400">
+          <Loader2 className="h-12 w-12 animate-spin" />
+          <p className="text-sm font-medium">Loading extraction data…</p>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && items.length === 0 && !isExtractingAll && (
         <div className="flex flex-col items-center gap-3 py-16 text-slate-400">
           <Database className="h-12 w-12" />
           <p className="text-sm font-medium">No extracted data available.</p>
+          <p className="text-xs text-slate-500">
+            Classify your documents first, then extraction can begin.
+          </p>
         </div>
-      ) : (
+      )}
+
+      {/* Extraction Cards */}
+      {items.length > 0 && (
         <div className="space-y-5">
           {items.map((item) => (
             <ExtractionCard

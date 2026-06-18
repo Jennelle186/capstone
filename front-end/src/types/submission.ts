@@ -33,6 +33,7 @@ export interface SubmissionDetail {
   file_size: string | null;
   mime_type: string | null;
   is_compiled: boolean;
+  document_type_id: string | null;
   document_type_name: string | null;
   classification_result: Record<string, unknown> | null;
   llama_job_id: string | null;

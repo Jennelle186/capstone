@@ -1,9 +1,24 @@
-export type ClassificationStatus = "pending" | "classified" | "needs-review" | "overridden";
+export type ClassificationStatus =
+  | "pending"
+  | "processing"
+  | "classified"
+  | "needs-review"
+  | "overridden"
+  | "flagged";
+
+export interface ClassificationResult {
+  type?: string | null;
+  confidence?: number | null;
+  reasoning?: string | null;
+  source?: "keyword" | "bedrock" | null;
+  flag?: string | null;
+  extracted_text_length?: number | null;
+}
 
 export interface ClassificationItem {
   id: string;
   fileName: string;
-  fileSize: number;
+  fileSize: number | null;
   documentTypeName: string | null;
   documentTypeId: string | null;
   confidence: number | null;
@@ -11,4 +26,6 @@ export interface ClassificationItem {
   isCompiledPdf: boolean;
   status: ClassificationStatus;
   previewUrl?: string;
+  classificationResult?: ClassificationResult | null;
+  mimeType?: string | null;
 }

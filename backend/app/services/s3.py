@@ -26,7 +26,7 @@ def _require_env(name: str) -> str:
 
 
 def _get_client():
-    region = os.getenv("AWS_REGION", "ap-southeast-2")
+    region = os.getenv("AWS_REGION", "ap-southeast-1")
     return boto3.client(
         "s3",
         region_name=region,
@@ -92,7 +92,7 @@ def upload_file(file: BinaryIO, student_id: str, filename: str) -> dict:
     return {
         "key": key,
         "bucket": _bucket(),
-        "region": os.getenv("AWS_REGION", "ap-southeast-2"),
+        "region": os.getenv("AWS_REGION", "ap-southeast-1"),
     }
 
 
@@ -157,7 +157,7 @@ def generate_presigned_post(
         "fields": post["fields"],
         "key": key,
         "bucket": bucket,
-        "region": os.getenv("AWS_REGION", "ap-southeast-2"),
+        "region": os.getenv("AWS_REGION", "ap-southeast-1"),
     }
 
 

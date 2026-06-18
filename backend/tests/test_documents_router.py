@@ -105,7 +105,7 @@ def test_initiate_upload_returns_presigned_post(client, mock_user, mock_student)
     assert "submission_id" in data
 
 
-def test_confirm_upload_verifies_s3_and_queues_background_task(client, mock_user, mock_student):
+def test_confirm_upload_verifies_s3_and_marks_uploaded(client, mock_user, mock_student):
     submission_id = uuid4()
     submission = SimpleNamespace(
         id=submission_id,
@@ -129,11 +129,10 @@ def test_confirm_upload_verifies_s3_and_queues_background_task(client, mock_user
 
     with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
         with patch("app.routers.documents.s3_head_object", return_value={"ContentLength": 1024}):
-            with patch("app.routers.documents.process_submission") as mock_processor:
-                response = client.post(
-                    "/api/me/documents/confirm",
-                    json={"submission_id": str(submission_id)},
-                )
+            response = client.post(
+                "/api/me/documents/confirm",
+                json={"submission_id": str(submission_id)},
+            )
 
     assert response.status_code == 200
     data = response.json()
@@ -151,6 +150,7 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
         file_size="1024",
         mime_type="application/pdf",
         is_compiled=False,
+        document_type_id=None,
         document_type=doc_type,
         classification_result={"type": "ADMISSION_FORM", "confidence": 0.95},
         llama_job_id="llama-file-id",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useAuth } from "@clerk/clerk-react";
 import UploadWizard from "@/components/student/UploadDocuments/UploadWizard";
@@ -20,8 +20,12 @@ export default function UploadDocuments() {
   const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
   const [classificationComplete, setClassificationComplete] = useState(false);
   const [extractionComplete, setExtractionComplete] = useState(false);
-  const [submissions, setSubmissions] = useState<ConfirmUploadResponse[]>([]);
   const [existingSubmissions, setExistingSubmissions] = useState<SubmissionDetail[]>([]);
+  const [isClassifyingAll, setIsClassifyingAll] = useState(false);
+  const [classifyAllError, setClassifyAllError] = useState<string | null>(null);
+  const [isExtractingAll, setIsExtractingAll] = useState(false);
+  const [extractAllError, setExtractAllError] = useState<string | null>(null);
+  const newlyUploadedIdsRef = useRef<Set<string>>(new Set());
 
   const maxAccessibleStep = Math.min(
     4,
@@ -40,15 +44,92 @@ export default function UploadDocuments() {
   }, [rawStep, maxAccessibleStep, setSearchParams]);
 
   const goToStep = useCallback(
-    (n: number) => {
-      const clamped = Math.min(CLAMP(n), maxAccessibleStep);
-      setSearchParams({ step: String(clamped) });
+    async (n: number) => {
+      if (step === 1 && n === 2) {
+        setIsClassifyingAll(true);
+        setClassifyAllError(null);
+
+        setSearchParams({ step: "2" });
+
+        const token = await getToken();
+        if (!token) { setIsClassifyingAll(false); return; }
+
+        const targetIds = newlyUploadedIdsRef.current.size > 0
+          ? Array.from(newlyUploadedIdsRef.current)
+          : existingSubmissions
+              .filter((s) => s.status === "uploaded" || s.status === "flagged")
+              .map((s) => s.id);
+
+        if (targetIds.length > 0) {
+          try {
+            const res = await fetchWithClerkAuth("/api/me/documents/classify-all", token, {
+              method: "POST",
+              body: JSON.stringify({ submission_ids: targetIds }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => null);
+              setClassifyAllError(err?.detail ?? "Classification failed for some documents.");
+            }
+          } catch (err) {
+            setClassifyAllError(err instanceof Error ? err.message : "Classification request failed.");
+          }
+
+          const token2 = await getToken();
+          if (token2) {
+            const freshRes = await fetchWithClerkAuth("/api/me/documents", token2);
+            if (freshRes.ok) {
+              const data = await freshRes.json();
+              setExistingSubmissions(data);
+            }
+          }
+        }
+
+        newlyUploadedIdsRef.current = new Set();
+        setIsClassifyingAll(false);
+        return;
+      }
+
+      if (step === 2 && n === 3) {
+        setIsExtractingAll(true);
+        setExtractAllError(null);
+
+        setSearchParams({ step: "3" });
+
+        const token = await getToken();
+        if (!token) { return; }
+
+        const targetIds = existingSubmissions
+          .filter((s) => s.document_type_id && (s.status === "classified" || s.status === "flagged"))
+          .map((s) => s.id);
+
+        if (targetIds.length > 0) {
+          try {
+            const res = await fetchWithClerkAuth("/api/me/documents/extract-all", token, {
+              method: "POST",
+              body: JSON.stringify({ submission_ids: targetIds }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => null);
+              setExtractAllError(err?.detail ?? "Extraction failed for some documents.");
+            }
+          } catch (err) {
+            setExtractAllError(err instanceof Error ? err.message : "Extraction request failed.");
+          }
+        }
+
+        return;
+      }
+
+      setSearchParams({ step: String(Math.min(CLAMP(n), maxAccessibleStep)) });
     },
-    [maxAccessibleStep, setSearchParams],
+    [step, maxAccessibleStep, setSearchParams, existingSubmissions, getToken],
   );
 
+  const handleExtractionReady = useCallback(() => {
+    setIsExtractingAll(false);
+  }, []);
+
   const nextDisabled =
-    (step === 2 && !classificationComplete) ||
     (step === 3 && !extractionComplete) ||
     step === 4;
 
@@ -83,7 +164,7 @@ export default function UploadDocuments() {
   }, [getToken, isLoaded, isSignedIn]);
 
   const handleUploadComplete = useCallback((result: ConfirmUploadResponse) => {
-    setSubmissions((prev) => [...prev, result]);
+    newlyUploadedIdsRef.current = new Set(newlyUploadedIdsRef.current).add(result.id);
   }, []);
 
   const handleDeleted = useCallback(async () => {
@@ -110,8 +191,26 @@ export default function UploadDocuments() {
           existingSubmissions={existingSubmissions}
         />
       )}
-      {step === 2 && <StepClassify requiredDocuments={requiredDocs} submissions={submissions} onClassificationChange={setClassificationComplete} />}
-      {step === 3 && <StepExtract onExtractionChange={setExtractionComplete} />}
+      {step === 2 && (
+        <StepClassify
+          requiredDocuments={requiredDocs}
+          submissions={existingSubmissions}
+          onClassificationChange={setClassificationComplete}
+          onSubmissionsUpdate={setExistingSubmissions}
+          getToken={getToken}
+          isClassifyingAll={isClassifyingAll}
+          classifyAllError={classifyAllError}
+        />
+      )}
+      {step === 3 && (
+        <StepExtract
+          onExtractionChange={setExtractionComplete}
+          getToken={getToken}
+          isExtractingAll={isExtractingAll}
+          extractAllError={extractAllError}
+          onExtractionReady={handleExtractionReady}
+        />
+      )}
       {step === 4 && <StepSubmit />}
     </UploadWizard>
   );
