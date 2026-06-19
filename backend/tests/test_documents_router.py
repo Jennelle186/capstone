@@ -87,8 +87,8 @@ def test_initiate_upload_returns_presigned_post(client, mock_user, mock_student)
 
     app.dependency_overrides[get_db_session] = override_get_db_session_initiate
 
-    with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.gcs_generate_presigned_post", return_value={
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_generate_presigned_post", return_value={
             "url": "https://storage.googleapis.com/bucket/staging",
             "fields": {"key": "staging/student/file.pdf", "policy": "abc"},
             "key": "staging/student/file.pdf",
@@ -127,8 +127,8 @@ def test_confirm_upload_verifies_s3_and_marks_uploaded(client, mock_user, mock_s
 
     app.dependency_overrides[get_db_session] = override_get_db_session_confirm
 
-    with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.gcs_head_object", return_value={"ContentLength": 1024}):
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_head_object", return_value={"ContentLength": 1024}):
             response = client.post(
                 "/api/me/documents/confirm",
                 json={"submission_id": str(submission_id)},
@@ -169,7 +169,7 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
 
     app.dependency_overrides[get_db_session] = override_get_db_session_list
 
-    with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
         response = client.get("/api/me/documents")
 
     assert response.status_code == 200
@@ -197,8 +197,8 @@ def test_get_download_url_returns_presigned_url(client, mock_user, mock_student)
 
     app.dependency_overrides[get_db_session] = override_get_db_session_download
 
-    with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.gcs_generate_presigned_url", return_value="https://storage.googleapis.com/bucket/view"):
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_generate_presigned_url", return_value="https://storage.googleapis.com/bucket/view"):
             response = client.get(f"/api/me/documents/{submission_id}/download-url")
 
     assert response.status_code == 200
@@ -225,8 +225,8 @@ def test_delete_document_removes_submission_and_s3_object(client, mock_user, moc
 
     app.dependency_overrides[get_db_session] = override_get_db_session_delete
 
-    with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
-        with patch("app.routers.documents.gcs_delete_file") as mock_s3_delete:
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_delete_file") as mock_s3_delete:
             response = client.delete(f"/api/me/documents/{submission_id}")
 
     assert response.status_code == 200
@@ -253,7 +253,7 @@ def test_retry_upload_rejects_non_pending_status(client, mock_user, mock_student
 
     app.dependency_overrides[get_db_session] = override_get_db_session_retry
 
-    with patch("app.routers.documents.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
         response = client.post(f"/api/me/documents/{submission_id}/retry", json={})
 
     assert response.status_code == 409
