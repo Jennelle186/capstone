@@ -6,7 +6,9 @@ import SubmissionCard from "@/components/student/UploadDocuments/submit/Submissi
 import SubmissionSummary from "@/components/student/UploadDocuments/submit/SubmissionSummary";
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
 import ReviewDocumentDetailModal from "@/components/student/ReviewDocumentDetailModal";
+import { fetchWithClerkAuth } from "@/lib/api";
 import type { SubmissionDetail } from "@/types/submission";
+import type { ExtractionItemResponse } from "@/types/extraction";
 
 interface StepSubmitProps {
   submissions: SubmissionDetail[];
@@ -18,6 +20,29 @@ export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
   const [submitted, setSubmitted] = React.useState(false);
   const [activeDocIndex, setActiveDocIndex] = React.useState(0);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
+  const [extractionAccuracy, setExtractionAccuracy] = React.useState<number | null>(null);
+  const getTokenRef = React.useRef(getToken);
+
+  React.useEffect(() => {
+    getTokenRef.current = getToken;
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const fetchExtractions = async () => {
+      const token = await getTokenRef.current();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/documents/extractions", token);
+      if (!res.ok || cancelled) return;
+      const data = (await res.json()) as ExtractionItemResponse[];
+      const allFields = data.flatMap((item) => item.fields);
+      if (allFields.length === 0) return;
+      const avg = allFields.reduce((s, f) => s + f.confidence, 0) / allFields.length;
+      if (!cancelled) setExtractionAccuracy(avg);
+    };
+    fetchExtractions();
+    return () => { cancelled = true; };
+  }, []);
 
   const items = submissions
     .filter((s) => s.document_type_id != null)
@@ -30,6 +55,10 @@ export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
       confidence: (s.classification_result?.confidence as number) ?? undefined,
       issues: (s.classification_result?.flag as string) ?? undefined,
     }));
+
+  const classificationAccuracy = items.length > 0
+    ? items.reduce((s, i) => s + (i.confidence ?? 0), 0) / items.length
+    : null;
 
   const handleSubmit = () => {
     setSubmitted(true);
@@ -85,6 +114,8 @@ export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
         <div className="lg:col-span-4 lg:sticky lg:top-24">
           <SubmissionSummary
             items={items}
+            classificationAccuracy={classificationAccuracy}
+            extractionAccuracy={extractionAccuracy}
             onSaveLater={() => {
                
               console.log("Saved for later");

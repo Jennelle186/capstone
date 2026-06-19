@@ -7,12 +7,21 @@ interface SubmissionSummaryProps {
   items: SubmissionItem[];
   onSaveLater: () => void;
   onSubmit: () => void;
+  classificationAccuracy: number | null;
+  extractionAccuracy: number | null;
+}
+
+function formatAccuracy(value: number | null) {
+  if (value === null) return "\u2014";
+  return `${Math.round(value * 100)}% Average`;
 }
 
 export default function SubmissionSummary({
   items,
   onSaveLater,
   onSubmit,
+  classificationAccuracy,
+  extractionAccuracy,
 }: SubmissionSummaryProps) {
   const total = items.length;
   const needsReviewCount = items.filter((i) => i.status === "needs-review").length;
@@ -33,12 +42,16 @@ export default function SubmissionSummary({
             <span className="font-bold text-slate-900">{total}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-500">Classification Accuracy</span>
+            <span className="font-bold text-primary">{formatAccuracy(classificationAccuracy)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">Extraction Accuracy</span>
-            <span className="font-bold text-primary">94% Average</span>
+            <span className="font-bold text-primary">{formatAccuracy(extractionAccuracy)}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">Target Institution</span>
-            <span className="font-bold text-slate-900">Admissions Office</span>
+            <span className="font-bold text-slate-900">College of Computing Studies</span>
           </div>
 
           <div className="h-px bg-slate-200" />
