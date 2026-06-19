@@ -137,6 +137,19 @@ export default function ExtractionDetailPage() {
     );
   }
 
+  const handleDownload = () => {
+    if (!previewUrl) return;
+    const a = document.createElement("a");
+    a.href = previewUrl;
+    a.download = docInfo?.fileName ?? "document";
+    a.click();
+    a.remove();
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   const totalFields = fields.reduce((s, g) => s + g.fields.length, 0);
 
   return (
@@ -198,11 +211,11 @@ export default function ExtractionDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-slate-500 hover:text-slate-700">
+            <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-slate-500 hover:text-slate-700" onClick={handleDownload} disabled={!previewUrl}>
               <Download className="h-3.5 w-3.5" />
               Export
             </Button>
-            <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-slate-500 hover:text-slate-700">
+            <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-slate-500 hover:text-slate-700" onClick={handlePrint}>
               <Printer className="h-3.5 w-3.5" />
               Print
             </Button>
