@@ -15,6 +15,45 @@ function formatFileSize(bytes: number) {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
+function ConfidenceIndicator({ confidence }: { confidence: number }) {
+  const pct = Math.round(confidence * 100);
+  const bracket =
+    confidence >= 0.8 ? "high" :
+    confidence >= 0.5 ? "mid" :
+    "low";
+
+  const colors = {
+    high: "text-emerald-700 bg-emerald-50 border-emerald-200",
+    mid: "text-amber-700 bg-amber-50 border-amber-200",
+    low: "text-rose-700 bg-rose-50 border-rose-200",
+  };
+
+  const barColors = {
+    high: "bg-emerald-500",
+    mid: "bg-amber-500",
+    low: "bg-rose-500",
+  };
+
+  return (
+    <div className="mt-1 flex items-center gap-2">
+      <span
+        className={cn(
+          "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none",
+          colors[bracket],
+        )}
+      >
+        {pct}% match
+      </span>
+      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className={cn("h-full rounded-full transition-all", barColors[bracket])}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function DocumentIcon({ item }: { item: SubmissionItem }) {
   const name = item.fileName.toLowerCase();
 
@@ -68,6 +107,7 @@ export default function SubmissionCard({ item }: SubmissionCardProps) {
         <p className="text-sm text-slate-500">
           Type: {item.documentType} &bull; {formatFileSize(item.fileSize)}
         </p>
+        {item.confidence !== undefined && <ConfidenceIndicator confidence={item.confidence} />}
       </div>
 
       {/* Status + action */}

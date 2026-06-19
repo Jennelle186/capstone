@@ -7,6 +7,7 @@ export interface SubmissionItem {
   fileSize: number;
   thumbnailUrl?: string;
   status: SubmissionCardStatus;
+  confidence?: number;
   issues?: string;
 }
 

@@ -210,6 +210,20 @@ export default function UploadDocuments() {
     }
   }, [getToken]);
 
+  const refetchSubmissions = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetchWithClerkAuth("/api/me/documents", token);
+    if (res.ok) {
+      const data = (await res.json()) as SubmissionDetail[];
+      setExistingSubmissions(data);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    if (step === 4) refetchSubmissions();
+  }, [step, refetchSubmissions]);
+
   return (
     <UploadWizard step={step} onStepChange={goToStep} nextDisabled={nextDisabled}>
       {step === 1 && (
@@ -244,7 +258,7 @@ export default function UploadDocuments() {
           onExtractionReady={handleExtractionReady}
         />
       )}
-      {step === 4 && <StepSubmit />}
+      {step === 4 && <StepSubmit submissions={existingSubmissions} />}
     </UploadWizard>
   );
 }

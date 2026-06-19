@@ -5,42 +5,30 @@ import { FolderCheck } from "lucide-react";
 import SubmissionCard from "@/components/student/UploadDocuments/submit/SubmissionCard";
 import SubmissionSummary from "@/components/student/UploadDocuments/submit/SubmissionSummary";
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
-import type { SubmissionItem } from "@/types/submission";
+import type { SubmissionDetail } from "@/types/submission";
 
-const MOCK_ITEMS: SubmissionItem[] = [
-  {
-    id: "s-1",
-    fileName: "Official_Transcript_2023.pdf",
-    documentType: "Academic Record",
-    fileSize: 1.2 * 1024 * 1024,
-    status: "ready",
-  },
-  {
-    id: "s-2",
-    fileName: "Gov_Passport_Scan.jpg",
-    documentType: "Personal Identification",
-    fileSize: 4.8 * 1024 * 1024,
-    status: "needs-review",
-    issues: "Passport number requires manual verification",
-  },
-  {
-    id: "s-3",
-    fileName: "Financial_Statement_Q3.pdf",
-    documentType: "Proof of Funds",
-    fileSize: 2.5 * 1024 * 1024,
-    status: "ready",
-  },
-];
+interface StepSubmitProps {
+  submissions: SubmissionDetail[];
+}
 
-export default function StepSubmit() {
-  const [items] = React.useState<SubmissionItem[]>(MOCK_ITEMS);
+export default function StepSubmit({ submissions }: StepSubmitProps) {
   const [showConfirm, setShowConfirm] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
 
+  const items = submissions
+    .filter((s) => s.document_type_id != null)
+    .map((s) => ({
+      id: s.id,
+      fileName: s.original_filename,
+      documentType: s.document_type_name ?? "Unclassified",
+      fileSize: Number(s.file_size ?? 0),
+      status: (s.status === "flagged" ? "needs-review" : "ready") as "needs-review" | "ready",
+      confidence: (s.classification_result?.confidence as number) ?? undefined,
+      issues: (s.classification_result?.flag as string) ?? undefined,
+    }));
+
   const handleSubmit = () => {
     setSubmitted(true);
-     
-    console.log("Documents submitted:", items);
   };
 
   if (submitted) {
