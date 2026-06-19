@@ -119,7 +119,21 @@ export default function StepExtract({
       if (!res.ok) {
         const errBody = await res.text().catch(() => "");
         console.error("Auto-save failed:", errBody);
+        return;
       }
+
+      // Update local items state to trigger completion re-evaluation.
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== itemId) return item;
+          const updatedFields = item.fields.map((field) => {
+            if (field.key !== fieldKey) return field;
+            return { ...field, value, needsReview: false, confidence: 1.0 };
+          });
+          const anyNeedsReview = updatedFields.some((f) => f.needsReview);
+          return { ...item, fields: updatedFields, needsReview: anyNeedsReview };
+        }),
+      );
     } catch (error) {
       console.error("Auto-save error:", error);
     }
