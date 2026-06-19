@@ -1,3 +1,4 @@
+import * as React from "react";
 import { FileText, CheckCircle, Clock, AlertTriangle } from "lucide-react";
 import type { Submission } from "./types";
 
@@ -6,20 +7,41 @@ interface Props {
 }
 
 export default function StatSummaryCards({ submissions }: Props) {
-  const total = submissions.length;
-  const verified = submissions.filter(
-    (s) => s.status === "verified" || s.status === "classified" || s.status === "submitted",
-  ).length;
-  const inReview = submissions.filter(
-    (s) => s.status === "in-review" || s.status === "processing",
-  ).length;
-  const flagged = submissions.filter((s) => s.status === "flagged").length;
+  const stats = React.useMemo(() => {
+    let total = 0;
+    let verified = 0;
+    let inReview = 0;
+    let flagged = 0;
+
+    submissions.forEach((doc) => {
+      if ((doc.status as string) === "uploading" || (doc.status as string) === "failed") return;
+
+      total++;
+
+      switch (doc.status) {
+        case "verified":
+        case "submitted":
+        case "classified":
+          verified++;
+          break;
+        case "in-review":
+        case "processing":
+          inReview++;
+          break;
+        case "flagged":
+          flagged++;
+          break;
+      }
+    });
+
+    return { total, verified, inReview, flagged };
+  }, [submissions]);
 
   const cards = [
-    { label: "Total Uploads", value: total, icon: FileText, color: "text-blue-600", bg: "bg-blue-100" },
-    { label: "Verified", value: verified, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-100" },
-    { label: "In Review", value: inReview, icon: Clock, color: "text-amber-600", bg: "bg-amber-100" },
-    { label: "Issues Flagged", value: flagged, icon: AlertTriangle, color: "text-rose-600", bg: "bg-rose-100" },
+    { label: "Total Uploads", value: stats.total, icon: FileText, color: "text-blue-600", bg: "bg-blue-100" },
+    { label: "Verified", value: stats.verified, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-100" },
+    { label: "In Review", value: stats.inReview, icon: Clock, color: "text-amber-600", bg: "bg-amber-100" },
+    { label: "Issues Flagged", value: stats.flagged, icon: AlertTriangle, color: "text-rose-600", bg: "bg-rose-100" },
   ];
 
   return (
