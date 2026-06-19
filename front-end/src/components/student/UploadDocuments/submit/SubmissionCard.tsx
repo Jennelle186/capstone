@@ -76,7 +76,7 @@ function DocumentIcon({ item }: { item: SubmissionItem }) {
 
 export default function SubmissionCard({ item, onViewDetails, statusLabel }: SubmissionCardProps) {
   const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(item.fileName);
-  const isSubmitted = statusLabel === "SUBMITTED";
+  const isSubmitted = statusLabel === "SUBMITTED" || item.status === "submitted";
   const needsReview = item.status === "needs-review";
 
   return (

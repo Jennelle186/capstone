@@ -8,7 +8,7 @@ import SubmissionSummary from "@/components/student/UploadDocuments/submit/Submi
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
 import ReviewDocumentDetailModal from "@/components/student/ReviewDocumentDetailModal";
 import { fetchWithClerkAuth } from "@/lib/api";
-import type { SubmissionDetail } from "@/types/submission";
+import type { SubmissionCardStatus, SubmissionDetail } from "@/types/submission";
 import type { ExtractionItemResponse } from "@/types/extraction";
 
 interface StepSubmitProps {
@@ -57,7 +57,7 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
       fileName: s.original_filename,
       documentType: s.document_type_name ?? "Unclassified",
       fileSize: Number(s.file_size ?? 0),
-      status: (s.status === "flagged" ? "needs-review" : "ready") as "needs-review" | "ready",
+      status: (s.status === "submitted" ? "submitted" : s.status === "flagged" ? "needs-review" : "ready") as SubmissionCardStatus,
       confidence: (s.classification_result?.confidence as number) ?? undefined,
       issues: (s.classification_result?.flag as string) ?? undefined,
     }));
@@ -175,7 +175,7 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
               <SubmissionCard
                 key={item.id}
                 item={item}
-                statusLabel={readOnly ? "SUBMITTED" : undefined}
+                statusLabel={item.status === "submitted" ? "SUBMITTED" : readOnly ? "SUBMITTED" : undefined}
                 onViewDetails={() => handleViewDetails(item.id)}
               />
             ))}

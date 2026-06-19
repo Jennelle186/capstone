@@ -28,8 +28,9 @@ export default function SubmissionSummary({
   hideActions,
 }: SubmissionSummaryProps) {
   const total = items.length;
+  const submittedCount = items.filter((i) => i.status === "submitted").length;
   const needsReviewCount = items.filter((i) => i.status === "needs-review").length;
-  const readyCount = total - needsReviewCount;
+  const readyCount = total - submittedCount - needsReviewCount;
   const needsReviewItem = items.find((i) => i.status === "needs-review");
 
   return (

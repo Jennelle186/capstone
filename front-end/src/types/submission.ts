@@ -1,4 +1,4 @@
-export type SubmissionCardStatus = "ready" | "needs-review" | "pending";
+export type SubmissionCardStatus = "ready" | "needs-review" | "pending" | "submitted";
 
 export interface SubmissionItem {
   id: string;
