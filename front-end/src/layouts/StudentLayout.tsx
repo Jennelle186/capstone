@@ -15,8 +15,11 @@ export default function StudentLayout() {
         "/student/dashboard": "Student Dashboard",
         "/student/upload": "Upload Documents",
         "/student/profile": "Profile Settings",
+        "/student/extraction": "Extraction Detail",
     };
-    const pageLabel = pageLabelByPath[location.pathname] ?? "Student";
+    const pageLabel = pageLabelByPath[location.pathname]
+        ?? Object.entries(pageLabelByPath).find(([key]) => location.pathname.startsWith(key))?.[1]
+        ?? "Student";
 
     return (
         <TooltipProvider>

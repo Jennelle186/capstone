@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useNavigate } from "react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "@clerk/clerk-react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ export default function StudentDocumentDetailModal({
   open,
   onOpenChange,
 }: Props) {
+  const navigate = useNavigate();
   const { getToken } = useAuth();
   const getTokenRef = React.useRef(getToken);
   const submission = currentIndex >= 0 && currentIndex < submissions.length
@@ -128,6 +130,7 @@ export default function StudentDocumentDetailModal({
       open={open}
       onOpenChange={onOpenChange}
       previewUrl={previewUrl}
+      onOpenFullPage={submissionId ? () => navigate(`/student/extraction/${submissionId}`) : undefined}
       navigation={
         <div className="flex items-center gap-2">
           <Button

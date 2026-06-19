@@ -8,6 +8,7 @@ import TermsPage from "./pages/TermsPage";
 import StudentDashboard from "./pages/students/StudentDashboard";
 import UploadDocuments from "./pages/students/UploadDocuments";
 import ProfileSettings from "./pages/students/ProfileSettings";
+import ExtractionDetailPage from "./pages/students/ExtractionDetailPage";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
 import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
@@ -62,10 +63,11 @@ const AppRoutes = createBrowserRouter([
             {
                 Component: StudentLayout,
                 children: [
-                    { index: true, element: <Navigate to="dashboard" replace /> },
-                    { path: "dashboard", Component: StudentDashboard },
-                    { path: "upload", Component: UploadDocuments },
-                    // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).
+                  { index: true, element: <Navigate to="dashboard" replace /> },
+                  { path: "dashboard", Component: StudentDashboard },
+                  { path: "upload", Component: UploadDocuments },
+                  { path: "extraction/:submissionId", Component: ExtractionDetailPage },
+                  // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).
                     { path: "profile/*", Component: ProfileSettings },
                 ],
             },

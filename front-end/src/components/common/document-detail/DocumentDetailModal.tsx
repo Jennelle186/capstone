@@ -1,5 +1,5 @@
 import * as React from "react";
-import { X, Bot, CheckCircle, AlertTriangle, ZoomIn, ZoomOut, Download, Printer, ChevronDown } from "lucide-react";
+import { X, Bot, CheckCircle, AlertTriangle, ZoomIn, ZoomOut, Download, Printer, ChevronDown, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -43,6 +43,7 @@ interface Props {
   footer: React.ReactNode;
   previewUrl?: string;
   navigation?: React.ReactNode;
+  onOpenFullPage?: () => void;
 }
 
 const defaultSections: ExtractionSection[] = [
@@ -102,7 +103,7 @@ function PreviewSkeleton() {
   );
 }
 
-export default function DocumentDetailModal({ item, open, onOpenChange, footer, previewUrl, navigation }: Props) {
+export default function DocumentDetailModal({ item, open, onOpenChange, footer, previewUrl, navigation, onOpenFullPage }: Props) {
   const [previewOpen, setPreviewOpen] = React.useState(true);
   const [aiOpen, setAiOpen] = React.useState(true);
   const sections = item?.extractionSections ?? defaultSections;
@@ -245,6 +246,15 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer, 
             </button>
             {aiOpen && (
               <div className="p-4 space-y-4 border-t border-slate-100">
+                {onOpenFullPage && (
+                  <button
+                    onClick={onOpenFullPage}
+                    className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors mb-2"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    View full extraction details
+                  </button>
+                )}
                 {sections.map(renderSection)}
               </div>
             )}
@@ -256,6 +266,15 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer, 
               <div className="flex items-center gap-2 mb-1">
                 <Bot className="h-4 w-4 text-primary" />
                 <h5 className="text-xs font-bold uppercase tracking-wider text-primary">AI Extractions</h5>
+                {onOpenFullPage && (
+                  <button
+                    onClick={onOpenFullPage}
+                    className="ml-auto p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors"
+                    title="View full extraction details"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
               <p className="text-xs text-slate-500">
                 Automatic data points extracted and verified against institutional records.
