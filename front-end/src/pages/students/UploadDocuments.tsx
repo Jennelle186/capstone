@@ -258,7 +258,7 @@ export default function UploadDocuments() {
           onExtractionReady={handleExtractionReady}
         />
       )}
-      {step === 4 && <StepSubmit submissions={existingSubmissions} />}
+      {step === 4 && <StepSubmit submissions={existingSubmissions} getToken={getToken} />}
     </UploadWizard>
   );
 }

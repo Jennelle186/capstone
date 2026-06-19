@@ -5,15 +5,19 @@ import { FolderCheck } from "lucide-react";
 import SubmissionCard from "@/components/student/UploadDocuments/submit/SubmissionCard";
 import SubmissionSummary from "@/components/student/UploadDocuments/submit/SubmissionSummary";
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
+import ReviewDocumentDetailModal from "@/components/student/ReviewDocumentDetailModal";
 import type { SubmissionDetail } from "@/types/submission";
 
 interface StepSubmitProps {
   submissions: SubmissionDetail[];
+  getToken: () => Promise<string | null>;
 }
 
-export default function StepSubmit({ submissions }: StepSubmitProps) {
+export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
   const [showConfirm, setShowConfirm] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
+  const [activeDocIndex, setActiveDocIndex] = React.useState(0);
+  const [isModalOpen, setIsModalOpen] = React.useState(false);
 
   const items = submissions
     .filter((s) => s.document_type_id != null)
@@ -29,6 +33,14 @@ export default function StepSubmit({ submissions }: StepSubmitProps) {
 
   const handleSubmit = () => {
     setSubmitted(true);
+  };
+
+  const handleViewDetails = (itemId: string) => {
+    const idx = items.findIndex((i) => i.id === itemId);
+    if (idx !== -1) {
+      setActiveDocIndex(idx);
+      setIsModalOpen(true);
+    }
   };
 
   if (submitted) {
@@ -64,7 +76,7 @@ export default function StepSubmit({ submissions }: StepSubmitProps) {
           </div>
           <div className="space-y-3">
             {items.map((item) => (
-              <SubmissionCard key={item.id} item={item} />
+              <SubmissionCard key={item.id} item={item} onViewDetails={() => handleViewDetails(item.id)} />
             ))}
           </div>
         </div>
@@ -86,6 +98,15 @@ export default function StepSubmit({ submissions }: StepSubmitProps) {
         open={showConfirm}
         onOpenChange={setShowConfirm}
         onConfirm={handleSubmit}
+      />
+
+      <ReviewDocumentDetailModal
+        submissions={items}
+        currentIndex={activeDocIndex}
+        onIndexChange={setActiveDocIndex}
+        open={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        getToken={getToken}
       />
     </>
   );

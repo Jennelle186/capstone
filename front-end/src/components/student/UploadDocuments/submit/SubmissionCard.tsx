@@ -6,6 +6,7 @@ import type { SubmissionItem } from "@/types/submission";
 
 interface SubmissionCardProps {
   item: SubmissionItem;
+  onViewDetails?: () => void;
 }
 
 function formatFileSize(bytes: number) {
@@ -72,7 +73,7 @@ function DocumentIcon({ item }: { item: SubmissionItem }) {
   return <FileText className="h-6 w-6 text-primary" />;
 }
 
-export default function SubmissionCard({ item }: SubmissionCardProps) {
+export default function SubmissionCard({ item, onViewDetails }: SubmissionCardProps) {
   const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(item.fileName);
   const needsReview = item.status === "needs-review";
 
@@ -129,6 +130,7 @@ export default function SubmissionCard({ item }: SubmissionCardProps) {
             "text-[11px] font-semibold uppercase tracking-wider hover:underline",
             needsReview ? "text-red-600" : "text-sky-600",
           )}
+          onClick={onViewDetails}
         >
           {needsReview ? "Fix Issues" : "View Details"}
         </button>

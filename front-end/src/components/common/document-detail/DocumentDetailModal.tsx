@@ -17,6 +17,11 @@ export interface ExtractionField {
   warning?: boolean;
 }
 
+export interface ExtractionSection {
+  title: string;
+  fields: ExtractionField[];
+}
+
 export interface DocumentDetailItem {
   id: string;
   title: string;
@@ -27,7 +32,7 @@ export interface DocumentDetailItem {
   statusLabel: string;
   statusBadge: string;
   statusDot: string;
-  extractions: ExtractionField[];
+  extractionSections: ExtractionSection[];
   studentId?: string;
 }
 
@@ -36,13 +41,20 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   footer: React.ReactNode;
+  previewUrl?: string;
+  navigation?: React.ReactNode;
 }
 
-const defaultExtractions: ExtractionField[] = [
-  { label: "Document Number", value: "TRN-2023-X992", verified: true },
-  { label: "Institution", value: "Stanford Global Institute", verified: true },
-  { label: "Issue Date", value: "October 12, 2023", verified: true },
-  { label: "Cumulative GPA", value: "3.92/4.00", verified: false, confidence: "68%", warning: true },
+const defaultSections: ExtractionSection[] = [
+  {
+    title: "Extracted Fields",
+    fields: [
+      { label: "Document Number", value: "TRN-2023-X992", verified: true },
+      { label: "Institution", value: "Stanford Global Institute", verified: true },
+      { label: "Issue Date", value: "October 12, 2023", verified: true },
+      { label: "Cumulative GPA", value: "3.92/4.00", verified: false, confidence: "68%", warning: true },
+    ],
+  },
 ];
 
 function PreviewSkeleton() {
@@ -90,10 +102,66 @@ function PreviewSkeleton() {
   );
 }
 
-export default function DocumentDetailModal({ item, open, onOpenChange, footer }: Props) {
+export default function DocumentDetailModal({ item, open, onOpenChange, footer, previewUrl, navigation }: Props) {
   const [previewOpen, setPreviewOpen] = React.useState(true);
   const [aiOpen, setAiOpen] = React.useState(true);
-  const extractions = item?.extractions ?? defaultExtractions;
+  const sections = item?.extractionSections ?? defaultSections;
+  const [collapsedSections, setCollapsedSections] = React.useState<Record<string, boolean>>({});
+
+  const toggleSection = (title: string) => {
+    setCollapsedSections((prev) => ({ ...prev, [title]: !prev[title] }));
+  };
+
+  function renderFields(fields: ExtractionField[]) {
+    return fields.map((field, i) => (
+      <div key={i} className="space-y-1">
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          {field.label}
+        </label>
+        <div className="relative">
+          <input
+            className={`w-full bg-slate-50 border rounded-lg text-sm font-medium py-2 pr-9 focus:outline-none focus:ring-2 px-3 transition-colors ${
+              field.warning
+                ? "border-amber-200 focus:ring-amber-400 focus:border-amber-400"
+                : "border-slate-200 focus:ring-primary focus:border-primary"
+            }`}
+            value={field.value}
+            readOnly
+          />
+          {field.verified ? (
+            <CheckCircle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
+          ) : (
+            <AlertTriangle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-500 animate-pulse" />
+          )}
+        </div>
+        {field.warning && (
+          <p className="text-[10px] font-semibold text-amber-600">
+            Needs Review ({field.confidence} Confidence)
+          </p>
+        )}
+      </div>
+    ));
+  }
+
+  function renderSection(section: ExtractionSection) {
+    const isCollapsed = collapsedSections[section.title] ?? false;
+    return (
+      <div key={section.title}>
+        <button
+          className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-600 hover:text-slate-800 transition-colors mb-2"
+          onClick={() => toggleSection(section.title)}
+        >
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+          {section.title}
+        </button>
+        {!isCollapsed && (
+          <div className="space-y-3">
+            {renderFields(section.fields)}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -154,12 +222,16 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
               <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Document Preview</span>
               <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${previewOpen ? "" : "-rotate-90"}`} />
             </button>
-            {previewOpen && <div className="bg-slate-100 p-4">{PreviewSkeleton()}</div>}
+            {previewOpen && <div className="bg-slate-100 p-4">{previewUrl ? <iframe src={previewUrl} className="w-full h-full min-h-[300px] rounded-lg border-0" title="Document Preview" /> : <PreviewSkeleton />}</div>}
           </div>
 
           {/* Desktop: Preview */}
           <div className="hidden md:block flex-1 bg-slate-100 p-6 overflow-y-auto">
-            {PreviewSkeleton()}
+            {previewUrl ? (
+              <iframe src={previewUrl} className="w-full h-full min-h-[500px] rounded-lg border-0" title="Document Preview" />
+            ) : (
+              <PreviewSkeleton />
+            )}
           </div>
 
           {/* Mobile collapsible: AI Extractions */}
@@ -173,41 +245,7 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
             </button>
             {aiOpen && (
               <div className="p-4 space-y-4 border-t border-slate-100">
-                {extractions.map((field, i) => (
-                  <div key={i} className="space-y-1">
-                    <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                      {field.label}
-                    </label>
-                    <div className="relative">
-                      <input
-                        className={`w-full bg-slate-50 border rounded-lg text-sm font-medium py-2 pr-9 focus:outline-none focus:ring-2 px-3 transition-colors ${
-                          field.warning
-                            ? "border-amber-200 focus:ring-amber-400 focus:border-amber-400"
-                            : "border-slate-200 focus:ring-primary focus:border-primary"
-                        }`}
-                        value={field.value}
-                        readOnly
-                      />
-                      {field.verified ? (
-                        <CheckCircle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
-                      ) : (
-                        <AlertTriangle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-500 animate-pulse" />
-                      )}
-                    </div>
-                    {field.warning && (
-                      <p className="text-[10px] font-semibold text-amber-600">
-                        Needs Review ({field.confidence} Confidence)
-                      </p>
-                    )}
-                  </div>
-                ))}
-                <div className="p-3 rounded-xl bg-primary/5 border border-primary/10">
-                  <h6 className="text-xs font-bold text-primary mb-1">Verification Status</h6>
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                    <span className="text-xs font-medium text-primary">Cryptographic Signature Valid</span>
-                  </div>
-                </div>
+                {sections.map(renderSection)}
               </div>
             )}
           </div>
@@ -224,43 +262,7 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
               </p>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {extractions.map((field, i) => (
-                <div key={i} className="space-y-1 group">
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                    {field.label}
-                  </label>
-                  <div className="relative">
-                    <input
-                      className={`w-full bg-slate-50 border rounded-lg text-sm font-medium py-2 pr-9 focus:outline-none focus:ring-2 px-3 transition-colors ${
-                        field.warning
-                          ? "border-amber-200 focus:ring-amber-400 focus:border-amber-400"
-                          : "border-slate-200 focus:ring-primary focus:border-primary"
-                      }`}
-                      value={field.value}
-                      readOnly
-                    />
-                    {field.verified ? (
-                      <CheckCircle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
-                    ) : (
-                      <AlertTriangle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-500 animate-pulse" />
-                    )}
-                  </div>
-                  {field.warning && (
-                    <p className="text-[10px] font-semibold text-amber-600">
-                      Needs Review ({field.confidence} Confidence)
-                    </p>
-                  )}
-                </div>
-              ))}
-              <div className="border-t border-slate-100 pt-4">
-                <div className="p-3 rounded-xl bg-primary/5 border border-primary/10">
-                  <h6 className="text-xs font-bold text-primary mb-1">Verification Status</h6>
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                    <span className="text-xs font-medium text-primary">Cryptographic Signature Valid</span>
-                  </div>
-                </div>
-              </div>
+              {sections.map(renderSection)}
             </div>
             <div className="p-5 border-t border-slate-100 bg-slate-50 space-y-2">
               {footer}
@@ -278,6 +280,12 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer }
             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-500 hover:text-primary">
               <ZoomIn className="h-4 w-4" />
             </Button>
+            {navigation && (
+              <>
+                <div className="h-4 w-px bg-slate-200 mx-1" />
+                {navigation}
+              </>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" className="text-slate-500 hover:text-primary gap-1.5 text-xs">
