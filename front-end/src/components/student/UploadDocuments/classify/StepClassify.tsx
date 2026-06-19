@@ -87,11 +87,17 @@ export default function StepClassify({
     submissions.map(submissionToItem),
   );
 
+  const getTokenRef = React.useRef(getToken);
+  React.useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
   React.useEffect(() => {
     setItems(submissions.map(submissionToItem));
   }, [submissions]);
 
   const classifyAllInProgress = classifyingAll || classifyingIds.size > 0;
+  const isProcessing = items.some((i) => i.status === "processing");
 
   React.useEffect(() => {
     const uploaded = items.filter((i) => i.status === "pending" || i.status === "processing");
@@ -99,6 +105,25 @@ export default function StepClassify({
     const allReviewed = allDone && items.every((i) => !i.needsReview);
     onClassificationChange?.(allReviewed);
   }, [items, onClassificationChange]);
+
+  // ── Poll backend when any item is still processing ────────────────────
+  React.useEffect(() => {
+    if (!isProcessing) return;
+
+    const poll = async () => {
+      const token = await getTokenRef.current();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/documents", token);
+      if (res.ok) {
+        const data = (await res.json()) as SubmissionDetail[];
+        setItems(data.map(submissionToItem));
+        onSubmissionsUpdate?.(data);
+      }
+    };
+
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [isProcessing, onSubmissionsUpdate]);
 
   const counts = React.useMemo(() => {
     const total = items.length;
@@ -121,7 +146,7 @@ export default function StepClassify({
   }, [items, activeTab]);
 
   const handleClassifyAll = React.useCallback(async () => {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
 
     const pending = items.filter((i) => i.status === "pending" || i.status === "needs-review");
@@ -184,11 +209,11 @@ export default function StepClassify({
 
     setClassifyingIds(new Set());
     setClassifyingAll(false);
-  }, [items, getToken, onSubmissionsUpdate]);
+  }, [items, onSubmissionsUpdate]);
 
   const handleClassifyOne = React.useCallback(
     async (id: string) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return;
 
       setClassifyingIds((prev) => new Set(prev).add(id));
@@ -224,7 +249,7 @@ export default function StepClassify({
         return next;
       });
     },
-    [getToken],
+    [],
   );
 
   const handleOverride = React.useCallback(
@@ -256,7 +281,7 @@ export default function StepClassify({
         prev.map((item) => (item.id !== id ? item : updatedItem)),
       );
       (async () => {
-        const token = await getToken();
+        const token = await getTokenRef.current();
         if (!token) return;
         const res = await fetchWithClerkAuth("/api/me/documents", token);
         if (res.ok) {
@@ -265,7 +290,7 @@ export default function StepClassify({
         }
       })();
     },
-    [getToken, onSubmissionsUpdate],
+    [onSubmissionsUpdate],
   );
 
   const hasPending = items.some((i) => i.status === "pending" || i.status === "needs-review");
@@ -284,7 +309,7 @@ export default function StepClassify({
     setPreviewLoading(true);
     setPreviewUrl(null);
     try {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return;
       const res = await fetchWithClerkAuth(`/api/me/documents/${id}/download-url`, token);
       if (res.ok) {
@@ -296,7 +321,10 @@ export default function StepClassify({
     } finally {
       setPreviewLoading(false);
     }
-  }, [getToken]);
+  }, []);
+
+  const processingItems = items.filter((i) => i.status === "processing");
+  const interactiveItems = items.filter((i) => i.status !== "processing");
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -324,7 +352,7 @@ export default function StepClassify({
               </p>
             )}
           </div>
-          {hasItems && !allClassified && (
+          {hasItems && !allClassified && !isProcessing && (
             <button
               type="button"
               disabled={!hasPending || classifyAllInProgress}
@@ -346,8 +374,8 @@ export default function StepClassify({
           )}
         </div>
 
-        {/* Classifying All Banner */}
-        {isClassifyingAll && (
+        {/* Classifying / Processing Banner */}
+        {(isProcessing || isClassifyingAll) && (
           <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
             <Loader2 className="h-5 w-5 animate-spin flex-shrink-0 text-blue-600" />
             <div>
@@ -360,7 +388,7 @@ export default function StepClassify({
         )}
 
         {/* Classify Error Banner */}
-        {classifyAllError && !isClassifyingAll && (
+        {classifyAllError && !isClassifyingAll && !isProcessing && (
           <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
             <FileSearch className="h-5 w-5 flex-shrink-0 text-red-600" />
             <div>
@@ -373,8 +401,8 @@ export default function StepClassify({
           </div>
         )}
 
-        {/* Tips Banner (only when not all classified) */}
-        {hasItems && !isClassifyingAll && !allClassified && (
+        {/* Tips Banner (only when not all classified and nothing processing) */}
+        {hasItems && !isProcessing && !isClassifyingAll && !allClassified && (
           <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
             <SearchCheck className="h-5 w-5 flex-shrink-0 text-amber-600" />
             <p className="text-sm">
@@ -396,8 +424,30 @@ export default function StepClassify({
           </div>
         )}
 
-        {/* Read-only List (all classified) */}
-        {allClassified && (
+        {/* Processing Items — loading spinners above everything else */}
+        {processingItems.length > 0 && (
+          <div className="space-y-3">
+            {processingItems.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm"
+              >
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-blue-900">
+                    {item.fileName}
+                  </p>
+                  <p className="text-xs text-blue-700 mt-0.5">
+                    Classifying document…
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Read-only List (all classified, nothing processing) */}
+        {allClassified && !isProcessing && (
           <div className="space-y-3">
             {items.map((item) => (
               <div
@@ -430,8 +480,8 @@ export default function StepClassify({
           </div>
         )}
 
-        {/* Interactive UI (not all classified yet) */}
-        {!allClassified && hasItems && (
+        {/* Interactive UI (not all classified yet) — only for non-processing items */}
+        {!allClassified && hasItems && interactiveItems.length > 0 && (
           <>
             {/* Filter Tabs */}
             <div className="flex items-center gap-2">
@@ -501,6 +551,14 @@ export default function StepClassify({
               </div>
             )}
           </>
+        )}
+
+        {/* Nothing to interact with — all items are processing */}
+        {!allClassified && hasItems && interactiveItems.length === 0 && isProcessing && (
+          <div className="flex flex-col items-center gap-2 py-8 text-slate-400">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+            <p className="text-sm font-medium">All documents are being classified…</p>
+          </div>
         )}
       </div>
 

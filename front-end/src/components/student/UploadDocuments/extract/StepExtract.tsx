@@ -24,7 +24,6 @@ export default function StepExtract({
 }: StepExtractProps) {
   const [items, setItems] = useState<ExtractionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const validationState = useRef<Record<string, boolean>>({});
 
   const getTokenRef = useRef(getToken);
   useEffect(() => {
@@ -43,23 +42,38 @@ export default function StepExtract({
   }, []);
 
   useEffect(() => {
-    fetchExtractions();
+    let canceled = false;
+    const timeout = setTimeout(() => {
+      if (!canceled) {
+        fetchExtractions();
+      }
+    }, 0);
+
+    return () => {
+      canceled = true;
+      clearTimeout(timeout);
+    };
   }, [fetchExtractions]);
 
   const prevExtracting = useRef(isExtractingAll);
   useEffect(() => {
-    if (prevExtracting.current && !isExtractingAll) {
-      fetchExtractions();
-    }
+    const wasExtracting = prevExtracting.current;
     prevExtracting.current = isExtractingAll;
+
+    if (wasExtracting && !isExtractingAll) {
+      const timeout = setTimeout(() => {
+        fetchExtractions();
+      }, 0);
+
+      return () => clearTimeout(timeout);
+    }
   }, [isExtractingAll, fetchExtractions]);
 
   useEffect(() => {
-    if (isExtractingAll) return;
-    if (!loading) {
-      const complete = items.length > 0 && items.every((i) => !i.needsReview);
-      onExtractionChange?.(complete);
-    }
+    if (isExtractingAll || loading) return;
+    if (items.length === 0) return;
+    const allReviewed = items.every((i) => !i.needsReview);
+    onExtractionChange?.(allReviewed);
   }, [items, loading, isExtractingAll, onExtractionChange]);
 
   useEffect(() => {
@@ -84,12 +98,6 @@ export default function StepExtract({
     return () => clearTimeout(timeout);
   }, [isExtractingAll, onExtractionReady]);
 
-  useEffect(() => {
-    if (items.length === 0) return;
-    const valid = items.every((item) => validationState.current[item.id] !== false);
-    onExtractionChange?.(valid);
-  }, [items, onExtractionChange]);
-
   const handleAutoSave = useCallback(async (itemId: string, fieldKey: string, value: string) => {
     try {
       const token = await getTokenRef.current();
@@ -112,10 +120,6 @@ export default function StepExtract({
     } catch (error) {
       console.error("Auto-save error:", error);
     }
-  }, []);
-
-  const handleValidationChange = useCallback((itemId: string, isValid: boolean) => {
-    validationState.current[itemId] = isValid;
   }, []);
 
   const processingItems = items.filter((i) => i.status === "processing");
@@ -189,7 +193,6 @@ export default function StepExtract({
               key={item.id}
               item={item}
               onAutoSave={handleAutoSave}
-              onValidationChange={handleValidationChange}
             />
           ))}
         </div>

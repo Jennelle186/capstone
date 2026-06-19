@@ -90,12 +90,14 @@ export function toExtractionItem(resp: ExtractionItemResponse): ExtractionItem {
   let confidenceLabel: ExtractionConfidence;
   if (hasReview) {
     confidenceLabel = "needs-review";
-  } else if (avgConfidence >= 0.7) {
+  } else if (avgConfidence >= 0.95) {
     confidenceLabel = "high";
-  } else if (avgConfidence >= 0.4) {
+  } else if (avgConfidence >= 0.7) {
     confidenceLabel = "medium";
-  } else {
+  } else if (avgConfidence >= 0.4) {
     confidenceLabel = "low";
+  } else {
+    confidenceLabel = "needs-review";
   }
 
   return {

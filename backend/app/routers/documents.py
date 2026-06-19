@@ -645,7 +645,7 @@ async def _extract_single(
                 existing[field_id] = {
                     "value": value,
                     "confidence": confidence,
-                    "needs_review": confidence < 0.7,
+                    "needs_review": confidence < 0.7 if field_def.get("required", True) else False,
                     "source_key": field_key,
                 }
 
@@ -952,6 +952,9 @@ async def list_extractions(
                 confidence = 0.0
                 source_key = None
 
+            if not field_def.get("required", False) and value == "":
+                needs_review = False
+
             if value:
                 options = field_def.get("options") or []
                 if options:
@@ -1044,6 +1047,7 @@ async def save_extraction_field(
     }
 
     submission.extracted_data = extracted
+    attributes.flag_modified(submission, "extracted_data")
     await db.commit()
     await db.refresh(submission)
 

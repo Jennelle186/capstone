@@ -28,9 +28,17 @@ export default function UploadDocuments() {
   const [initialLoading, setInitialLoading] = useState(true);
   const newlyUploadedIdsRef = useRef<Set<string>>(new Set());
 
+  const getExtractedData = (submission: SubmissionDetail) =>
+    (submission as unknown as { extracted_data?: unknown; extractedData?: unknown }).extracted_data ??
+    (submission as unknown as { extracted_data?: unknown; extractedData?: unknown }).extractedData;
+
+  const hasExtractionData = existingSubmissions.some(
+    (s) => s.document_type_id && getExtractedData(s)
+  );
+
   const maxAccessibleStep = Math.min(
     4,
-    extractionComplete ? 4 : classificationComplete ? 3 : 2,
+    extractionComplete ? 4 : hasExtractionData ? 4 : classificationComplete ? 3 : 2,
   );
 
   const rawStep = parseInt(searchParams.get("step") ?? "1", 10) || 1;
@@ -103,7 +111,7 @@ export default function UploadDocuments() {
         }
 
         // Skip POST if all submissions already have extracted data (page reload).
-        const allExtracted = targetSubs.every((s) => s.extracted_data);
+        const allExtracted = targetSubs.every((s) => getExtractedData(s) != null);
         if (allExtracted) {
           setIsExtractingAll(false);
           setSearchParams({ step: "3" }, { replace: true });
@@ -174,13 +182,6 @@ export default function UploadDocuments() {
               (s) => s.status === "classified" || s.status === "flagged"
             );
             setClassificationComplete(hasClassifiedOrFlagged);
-            const classifiedWithSchema = data.filter(
-              (s) => s.document_type_id && (s.status === "classified" || s.status === "flagged")
-            );
-            setExtractionComplete(
-              classifiedWithSchema.length > 0 &&
-              classifiedWithSchema.every((s) => s.extracted_data)
-            );
           }
         }
       } catch {

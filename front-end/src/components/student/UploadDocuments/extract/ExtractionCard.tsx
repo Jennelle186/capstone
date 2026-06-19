@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -8,8 +8,6 @@ import {
   Image,
   User,
   AlertTriangle,
-  CheckCircle,
-  Info,
   ChevronDown,
   Maximize2,
   Minimize2,
@@ -34,7 +32,6 @@ import type { ExtractionItem, ExtractedField } from "@/types/extraction";
 interface ExtractionCardProps {
   item: ExtractionItem;
   onAutoSave: (itemId: string, fieldKey: string, value: string) => void;
-  onValidationChange: (itemId: string, isValid: boolean) => void;
 }
 
 interface SectionGroup {
@@ -60,38 +57,22 @@ function groupBySection(fields: ExtractedField[]): SectionGroup[] {
   return order.filter((k) => grouped[k]).map((k) => grouped[k]);
 }
 
-function ConfidenceBadge({ label, needsReview }: { label: string; needsReview: boolean }) {
+function CardConfidenceBadge({ label, needsReview }: { label: string; needsReview: boolean }) {
+  if (!needsReview && label === "high") return null;
   if (needsReview) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-[10px] font-bold uppercase text-red-700">
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-[10px] font-semibold text-red-600">
         <AlertTriangle className="h-3 w-3" />
         Needs Review
       </span>
     );
   }
-
-  switch (label) {
-    case "high":
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
-          <CheckCircle className="h-3 w-3" />
-          High Confidence
-        </span>
-      );
-    case "medium":
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-3 py-1 text-[10px] font-bold uppercase text-sky-700">
-          <Info className="h-3 w-3" />
-          Medium Confidence
-        </span>
-      );
-    default:
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase text-slate-600">
-          Pending
-        </span>
-      );
-  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-600">
+      <AlertTriangle className="h-3 w-3" />
+      Low Confidence
+    </span>
+  );
 }
 
 function DocumentIcon({ fileName, needsReview }: { fileName: string; needsReview: boolean }) {
@@ -108,7 +89,7 @@ function DocumentIcon({ fileName, needsReview }: { fileName: string; needsReview
   return <FileText className="h-5 w-5 text-primary" />;
 }
 
-export default function ExtractionCard({ item, onAutoSave, onValidationChange }: ExtractionCardProps) {
+export default function ExtractionCard({ item, onAutoSave }: ExtractionCardProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -124,11 +105,6 @@ export default function ExtractionCard({ item, onAutoSave, onValidationChange }:
   });
 
   const needsReview = item.needsReview;
-  const isValid = form.formState.isValid;
-
-  useEffect(() => {
-    onValidationChange(item.id, isValid);
-  }, [item.id, isValid, onValidationChange]);
 
   const handleAutoSave = (fieldKey: string, value: string) => {
     onAutoSave(item.id, fieldKey, value);
@@ -162,7 +138,7 @@ export default function ExtractionCard({ item, onAutoSave, onValidationChange }:
                   ? <ChevronDown className="h-4 w-4 text-muted-foreground -rotate-90 transition-transform" />
                   : <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform" />
                 }
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   {section.sectionTitle ?? section.sectionId}
                 </h4>
               </button>
@@ -212,13 +188,13 @@ export default function ExtractionCard({ item, onAutoSave, onValidationChange }:
                   <h3 className="text-base font-semibold text-slate-900">
                     {item.fileName}
                   </h3>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <p className="text-xs font-medium tracking-wide text-slate-500">
                     {item.documentTypeName}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <ConfidenceBadge label={item.confidenceLabel} needsReview={needsReview} />
+                <CardConfidenceBadge label={item.confidenceLabel} needsReview={needsReview} />
                 <Button
                   type="button"
                   variant="ghost"
@@ -260,7 +236,7 @@ export default function ExtractionCard({ item, onAutoSave, onValidationChange }:
               </span>
             </DialogTitle>
             <div className="flex items-center gap-2">
-              <ConfidenceBadge label={item.confidenceLabel} needsReview={needsReview} />
+              <CardConfidenceBadge label={item.confidenceLabel} needsReview={needsReview} />
               <Button
                 type="button"
                 variant="ghost"
