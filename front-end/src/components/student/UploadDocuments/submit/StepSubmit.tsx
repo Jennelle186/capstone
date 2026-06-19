@@ -42,8 +42,18 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
       if (!res.ok || cancelled) return;
       const data = (await res.json()) as ExtractionItemResponse[];
       const allFields = data.flatMap((item) => item.fields);
-      if (allFields.length === 0) return;
-      const avg = allFields.reduce((s, f) => s + f.confidence, 0) / allFields.length;
+      const evaluableFields = allFields.filter((f) => {
+        const isBlank = !f.value || f.value.trim() === "";
+        const isOptional = !f.required;
+        return !(isBlank && isOptional);
+      });
+      const avg = evaluableFields.length > 0
+        ? evaluableFields.reduce((s, f) => {
+            const isBlank = !f.value || f.value.trim() === "";
+            if (f.required && isBlank) return s + 1.0;
+            return s + (f.confidence ?? 0);
+          }, 0) / evaluableFields.length
+        : 1.0;
       if (!cancelled) setExtractionAccuracy(avg);
     };
     fetchExtractions();
