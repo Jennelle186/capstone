@@ -1,16 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText } from "lucide-react";
+import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { fetchWithClerkAuth } from "@/lib/api";
 import ClassificationCard from "@/components/student/UploadDocuments/classify/ClassificationCard";
 import SubmissionChecklist from "@/components/student/UploadDocuments/classify/SubmissionChecklist";
@@ -45,6 +41,8 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     status = "pending";
   } else if (s.status === "classified" && !isFlagged) {
     status = "classified";
+  } else if (s.status === "submitted") {
+    status = "submitted";
   } else if (s.status === "flagged" || isFlagged) {
     status = "needs-review";
   } else {
@@ -61,9 +59,28 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     needsReview: status === "needs-review",
     isCompiledPdf: s.is_compiled,
     status,
+    originalStatus: s.status,
     classificationResult: result as ClassificationItem["classificationResult"],
     mimeType: s.mime_type,
   };
+}
+
+function formatFileSize(bytes: number | null): string {
+  if (bytes === null || bytes === undefined) return "Unknown";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function confidenceBadgeColor(score: number): string {
+  if (score >= 80) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (score >= 50) return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-rose-50 text-rose-700 border-rose-200";
 }
 
 const TABS: { key: FilterTab; label: string }[] = [
@@ -83,6 +100,7 @@ export default function StepClassify({
 }: StepClassifyProps) {
   const [classifyingIds, setClassifyingIds] = React.useState<Set<string>>(new Set());
   const [classifyingAll, setClassifyingAll] = React.useState(false);
+  const [conflictError, setConflictError] = React.useState<string | null>(null);
   const [items, setItems] = React.useState<ClassificationItem[]>(() =>
     submissions.map(submissionToItem),
   );
@@ -91,6 +109,11 @@ export default function StepClassify({
   React.useEffect(() => {
     getTokenRef.current = getToken;
   }, [getToken]);
+
+  const itemsRef = React.useRef(items);
+  React.useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   React.useEffect(() => {
     setItems(submissions.map(submissionToItem));
@@ -155,6 +178,7 @@ export default function StepClassify({
     const pendingIds = new Set(pending.map((p) => p.id));
 
     setClassifyingAll(true);
+    setConflictError(null);
     setClassifyingIds((prev) => {
       const next = new Set(prev);
       for (const id of pendingIds) next.add(id);
@@ -188,6 +212,11 @@ export default function StepClassify({
       } else {
         const err = await res.json().catch(() => null);
         console.error("Classify all failed:", err);
+        if (res.status === 409) {
+          setConflictError(err?.detail ?? "A document for this requirement has already been submitted and is locked for advisor review.");
+        } else {
+          setConflictError(err?.detail ?? "Classification failed for some documents.");
+        }
         setItems((prev) =>
           prev.map((item) =>
             pendingIds.has(item.id)
@@ -198,6 +227,7 @@ export default function StepClassify({
       }
     } catch (err) {
       console.error("Classify all error:", err);
+      setConflictError("Classification request failed. Please try again.");
       setItems((prev) =>
         prev.map((item) =>
           pendingIds.has(item.id)
@@ -213,6 +243,10 @@ export default function StepClassify({
 
   const handleClassifyOne = React.useCallback(
     async (id: string) => {
+      const currentItems = itemsRef.current;
+      const item = currentItems.find((i) => i.id === id);
+      if (!item || item.originalStatus === "submitted") return;
+
       const token = await getTokenRef.current();
       if (!token) return;
 
@@ -232,6 +266,15 @@ export default function StepClassify({
           const updated = await res.json();
           setItems((prev) =>
             prev.map((i) => (i.id !== id ? i : submissionToItem(updated))),
+          );
+        } else {
+          const err = await res.json().catch(() => null);
+          toast.error(err?.detail ?? "Classification failed.");
+          setItems((prev) =>
+            prev.map((i) => {
+              if (i.id !== id) return i;
+              return { ...i, status: "needs-review" as ClassificationStatus, needsReview: true };
+            }),
           );
         }
       } catch {
@@ -254,6 +297,9 @@ export default function StepClassify({
 
   const handleOverride = React.useCallback(
     (fileId: string, documentTypeId: string) => {
+      const item = items.find((i) => i.id === fileId);
+      if (item?.originalStatus === "submitted") return;
+
       setItems((prev) =>
         prev.map((item) => {
           if (item.id !== fileId) return item;
@@ -268,7 +314,7 @@ export default function StepClassify({
         }),
       );
     },
-    [requiredDocuments],
+    [requiredDocuments, items],
   );
 
   const handleSplit = React.useCallback(() => {
@@ -277,6 +323,9 @@ export default function StepClassify({
 
   const handleConfirm = React.useCallback(
     (id: string, updatedItem: ClassificationItem) => {
+      const item = items.find((i) => i.id === id);
+      if (item?.originalStatus === "submitted") return;
+
       setItems((prev) =>
         prev.map((item) => (item.id !== id ? item : updatedItem)),
       );
@@ -290,38 +339,71 @@ export default function StepClassify({
         }
       })();
     },
-    [onSubmissionsUpdate],
+    [onSubmissionsUpdate, items],
+  );
+
+  const handleDelete = React.useCallback(
+    (id: string) => {
+      setItems((prev) => prev.filter((i) => i.id !== id));
+    },
+    [],
   );
 
   const hasPending = items.some((i) => i.status === "pending" || i.status === "needs-review");
   const allClassified = items.length > 0 && items.every(
-    (i) => i.status === "classified" || i.status === "overridden",
+    (i) => i.status === "classified" || i.status === "overridden" || i.status === "submitted",
   );
   const hasItems = items.length > 0;
 
-  const [previewId, setPreviewId] = React.useState<string | null>(null);
+  const previewableItems = React.useMemo(
+    () => items.filter((i) => i.status !== "pending" && i.status !== "processing"),
+    [items],
+  );
+
+  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
-  const previewItem = previewId ? items.find((i) => i.id === previewId) ?? null : null;
+  const previewItem = previewIndex !== null ? previewableItems[previewIndex] ?? null : null;
 
-  const handlePreview = React.useCallback(async (id: string) => {
-    setPreviewId(id);
-    setPreviewLoading(true);
-    setPreviewUrl(null);
-    try {
-      const token = await getTokenRef.current();
-      if (!token) return;
-      const res = await fetchWithClerkAuth(`/api/me/documents/${id}/download-url`, token);
-      if (res.ok) {
-        const data = await res.json();
-        setPreviewUrl(data.url);
-      }
-    } catch {
-      setPreviewUrl(null);
-    } finally {
-      setPreviewLoading(false);
-    }
+  const handlePreview = React.useCallback((id: string) => {
+    const idx = previewableItems.findIndex((i) => i.id === id);
+    if (idx !== -1) setPreviewIndex(idx);
+  }, [previewableItems]);
+
+  const handlePrev = React.useCallback(() => {
+    setPreviewIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev));
   }, []);
+
+  const handleNext = React.useCallback(() => {
+    setPreviewIndex((prev) =>
+      prev !== null && prev < previewableItems.length - 1 ? prev + 1 : prev,
+    );
+  }, [previewableItems.length]);
+
+  React.useEffect(() => {
+    if (previewIndex === null) {
+      setPreviewUrl(null);
+      setPreviewLoading(false);
+      return;
+    }
+    const item = previewableItems[previewIndex];
+    if (!item) return;
+
+    let cancelled = false;
+    const fetchUrl = async () => {
+      setPreviewLoading(true);
+      setPreviewUrl(null);
+      const token = await getTokenRef.current();
+      if (!token || cancelled) return;
+      const res = await fetchWithClerkAuth(`/api/me/documents/${item.id}/download-url`, token);
+      if (!res.ok || cancelled) return;
+      const data = (await res.json()) as { url: string };
+      if (!cancelled) setPreviewUrl(data.url);
+      if (!cancelled) setPreviewLoading(false);
+    };
+    fetchUrl();
+    return () => { cancelled = true; };
+  }, [previewIndex, previewableItems]);
 
   const processingItems = items.filter((i) => i.status === "processing");
   const interactiveItems = items.filter((i) => i.status !== "processing");
@@ -398,6 +480,27 @@ export default function StepClassify({
                 You can retry individual documents below.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Conflict Error Banner */}
+        {conflictError && !isClassifyingAll && !isProcessing && (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-600" />
+            <div>
+              <p className="text-sm font-semibold">Document already submitted</p>
+              <p className="text-xs text-amber-700 mt-0.5">{conflictError}</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                This document cannot be reclassified. The new file has been removed.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setConflictError(null)}
+              className="flex h-6 w-6 items-center justify-center rounded-full text-amber-500 hover:bg-amber-100 transition-colors shrink-0"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
 
@@ -544,6 +647,7 @@ export default function StepClassify({
                     onSplit={handleSplit}
                     onClassify={handleClassifyOne}
                     onConfirm={handleConfirm}
+                    onDelete={handleDelete}
                     isClassifying={classifyingIds.has(item.id)}
                     getToken={getToken}
                   />
@@ -563,42 +667,133 @@ export default function StepClassify({
       </div>
 
       {/* Preview Dialog */}
-      <Dialog open={previewId !== null} onOpenChange={(open) => { if (!open) setPreviewId(null); }}>
-        <DialogContent className="w-[95vw] !max-w-[95vw] h-[95vh] !max-h-[95vh] p-0 gap-0">
-          <div className="flex h-full flex-col">
-            <DialogHeader className="border-b px-6 py-4">
-              <DialogTitle className="text-base font-semibold text-slate-900">
-                {previewItem?.fileName ?? "Preview"}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-1 items-center justify-center overflow-auto bg-slate-50 p-4">
+      <Dialog open={previewIndex !== null} onOpenChange={(open) => { if (!open) setPreviewIndex(null); }}>
+        <DialogContent className="w-[95vw] !max-w-[95vw] h-[95vh] !max-h-[95vh] flex flex-col p-0 overflow-hidden rounded-2xl gap-0 border border-slate-200">
+
+          {/* Custom Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white z-10">
+            <h3 className="font-semibold text-slate-900 text-base max-w-[60%] truncate">
+              {previewItem?.fileName ?? "Preview"}
+            </h3>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400 font-medium tabular-nums">
+                {previewIndex !== null ? `${previewIndex + 1} of ${previewableItems.length}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreviewIndex(null)}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Split Pane */}
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-[2fr_1fr] overflow-hidden bg-slate-50">
+
+            {/* Left: Dark PDF Viewer */}
+            <div className="p-4 flex items-center justify-center overflow-hidden h-full bg-slate-800 border-b md:border-b-0">
               {previewLoading ? (
-                <div className="flex items-center gap-2 text-slate-500">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span className="text-sm">Loading preview…</span>
+                <div className="flex flex-col items-center gap-3 text-slate-400">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <p className="text-xs font-medium">Loading preview…</p>
                 </div>
               ) : previewUrl ? (
                 <iframe
-                  title={previewItem?.fileName ?? "Preview"}
                   src={previewUrl}
-                  className="h-full w-full rounded-xl border border-slate-200 bg-white"
+                  className="w-full h-full rounded-lg bg-white shadow-sm border border-slate-700"
+                  title="Document Preview"
                 />
               ) : (
                 <div className="flex flex-col items-center gap-3 text-slate-500">
-                  <FileText className="h-10 w-10" />
+                  <FileText className="h-10 w-10 text-slate-400" />
                   <span className="text-sm">No preview available.</span>
                 </div>
               )}
             </div>
-            <DialogFooter className="border-t bg-white px-6 py-4 flex-row justify-end">
-              <Button
-                className="bg-primary text-white hover:bg-primary/90 rounded-xl"
-                onClick={() => setPreviewId(null)}
-              >
-                Close
-              </Button>
-            </DialogFooter>
+
+            {/* Right: Classification + Metadata */}
+            <div className="bg-white p-6 overflow-y-auto flex flex-col h-full border-l border-slate-100">
+              {previewItem && (
+                <>
+                  {/* Classification */}
+                  <div className="mb-6 pb-4 border-b border-slate-100">
+                    <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase block mb-2">
+                      Document Classification
+                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-lg font-bold text-slate-900">
+                        {previewItem.documentTypeName ?? "Unclassified"}
+                      </h4>
+                      {previewItem.confidence !== null && (
+                        <Badge
+                          variant="outline"
+                          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${confidenceBadgeColor(previewItem.confidence)}`}
+                        >
+                          {previewItem.confidence}% match
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* File Metadata */}
+                  <div className="space-y-4">
+                    <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase block">
+                      File Information
+                    </span>
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-4">
+                        <span className="text-xs text-slate-500 shrink-0 w-24">File name</span>
+                        <span className="text-xs font-medium text-slate-900 text-right break-all">{previewItem.fileName}</span>
+                      </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <span className="text-xs text-slate-500 shrink-0 w-24">File size</span>
+                        <span className="text-xs font-medium text-slate-900">{formatFileSize(previewItem.fileSize)}</span>
+                      </div>
+                      {previewItem.mimeType && (
+                        <div className="flex items-start justify-between gap-4">
+                          <span className="text-xs text-slate-500 shrink-0 w-24">Type</span>
+                          <span className="text-xs font-medium text-slate-900 text-right">{previewItem.mimeType}</span>
+                        </div>
+                      )}
+                      <div className="flex items-start justify-between gap-4">
+                        <span className="text-xs text-slate-500 shrink-0 w-24">Compiled PDF</span>
+                        <span className="text-xs font-medium text-slate-900">{previewItem.isCompiledPdf ? "Yes" : "No"}</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-center">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={previewIndex === null || previewIndex === 0}
+                onClick={handlePrev}
+                className="gap-1 text-xs h-9 rounded-xl border-slate-200 hover:bg-slate-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={previewIndex === null || previewIndex >= previewableItems.length - 1}
+                onClick={handleNext}
+                className="gap-1 text-xs h-9 rounded-xl border-slate-200 hover:bg-slate-50"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
         </DialogContent>
       </Dialog>
     </div>

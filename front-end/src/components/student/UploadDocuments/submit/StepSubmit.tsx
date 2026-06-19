@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { FolderCheck } from "lucide-react";
+import { useNavigate } from "react-router";
+import { ArrowLeft, FolderCheck } from "lucide-react";
 import SubmissionCard from "@/components/student/UploadDocuments/submit/SubmissionCard";
 import SubmissionSummary from "@/components/student/UploadDocuments/submit/SubmissionSummary";
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
@@ -13,14 +14,19 @@ import type { ExtractionItemResponse } from "@/types/extraction";
 interface StepSubmitProps {
   submissions: SubmissionDetail[];
   getToken: () => Promise<string | null>;
+  onSubmitted?: () => void;
 }
 
-export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
+export default function StepSubmit({ submissions, getToken, onSubmitted }: StepSubmitProps) {
+  const navigate = useNavigate();
   const [showConfirm, setShowConfirm] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
+  const [readOnly, setReadOnly] = React.useState(false);
   const [activeDocIndex, setActiveDocIndex] = React.useState(0);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [extractionAccuracy, setExtractionAccuracy] = React.useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
   const getTokenRef = React.useRef(getToken);
 
   React.useEffect(() => {
@@ -60,8 +66,28 @@ export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
     ? items.reduce((s, i) => s + (i.confidence ?? 0), 0) / items.length
     : null;
 
-  const handleSubmit = () => {
-    setSubmitted(true);
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const token = await getTokenRef.current();
+      if (!token) { setIsSubmitting(false); return; }
+      const res = await fetchWithClerkAuth("/api/me/documents/submit-batch", token, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setSubmitError(err?.detail ?? "Submission failed. Please try again.");
+        setIsSubmitting(false);
+        return;
+      }
+      setSubmitted(true);
+      onSubmitted?.();
+    } catch {
+      setSubmitError("Submission failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleViewDetails = (itemId: string) => {
@@ -72,19 +98,45 @@ export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
     }
   };
 
-  if (submitted) {
+  const handleSaveLater = () => {
+    navigate("/student/dashboard");
+  };
+
+  const handleBackToConfirmation = () => {
+    setReadOnly(false);
+  };
+
+  // Celebration screen — shown immediately after successful submit
+  if (submitted && !readOnly) {
     return (
-      <div className="flex flex-col items-center gap-4 py-20 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-          <FolderCheck className="h-8 w-8 text-primary" />
+      <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <FolderCheck className="h-8 w-8" />
         </div>
-        <h2 className="text-2xl font-semibold text-slate-900">
-          Documents Submitted!
+        <h2 className="text-xl font-bold text-slate-900">
+          Documents Submitted Successfully!
         </h2>
-        <p className="max-w-md text-sm text-slate-500">
-          Your documents have been submitted for processing. You will be
-          notified once the registrar has reviewed them.
+        <p className="max-w-md text-sm leading-relaxed text-slate-500">
+          Your enrollment records have been securely transmitted and locked for
+          adviser review. We will notify you via email as soon as your file is
+          processed.
         </p>
+        <div className="mt-2 flex w-full max-w-xs flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => navigate("/student/dashboard")}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-white shadow-sm transition-all hover:opacity-90 active:scale-[0.98]"
+          >
+            Return to Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => setReadOnly(true)}
+            className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+          >
+            Review Submitted Documents
+          </button>
+        </div>
       </div>
     );
   }
@@ -96,16 +148,36 @@ export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
         <div className="lg:col-span-8">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">
-              Review Documents
+              {readOnly ? "Submitted Documents" : "Review Documents"}
             </h2>
             <span className="text-sm text-slate-500">
-              {items.length} Document{items.length !== 1 ? "s" : ""} Pending
-              Submission
+              {items.length} Document{items.length !== 1 ? "s" : ""}
+              {readOnly ? "" : " Pending Submission"}
             </span>
           </div>
+          {readOnly && (
+            <button
+              type="button"
+              onClick={handleBackToConfirmation}
+              className="mb-3 flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Back to Confirmation
+            </button>
+          )}
+          {submitError && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {submitError}
+            </div>
+          )}
           <div className="space-y-3">
             {items.map((item) => (
-              <SubmissionCard key={item.id} item={item} onViewDetails={() => handleViewDetails(item.id)} />
+              <SubmissionCard
+                key={item.id}
+                item={item}
+                statusLabel={readOnly ? "SUBMITTED" : undefined}
+                onViewDetails={() => handleViewDetails(item.id)}
+              />
             ))}
           </div>
         </div>
@@ -116,11 +188,10 @@ export default function StepSubmit({ submissions, getToken }: StepSubmitProps) {
             items={items}
             classificationAccuracy={classificationAccuracy}
             extractionAccuracy={extractionAccuracy}
-            onSaveLater={() => {
-               
-              console.log("Saved for later");
-            }}
+            onSaveLater={handleSaveLater}
             onSubmit={() => setShowConfirm(true)}
+            isSubmitting={isSubmitting}
+            hideActions={readOnly}
           />
         </div>
       </div>

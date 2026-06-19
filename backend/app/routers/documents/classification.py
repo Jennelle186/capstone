@@ -146,6 +146,11 @@ async def classify_all_documents(
     for submission in submissions:
         try:
             await process_submission(submission.id)
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                logger.warning("classify_all: submission %s has conflict - %s", submission.id, exc.detail)
+            else:
+                raise
         except Exception:
             logger.exception("classify_all: submission %s failed", submission.id)
         await asyncio.sleep(2)

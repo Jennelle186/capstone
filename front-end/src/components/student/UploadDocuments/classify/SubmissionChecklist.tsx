@@ -15,7 +15,7 @@ import {
 import type { ComponentType } from "react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { ClassificationItem  } from "@/types/classification";
+import type { ClassificationItem } from "@/types/classification";
 import type { RequiredDocument } from "@/types/student";
 
 interface SubmissionChecklistProps {
@@ -29,7 +29,8 @@ type RowStatus =
   | "processing"
   | "classified"
   | "needs-review"
-  | "accepted";
+  | "accepted"
+  | "submitted";
 
 interface RowData {
   doc: RequiredDocument;
@@ -53,6 +54,7 @@ function getDocIcon(code: string) {
 
 const STATUS_PRIORITY: Record<RowStatus, number> = {
   accepted: 5,
+  submitted: 5,
   classified: 4,
   "needs-review": 3,
   processing: 2,
@@ -61,6 +63,7 @@ const STATUS_PRIORITY: Record<RowStatus, number> = {
 };
 
 function deriveRowStatus(item: ClassificationItem): RowStatus {
+  if (item.originalStatus === "submitted" || item.originalStatus === "in-review") return "submitted";
   if (item.status === "overridden") return "accepted";
   if (item.status === "classified" && !item.needsReview) return "classified";
   if (item.status === "needs-review" || item.status === "flagged") return "needs-review";
@@ -94,6 +97,8 @@ function StatusIcon({ status, className }: { status: RowStatus; className?: stri
   switch (status) {
     case "accepted":
       return <CheckCircle className={cn("h-4 w-4 text-emerald-600", className)} />;
+    case "submitted":
+      return <CheckCircle className={cn("h-4 w-4 text-slate-500", className)} />;
     case "classified":
       return <CheckCircle className={cn("h-4 w-4 text-emerald-600", className)} />;
     case "needs-review":
@@ -113,6 +118,13 @@ function StatusLabel({ status, confidence, fileName }: { status: RowStatus; conf
       return (
         <div className="flex flex-col">
           <span className="text-xs font-semibold text-emerald-600">Accepted by the user</span>
+          {fileName && <span className="text-[11px] text-slate-400 truncate max-w-[160px]">{fileName}</span>}
+        </div>
+      );
+    case "submitted":
+      return (
+        <div className="flex flex-col">
+          <span className="text-xs font-semibold text-slate-600">Submitted — locked for adviser review</span>
           {fileName && <span className="text-[11px] text-slate-400 truncate max-w-[160px]">{fileName}</span>}
         </div>
       );
@@ -145,7 +157,7 @@ function StatusLabel({ status, confidence, fileName }: { status: RowStatus; conf
 
 export default function SubmissionChecklist({ requiredDocuments, items }: SubmissionChecklistProps) {
   const rows = buildRows(requiredDocuments, items);
-  const acceptedCount = rows.filter((r) => r.status === "accepted" || r.status === "classified").length;
+  const acceptedCount = rows.filter((r) => r.status === "accepted" || r.status === "classified" || r.status === "submitted").length;
   const total = rows.length;
 
   return (
@@ -169,6 +181,7 @@ export default function SubmissionChecklist({ requiredDocuments, items }: Submis
                   className={cn(
                     "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg",
                     isDone && "bg-emerald-50",
+                    row.status === "submitted" && "bg-slate-100",
                     row.status === "needs-review" && "bg-amber-50",
                     row.status === "processing" && "bg-blue-50",
                     row.status === "pending" && "bg-amber-50",
@@ -179,6 +192,7 @@ export default function SubmissionChecklist({ requiredDocuments, items }: Submis
                     className={cn(
                       "h-4 w-4",
                       isDone && "text-emerald-600",
+                      row.status === "submitted" && "text-slate-500",
                       row.status === "needs-review" && "text-amber-600",
                       row.status === "processing" && "text-blue-600",
                       row.status === "pending" && "text-amber-500",

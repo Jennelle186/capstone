@@ -4,7 +4,8 @@ export type ClassificationStatus =
   | "classified"
   | "needs-review"
   | "overridden"
-  | "flagged";
+  | "flagged"
+  | "submitted";
 
 export interface ClassificationResult {
   type?: string | null;
@@ -25,6 +26,7 @@ export interface ClassificationItem {
   needsReview: boolean;
   isCompiledPdf: boolean;
   status: ClassificationStatus;
+  originalStatus?: string;
   previewUrl?: string;
   classificationResult?: ClassificationResult | null;
   mimeType?: string | null;

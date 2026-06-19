@@ -56,7 +56,9 @@ export default function PreviouslyUploadedSection({
   const [activeRetryId, setActiveRetryId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const displaySubmissions = submissions.filter((s) => s.status !== "verified");
+  const displaySubmissions = submissions.filter(
+    (s) => s.status !== "verified" && s.status !== "submitted" && s.status !== "in-review",
+  );
 
   const handleRetry = useCallback(
     async (submissionId: string, file: File) => {

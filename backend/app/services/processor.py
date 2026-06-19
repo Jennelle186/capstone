@@ -4,6 +4,7 @@ import asyncio
 import logging
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from ..database import AsyncSessionLocal
@@ -12,6 +13,7 @@ from ..services.gcp_pipeline import (
     GcpPipelineError,
     process_document_sync,
 )
+from ..services.gcp_storage import delete_file
 
 AUTO_ACCEPT_THRESHOLD = 0.80
 REJECT_THRESHOLD = 0.30
@@ -40,6 +42,27 @@ def _find_document_type_by_code(
         if dt.code == code:
             return dt
     return None
+
+
+async def _check_document_type_conflict(
+    session,
+    student_id: UUID,
+    document_type_id: UUID,
+    exclude_submission_id: UUID,
+) -> bool:
+    """Return True if a SUBMITTED or IN_REVIEW doc already claims this document type."""
+    result = await session.execute(
+        select(DocumentSubmission).where(
+            DocumentSubmission.student_id == student_id,
+            DocumentSubmission.document_type_id == document_type_id,
+            DocumentSubmission.status.in_([
+                SubmissionStatus.SUBMITTED,
+                SubmissionStatus.IN_REVIEW,
+            ]),
+            DocumentSubmission.id != exclude_submission_id,
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def _save_classification(
@@ -149,6 +172,21 @@ async def process_submission(submission_id: UUID) -> None:
                 classification_result["extracted_text_length"] = extracted_text_length
 
             if confidence >= AUTO_ACCEPT_THRESHOLD and matched_type is not None:
+                if await _check_document_type_conflict(
+                    session, submission.student_id, matched_type.id, submission.id
+                ):
+                    classification_result["flag"] = "slot_conflict"
+                    classification_result["reasoning"] = "A document for this requirement has already been submitted."
+                    if extracted_text_length is not None:
+                        classification_result["extracted_text_length"] = extracted_text_length
+                    submission.status = SubmissionStatus.FLAGGED
+                    submission.classification_result = classification_result
+                    await session.commit()
+                    delete_file(submission.file_key)
+                    raise HTTPException(
+                        status_code=409,
+                        detail="You cannot submit the same document. A record for this requirement has already been submitted and is locked for advisor review.",
+                    )
                 logger.info(
                     "process_submission: auto-classified as %s (%.2f) for %s",
                     matched_type.code,
@@ -163,6 +201,21 @@ async def process_submission(submission_id: UUID) -> None:
                     document_type_id=matched_type.id,
                 )
             elif confidence >= REJECT_THRESHOLD and matched_type is not None:
+                if await _check_document_type_conflict(
+                    session, submission.student_id, matched_type.id, submission.id
+                ):
+                    classification_result["flag"] = "slot_conflict"
+                    classification_result["reasoning"] = "A document for this requirement has already been submitted."
+                    if extracted_text_length is not None:
+                        classification_result["extracted_text_length"] = extracted_text_length
+                    submission.status = SubmissionStatus.FLAGGED
+                    submission.classification_result = classification_result
+                    await session.commit()
+                    delete_file(submission.file_key)
+                    raise HTTPException(
+                        status_code=409,
+                        detail="You cannot submit the same document. A record for this requirement has already been submitted and is locked for advisor review.",
+                    )
                 classification_result["flag"] = "low_confidence"
                 logger.info(
                     "process_submission: low-confidence match %s (%.2f) for %s",
@@ -192,6 +245,8 @@ async def process_submission(submission_id: UUID) -> None:
                     document_type_id=None,
                 )
 
+        except HTTPException:
+            raise  # re-raise FastAPI exceptions directly
         except GcpPipelineError as exc:
             logger.error("Pipeline error for submission %s: %s", submission_id, exc)
             await _flag_submission(session, submission_id, {"error": "pipeline_error", "detail": str(exc)})

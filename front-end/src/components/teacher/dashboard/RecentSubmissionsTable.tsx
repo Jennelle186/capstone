@@ -57,14 +57,7 @@ function toDocumentDetailItem(submission: RecentSubmission): DocumentDetailItem 
     avatarColor: submission.avatarColor,
     statusLabel: config.label,
     statusBadge: config.badge,
-    statusDot: config.dot,
-    studentId: submission.studentId,
-    extractions: [
-      { label: "Document Number", value: "TRN-2023-X992", verified: true },
-      { label: "Institution", value: "Stanford Global Institute", verified: true },
-      { label: "Issue Date", value: "October 12, 2023", verified: true },
-      { label: "Cumulative GPA", value: "3.92/4.00", verified: false, confidence: "68%", warning: true },
-    ],
+    statusDot: config.dot, extractionSections: [], studentId: submission.studentId,
   };
 }
 

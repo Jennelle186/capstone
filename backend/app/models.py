@@ -409,6 +409,7 @@ class SubmissionStatus(str, enum.Enum):
     IN_REVIEW = "in-review"
     VERIFIED = "verified"
     FLAGGED = "flagged"
+    SUBMITTED = "submitted"
 
 
 class DocumentSubmission(Base):

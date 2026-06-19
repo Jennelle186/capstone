@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
 import type { ConfirmUploadResponse, InitiateUploadResponse, SubmissionDetail } from "@/types/submission";
@@ -85,6 +86,10 @@ export default function StepUpload({
         }),
       });
       if (!res.ok) {
+        if (res.status === 409) {
+          const errBody = await res.json().catch(() => null);
+          throw new Error(`CONFLICT:${errBody?.detail ?? "Document already submitted."}`);
+        }
         throw new Error(`Initiate failed: ${res.status} ${res.statusText}`);
       }
       return res.json() as Promise<InitiateUploadResponse>;
@@ -133,7 +138,18 @@ export default function StepUpload({
         throw new Error("Not authenticated");
       }
 
-      const presigned = await initiateUpload(item, token);
+      let presigned: InitiateUploadResponse;
+      try {
+        presigned = await initiateUpload(item, token);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (msg.startsWith("CONFLICT:")) {
+          toast.error(msg.slice("CONFLICT:".length));
+          return;
+        }
+        throw err;
+      }
+
       await uploadToS3(item, presigned);
       // Fetch a fresh token after S3 upload; Clerk tokens can expire during
       // large file transfers, and confirm_upload validates auth.

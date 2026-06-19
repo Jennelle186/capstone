@@ -106,7 +106,17 @@ export default function UploadDocuments() {
         const targetIds = targetSubs.map((s) => s.id);
 
         if (targetIds.length === 0) {
-          setSearchParams({ step: "3" }, { replace: true });
+          // Only skip to step 4 if there are classified/submitted docs
+          // (not an empty batch or unclassified docs).
+          const hasProcessedDocs = existingSubmissions.some(
+            (s) => s.document_type_id,
+          );
+          if (hasProcessedDocs) {
+            setExtractionComplete(true);
+            setSearchParams({ step: "4" }, { replace: true });
+          } else {
+            setSearchParams({ step: "3" }, { replace: true });
+          }
           return;
         }
 
@@ -114,7 +124,8 @@ export default function UploadDocuments() {
         const allExtracted = targetSubs.every((s) => getExtractedData(s) != null);
         if (allExtracted) {
           setIsExtractingAll(false);
-          setSearchParams({ step: "3" }, { replace: true });
+          setExtractionComplete(true);
+          setSearchParams({ step: "4" }, { replace: true });
           return;
         }
 
@@ -135,8 +146,18 @@ export default function UploadDocuments() {
             const err = await res.json().catch(() => null);
             setExtractAllError(err?.detail ?? "Extraction failed for some documents.");
             setIsExtractingAll(false);
+            return;
           }
-          // On success: keep isExtractingAll=true so StepExtract polls.
+          // On success: check if any docs were actually queued for extraction.
+          const resultData = await res.json() as Array<{ status?: string }>;
+          const anyProcessing = resultData.some((s) => s.status === "processing");
+          if (!anyProcessing) {
+            setIsExtractingAll(false);
+            setExtractionComplete(true);
+            setSearchParams({ step: "4" }, { replace: true });
+            return;
+          }
+          // Otherwise: keep isExtractingAll=true so StepExtract polls.
           // onExtractionReady will set it to false when data arrives.
         } catch (err) {
           setExtractAllError(err instanceof Error ? err.message : "Extraction request failed.");
@@ -258,7 +279,7 @@ export default function UploadDocuments() {
           onExtractionReady={handleExtractionReady}
         />
       )}
-      {step === 4 && <StepSubmit submissions={existingSubmissions} getToken={getToken} />}
+      {step === 4 && <StepSubmit submissions={existingSubmissions} getToken={getToken} onSubmitted={refetchSubmissions} />}
     </UploadWizard>
   );
 }

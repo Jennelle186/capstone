@@ -79,6 +79,23 @@ async def initiate_upload(
     if student is None:
         raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
 
+    if body.document_type_id:
+        existing = await db.execute(
+            select(DocumentSubmission).where(
+                DocumentSubmission.student_id == student.id,
+                DocumentSubmission.document_type_id == body.document_type_id,
+                DocumentSubmission.status.in_([
+                    SubmissionStatus.SUBMITTED,
+                    SubmissionStatus.IN_REVIEW,
+                ]),
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="You cannot submit the same document; please wait for confirmation by your adviser.",
+            )
+
     key = make_staging_key(str(student.id), body.name)
     presigned = gcs_generate_presigned_post(key, body.type)
 
@@ -247,6 +264,48 @@ async def list_my_documents(
     ]
 
 
+@router.post("/api/me/documents/submit-batch")
+async def submit_batch(
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> dict:
+    """Advance all classified/flagged submissions to SUBMITTED status.
+
+    Called from the Step 4 review screen when the student clicks
+    "Submit All Documents". Locks the documents so they cannot be
+    edited or re-uploaded while the adviser reviews them.
+    """
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found.")
+
+    result = await db.execute(
+        select(DocumentSubmission).where(
+            DocumentSubmission.student_id == student.id,
+            DocumentSubmission.status.in_([
+                SubmissionStatus.CLASSIFIED,
+                SubmissionStatus.FLAGGED,
+            ]),
+        )
+    )
+    submissions = result.scalars().all()
+
+    if not submissions:
+        raise HTTPException(
+            status_code=400,
+            detail="No documents ready for submission.",
+        )
+
+    for sub in submissions:
+        sub.status = SubmissionStatus.SUBMITTED
+
+    await db.commit()
+
+    return {"status": "success", "submitted_count": len(submissions)}
+
+
 @router.delete("/api/me/documents/{submission_id}")
 async def delete_document(
     submission_id: UUID,
@@ -271,10 +330,14 @@ async def delete_document(
     if submission.student_id != student.id:
         raise HTTPException(status_code=403, detail="You do not have permission to delete this document.")
 
-    if submission.status == SubmissionStatus.VERIFIED:
+    if submission.status in (
+        SubmissionStatus.VERIFIED,
+        SubmissionStatus.SUBMITTED,
+        SubmissionStatus.IN_REVIEW,
+    ):
         raise HTTPException(
             status_code=409,
-            detail="Cannot delete a verified document.",
+            detail="Cannot delete a document that has been submitted or verified.",
         )
 
     gcs_delete_file(submission.file_key)
@@ -294,8 +357,8 @@ async def get_download_url(
     """Return a presigned GET URL for viewing a previously uploaded document.
 
     The URL is only generated for submissions that have actually arrived in S3
-    (UPLOADED, FLAGGED, or CLASSIFIED). PENDING or PROCESSING submissions are rejected
-    because the file may not be present yet.
+    (UPLOADED, FLAGGED, CLASSIFIED, PROCESSING, SUBMITTED, or IN_REVIEW). PENDING
+    submissions are rejected because the file may not be present yet.
     """
     user = await ensure_user_row(db, current_user)
     result = await db.execute(select(Student).where(Student.user_id == user.id))
@@ -310,7 +373,14 @@ async def get_download_url(
     if submission.student_id != student.id:
         raise HTTPException(status_code=403, detail="You do not have permission to view this document.")
 
-    if submission.status not in (SubmissionStatus.UPLOADED, SubmissionStatus.FLAGGED, SubmissionStatus.CLASSIFIED, SubmissionStatus.PROCESSING):
+    if submission.status not in (
+        SubmissionStatus.UPLOADED,
+        SubmissionStatus.FLAGGED,
+        SubmissionStatus.CLASSIFIED,
+        SubmissionStatus.PROCESSING,
+        SubmissionStatus.SUBMITTED,
+        SubmissionStatus.IN_REVIEW,
+    ):
         raise HTTPException(
             status_code=409,
             detail=f"Document is not ready for preview (status: {submission.status.value}).",

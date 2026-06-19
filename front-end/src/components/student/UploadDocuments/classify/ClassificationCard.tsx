@@ -30,6 +30,7 @@ interface ClassificationCardProps {
   onSplit: (fileId: string) => void;
   onClassify: (id: string) => void;
   onConfirm: (id: string, updatedItem: ClassificationItem) => void;
+  onDelete?: (id: string) => void;
   isClassifying: boolean;
   getToken: () => Promise<string | null>;
 }
@@ -62,6 +63,8 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     status = "pending";
   } else if (s.status === "classified" && !isFlagged) {
     status = "classified";
+  } else if (s.status === "submitted") {
+    status = "submitted";
   } else if (s.status === "flagged" || isFlagged) {
     status = "needs-review";
   } else {
@@ -144,6 +147,13 @@ function StatusBadge({ status, confidence }: { status: ClassificationStatus; con
           Low{confidence !== null ? ` (${confidence}%)` : ""}
         </span>
       );
+    case "submitted":
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-slate-500">
+          <CheckCircle className="h-3 w-3 text-slate-400" />
+          Submitted — locked
+        </span>
+      );
     default:
       return null;
   }
@@ -156,6 +166,7 @@ export default function ClassificationCard({
   onSplit,
   onClassify,
   onConfirm,
+  onDelete,
   isClassifying,
   getToken,
 }: ClassificationCardProps) {
@@ -163,9 +174,11 @@ export default function ClassificationCard({
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
   const [accepting, setAccepting] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const isImage = isImageFile(item.fileName);
   const isPending = item.status === "pending";
   const isProcessing = item.status === "processing" || isClassifying;
+  const isConflict = item.classificationResult?.flag === "slot_conflict";
   const showAccept = (item.status === "needs-review" || item.status === "flagged") && item.documentTypeId;
 
   const handlePreview = React.useCallback(async () => {
@@ -186,6 +199,24 @@ export default function ClassificationCard({
       setPreviewLoading(false);
     }
   }, [item.id, item.status, getToken]);
+
+  const handleDeleteDocument = React.useCallback(async () => {
+    setDeleting(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetchWithClerkAuth(`/api/me/documents/${item.id}`, token, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        onDelete?.(item.id);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setDeleting(false);
+    }
+  }, [item.id, getToken, onDelete]);
 
   const handleAccept = React.useCallback(async () => {
     setAccepting(true);
@@ -234,6 +265,40 @@ export default function ClassificationCard({
 
   return (
     <>
+      {isConflict ? (
+        /* Conflict card — read-only, shows error message + delete button */
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-red-100">
+              <AlertTriangle className="h-8 w-8 text-red-500" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-slate-900">
+                {item.fileName}
+              </p>
+              <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                This document has been removed because a document for this requirement has already been submitted and is locked for advisor review.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-row items-center gap-2 sm:shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10 rounded-xl whitespace-nowrap gap-1.5 border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800"
+              onClick={handleDeleteDocument}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <AlertTriangle className="h-4 w-4" />
+              )}
+              {deleting ? "Removing…" : "Remove Document"}
+            </Button>
+          </div>
+        </div>
+      ) : (
       <div
         className={cn(
           "flex flex-col lg:flex-row lg:items-center gap-4 rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md",
@@ -311,10 +376,10 @@ export default function ClassificationCard({
               )}
               {isClassifying ? "Classifying…" : "Classify"}
             </Button>
-          ) : item.status === "classified" || item.status === "overridden" ? (
+          ) : item.status === "classified" || item.status === "overridden" || item.status === "submitted" ? (
             <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 whitespace-nowrap">
               <CheckCircle className="h-4 w-4" />
-              Confirmed
+              {item.status === "submitted" ? "Submitted" : "Confirmed"}
             </div>
           ) : (
             <>
@@ -368,6 +433,7 @@ export default function ClassificationCard({
           )}
         </div>
       </div>
+      )}
 
       {/* Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, Send, CheckCircle, AlertTriangle } from "lucide-react";
+import { Info, Send, CheckCircle, AlertTriangle, Lock } from "lucide-react";
 import type { SubmissionItem } from "@/types/submission";
 
 interface SubmissionSummaryProps {
@@ -9,6 +9,8 @@ interface SubmissionSummaryProps {
   onSubmit: () => void;
   classificationAccuracy: number | null;
   extractionAccuracy: number | null;
+  isSubmitting?: boolean;
+  hideActions?: boolean;
 }
 
 function formatAccuracy(value: number | null) {
@@ -22,6 +24,8 @@ export default function SubmissionSummary({
   onSubmit,
   classificationAccuracy,
   extractionAccuracy,
+  isSubmitting,
+  hideActions,
 }: SubmissionSummaryProps) {
   const total = items.length;
   const needsReviewCount = items.filter((i) => i.status === "needs-review").length;
@@ -67,24 +71,34 @@ export default function SubmissionSummary({
           )}
         </div>
 
-        <div className="space-y-2">
-          <button
-            type="button"
-            disabled={needsReviewCount > 0}
-            onClick={onSubmit}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-white shadow-sm transition-all hover:-translate-y-px hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-          >
-            Submit All Documents
-            <Send className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onSaveLater}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 transition-all hover:bg-slate-50"
-          >
-            Save for Later
-          </button>
-        </div>
+        {hideActions ? (
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <Lock className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <p className="text-xs leading-tight text-slate-500">
+              These documents have been submitted and locked for adviser review.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <button
+              type="button"
+              disabled={needsReviewCount > 0 || isSubmitting}
+              onClick={onSubmit}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-white shadow-sm transition-all hover:-translate-y-px hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+            >
+              {isSubmitting ? "Submitting\u2026" : "Submit All Documents"}
+              {!isSubmitting && <Send className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={onSaveLater}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Save for Later
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Status Mini Cards */}

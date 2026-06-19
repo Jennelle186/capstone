@@ -71,7 +71,10 @@ export default function StepExtract({
 
   useEffect(() => {
     if (isExtractingAll || loading) return;
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      onExtractionChange?.(true);
+      return;
+    }
     const allReviewed = items.every((i) => !i.needsReview);
     onExtractionChange?.(allReviewed);
   }, [items, loading, isExtractingAll, onExtractionChange]);

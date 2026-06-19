@@ -170,9 +170,11 @@ export default function ReviewDocumentDetailModal({
         </div>
       }
       footer={
-        <Button className="w-full rounded-xl bg-primary text-white hover:bg-primary/90 shadow-sm text-sm">
-          Confirm All Data
-        </Button>
+        <div className="w-full text-center py-2 px-4 bg-slate-50 border border-slate-100 rounded-xl">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            This is a read-only preview of your auto-extracted details. You can complete the overall submission using the main <strong className="font-semibold text-slate-700">Submit All Documents</strong> option on the dashboard.
+          </p>
+        </div>
       }
     />
   );
