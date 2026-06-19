@@ -12,7 +12,9 @@ import DocumentDetailModal from "@/components/student/Dashboard/DocumentDetailMo
 import {
   placeholderSubmissions,
   type Submission,
+  type SubmissionStatusType,
 } from "@/components/student/Dashboard/types";
+import type { SubmissionDetail } from "@/types/submission";
 
 interface MeResponse {
   userId: string;
@@ -26,6 +28,40 @@ interface RequiredDocumentsData {
   classification: string | null;
 }
 
+function formatFileSize(bytes: string | null): string {
+  if (!bytes) return "Unknown";
+  const num = parseInt(bytes, 10);
+  if (isNaN(num)) return "Unknown";
+  if (num < 1024) return `${num} B`;
+  const kb = num / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function formatDate(iso: string): string {
+  const date = new Date(iso);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function mimeToLabel(mime: string | null): string {
+  if (!mime) return "Unknown";
+  if (mime.startsWith("image/")) return "Image";
+  if (mime === "application/pdf") return "PDF";
+  return mime;
+}
+
+function toSubmission(detail: SubmissionDetail): Submission {
+  return {
+    id: detail.id,
+    documentName: detail.original_filename,
+    documentType: detail.document_type_name ?? "Unclassified",
+    uploadDate: formatDate(detail.created_at),
+    status: detail.status as SubmissionStatusType,
+    fileType: mimeToLabel(detail.mime_type),
+    fileSize: formatFileSize(detail.file_size),
+  };
+}
+
 export default function StudentDashboard() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [firstName, setFirstName] = React.useState<string | null>(null);
@@ -33,7 +69,9 @@ export default function StudentDashboard() {
   const [schoolYear, setSchoolYear] = React.useState<string | null>(null);
   const [classification, setClassification] = React.useState<string | null>(null);
 
-  const [selectedSubmission, setSelectedSubmission] = React.useState<Submission | null>(null);
+  const [submissions, setSubmissions] = React.useState<Submission[]>(placeholderSubmissions);
+  const [loadingDocs, setLoadingDocs] = React.useState(true);
+  const [currentIndex, setCurrentIndex] = React.useState(-1);
   const [modalOpen, setModalOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -45,9 +83,10 @@ export default function StudentDashboard() {
         const token = await getToken();
         if (!token) return;
 
-        const [meRes, reqRes] = await Promise.all([
+        const [meRes, reqRes, docsRes] = await Promise.all([
           fetchWithClerkAuth("/api/me", token),
           fetchWithClerkAuth("/api/me/required-documents", token),
+          fetchWithClerkAuth("/api/me/documents", token),
         ]);
 
         if (!meRes.ok || !reqRes.ok) return;
@@ -60,8 +99,18 @@ export default function StudentDashboard() {
         setLastName(me.lastName);
         setSchoolYear(req.school_year_name);
         setClassification(req.classification);
+
+        if (docsRes.ok) {
+          const docs = (await docsRes.json()) as SubmissionDetail[];
+          if (isMounted) {
+            setSubmissions(docs.map(toSubmission));
+            setLoadingDocs(false);
+          }
+        }
       } catch {
         // ignore
+      } finally {
+        if (isMounted) setLoadingDocs(false);
       }
     };
 
@@ -70,8 +119,13 @@ export default function StudentDashboard() {
   }, [getToken, isLoaded, isSignedIn]);
 
   const handleView = (submission: Submission) => {
-    setSelectedSubmission(submission);
+    const idx = submissions.findIndex((s) => s.id === submission.id);
+    if (idx >= 0) setCurrentIndex(idx);
     setModalOpen(true);
+  };
+
+  const handleIndexChange = (index: number) => {
+    setCurrentIndex(index);
   };
 
   return (
@@ -107,7 +161,7 @@ export default function StudentDashboard() {
       </div>
 
       {/* Stat Cards */}
-      <StatSummaryCards submissions={placeholderSubmissions} />
+      <StatSummaryCards submissions={submissions} />
 
       {/* Announcements */}
       <AnnouncementBar />
@@ -119,15 +173,26 @@ export default function StudentDashboard() {
           <p className="text-xs text-slate-500 mt-0.5">Review your historical uploads and AI-verified extractions.</p>
         </div>
         <div className="p-5">
-          <SubmissionsTable data={placeholderSubmissions} onView={handleView} />
+          {loadingDocs ? (
+            <div className="flex items-center justify-center py-12 text-slate-400 text-sm">
+              Loading documents...
+            </div>
+          ) : (
+            <SubmissionsTable data={submissions} onView={handleView} />
+          )}
         </div>
       </div>
 
       {/* Detail Modal */}
       <DocumentDetailModal
-        submission={selectedSubmission}
+        submissions={submissions}
+        currentIndex={currentIndex}
+        onIndexChange={handleIndexChange}
         open={modalOpen}
-        onOpenChange={setModalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) setCurrentIndex(-1);
+        }}
       />
     </main>
   );

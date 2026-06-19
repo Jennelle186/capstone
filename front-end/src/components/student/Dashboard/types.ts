@@ -1,14 +1,16 @@
+export type SubmissionStatusType = "verified" | "in-review" | "flagged" | "uploaded" | "submitted" | "classified" | "processing";
+
 export type Submission = {
   id: string;
   documentName: string;
   documentType: string;
   uploadDate: string;
-  status: "verified" | "in-review" | "flagged" | "uploaded";
+  status: SubmissionStatusType;
   fileType: string;
   fileSize: string;
 };
 
-export type SubmissionStatus = Submission["status"];
+export type SubmissionStatus = SubmissionStatusType;
 
 export const placeholderSubmissions: Submission[] = [
   {
@@ -103,6 +105,21 @@ export const statusConfig: Record<SubmissionStatus, { label: string; badge: stri
   },
   uploaded: {
     label: "Uploaded",
+    badge: "bg-blue-100 text-blue-700",
+    dot: "bg-blue-500",
+  },
+  submitted: {
+    label: "Submitted",
+    badge: "bg-slate-100 text-slate-700",
+    dot: "bg-slate-500",
+  },
+  classified: {
+    label: "Classified",
+    badge: "bg-emerald-100 text-emerald-700",
+    dot: "bg-emerald-500",
+  },
+  processing: {
+    label: "Processing",
     badge: "bg-blue-100 text-blue-700",
     dot: "bg-blue-500",
   },

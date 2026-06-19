@@ -4,7 +4,7 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import attributes, selectinload
@@ -344,10 +344,11 @@ async def extract_all_documents(
 async def list_extractions(
     current_user: StudentClaims,
     db: SessionDep,
+    status: str | None = Query(None, description="Optional comma-separated statuses to filter by (defaults to CLASSIFIED,FLAGGED,PROCESSING)"),
 ) -> list[ExtractionItemResponse]:
-    """Return extraction data for classified submissions with extraction schemas.
+    """Return extraction data for document submissions with extraction schemas.
 
-    For each classified submission belonging to the student, if the document
+    For each matching submission belonging to the student, if the document
     type has an active extraction schema, the schema fields are merged with
     any existing extracted_data values and returned.
     """
@@ -357,12 +358,19 @@ async def list_extractions(
     if student is None:
         return []
 
+    statuses: tuple[SubmissionStatus, ...]
+    if status:
+        parts = [s.strip() for s in status.split(",")]
+        statuses = tuple(SubmissionStatus(s) for s in parts)
+    else:
+        statuses = (SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED, SubmissionStatus.PROCESSING)
+
     submissions_result = await db.execute(
         select(DocumentSubmission)
         .options(selectinload(DocumentSubmission.document_type))
         .where(
             DocumentSubmission.student_id == student.id,
-            DocumentSubmission.status.in_((SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED, SubmissionStatus.PROCESSING)),
+            DocumentSubmission.status.in_(statuses),
             DocumentSubmission.document_type_id.isnot(None),
         )
     )

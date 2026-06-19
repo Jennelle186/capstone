@@ -7,8 +7,12 @@ interface Props {
 
 export default function StatSummaryCards({ submissions }: Props) {
   const total = submissions.length;
-  const verified = submissions.filter((s) => s.status === "verified").length;
-  const inReview = submissions.filter((s) => s.status === "in-review").length;
+  const verified = submissions.filter(
+    (s) => s.status === "verified" || s.status === "classified" || s.status === "submitted",
+  ).length;
+  const inReview = submissions.filter(
+    (s) => s.status === "in-review" || s.status === "processing",
+  ).length;
   const flagged = submissions.filter((s) => s.status === "flagged").length;
 
   const cards = [
