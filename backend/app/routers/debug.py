@@ -72,6 +72,6 @@ async def debug_db_user(current_user: CurrentUser, db: SessionDep) -> dict:
         "student": (
             None
             if student is None
-            else {"student_number": student.student_number, "program": student.program}
+            else {"student_number": student.student_number, "program_id": str(student.program_id) if student.program_id else None}
         ),
     }

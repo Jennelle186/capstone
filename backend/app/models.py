@@ -97,7 +97,11 @@ class Student(Base):
 
     # These can be null at first sign-up; you can fill them later during onboarding.
     student_number = Column(String, unique=True, nullable=True)
-    program = Column(String, nullable=True)
+    program_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("departments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     classification = Column(
         Enum(
             StudentClassification,
@@ -113,6 +117,7 @@ class Student(Base):
 
     user = relationship("User", back_populates="student")
     school_year = relationship("SchoolYear", foreign_keys=[school_year_id])
+    program_department = relationship("Department", foreign_keys=[program_id], lazy="selectin")
     submissions = relationship("DocumentSubmission", back_populates="student", cascade="all, delete-orphan")
 
 

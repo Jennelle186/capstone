@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from typing_extensions import Annotated
 
 from ..database import SessionDep
@@ -166,8 +166,12 @@ async def update_public_metadata(payload: PublicMetadataUpdate, current_user: St
 
         if isinstance(student_number, str) and student_number:
             student.student_number = student_number
-        if isinstance(program, str) and program:
-            student.program = program
+        if isinstance(program, str) and program and not student.program_id:
+            from ..models import Department
+            dept_result = await db.execute(select(Department).where(func.lower(Department.code) == program.lower()))
+            dept = dept_result.scalar_one_or_none()
+            if dept is not None:
+                student.program_id = dept.id
 
     await db.commit()
     await db.refresh(user)

@@ -99,8 +99,11 @@ async def read_me(current_user: CurrentUser, db: SessionDep) -> dict:
     user = await ensure_user_row(db, current_user)
     await db.refresh(user, ["student"])
     student_number: str | None = None
+    program_id: str | None = None
     if user.student is not None:
         student_number = user.student.student_number
+        if user.student.program_id is not None:
+            program_id = str(user.student.program_id)
     return {
         "userId": current_user.get("sub"),
         "sessionId": current_user.get("sid"),
@@ -109,6 +112,7 @@ async def read_me(current_user: CurrentUser, db: SessionDep) -> dict:
         "lastName": user.last_name,
         "middleName": user.middle_name,
         "student_number": student_number,
+        "program_id": program_id,
         "role": getattr(user.role, "value", user.role),
     }
 
