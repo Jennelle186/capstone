@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 
@@ -55,6 +57,7 @@ CurrentAdviser = Depends(require_roles(UserRole.ADVISER))
 
 @router.get("/api/adviser/submissions", response_model=list[AdviserSubmissionResponse])
 async def list_adviser_submissions(
+    school_year_id: Optional[str] = Query(None, description="Optional school year UUID. Defaults to active school year."),
     current_user: dict = CurrentAdviser,
     db: SessionDep = None,
 ) -> list[AdviserSubmissionResponse]:
@@ -73,31 +76,46 @@ async def list_adviser_submissions(
     if adviser is None:
         return []
 
-    active_school_year_id = await get_active_school_year_id(db)
-    if active_school_year_id is None:
+    target_school_year_id: uuid.UUID | None = None
+    if school_year_id is not None:
+        try:
+            target_school_year_id = uuid.UUID(school_year_id)
+        except ValueError:
+            return []
+    else:
+        target_school_year_id = await get_active_school_year_id(db)
+
+    if target_school_year_id is None:
         return []
 
     assignment_stmt = (
         select(ProgramAdviserAssignment)
         .where(
             ProgramAdviserAssignment.adviser_id == adviser.id,
-            ProgramAdviserAssignment.school_year_id == active_school_year_id,
+            ProgramAdviserAssignment.school_year_id == target_school_year_id,
         )
         .order_by(desc(ProgramAdviserAssignment.updated_at))
     )
-    assignment = (await db.execute(assignment_stmt)).scalars().first()
-    if assignment is None:
+    assignments = (await db.execute(assignment_stmt)).scalars().all()
+    if not assignments:
         return []
 
     program_id_to_code = await get_program_id_to_department_code_map(db)
-    dept_code = program_id_to_code.get(assignment.program_id)
-    if dept_code is None:
+    dept_codes = [
+        program_id_to_code.get(a.program_id)
+        for a in assignments
+    ]
+    dept_codes = [c for c in dept_codes if c is not None]
+    if not dept_codes:
         return []
 
-    dept_result = await db.execute(select(Department).where(func.lower(Department.code) == dept_code.lower()))
-    dept = dept_result.scalar_one_or_none()
-    if dept is None:
+    dept_result = await db.execute(
+        select(Department).where(func.lower(Department.code).in_([c.lower() for c in dept_codes]))
+    )
+    departments = dept_result.scalars().all()
+    if not departments:
         return []
+    dept_ids = [d.id for d in departments]
 
     stmt = (
         select(
@@ -114,7 +132,8 @@ async def list_adviser_submissions(
         .join(User, Student.user_id == User.id)
         .outerjoin(DocumentType, DocumentSubmission.document_type_id == DocumentType.id)
         .where(
-            Student.program_id == dept.id,
+            Student.program_id.in_(dept_ids),
+            Student.school_year_id == target_school_year_id,
             DocumentSubmission.status == SubmissionStatus.SUBMITTED,
         )
         .order_by(desc(DocumentSubmission.created_at))
