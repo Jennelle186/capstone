@@ -7,7 +7,7 @@ export interface DashboardStats {
   priorityLabel: string;
 }
 
-export type TeacherSubmissionStatus = "verified" | "flagged" | "needs-revision";
+export type TeacherSubmissionStatus = "submitted" | "verified" | "flagged" | "needs-revision";
 
 export interface RecentSubmission {
   id: string;
@@ -21,6 +21,11 @@ export interface RecentSubmission {
 }
 
 export const teacherStatusConfig: Record<TeacherSubmissionStatus, { label: string; badge: string; dot: string }> = {
+  submitted: {
+    label: "Pending Review",
+    badge: "bg-blue-100 text-blue-700",
+    dot: "bg-blue-500",
+  },
   verified: {
     label: "Verified",
     badge: "bg-emerald-100 text-emerald-700",

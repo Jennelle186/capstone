@@ -1,7 +1,8 @@
 import * as React from "react";
+import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router";
 import { type ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Eye, ExternalLink } from "lucide-react";
+import { ArrowUpDown, Eye, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -17,30 +18,38 @@ import DocumentDetailModal, {
 import {
   type RecentSubmission,
   teacherStatusConfig,
+  type TeacherSubmissionStatus,
 } from "@/types/teacher-dashboard";
+import { fetchWithClerkAuth } from "@/lib/api";
 
-const defaultSubmissions: RecentSubmission[] = [
-  {
-    id: "1", initials: "AM", name: "Arthur Morgan", studentId: "#44920",
-    documentType: "Financial Aid Statement", submittedAt: "2 hours ago",
-    avatarColor: "bg-emerald-100 text-emerald-700", status: "verified",
-  },
-  {
-    id: "2", initials: "SC", name: "Sadie Creek", studentId: "#44921",
-    documentType: "High School Transcript", submittedAt: "4 hours ago",
-    avatarColor: "bg-blue-100 text-blue-700", status: "needs-revision",
-  },
-  {
-    id: "3", initials: "JM", name: "John Marston", studentId: "#44922",
-    documentType: "Medical Waiver", submittedAt: "Yesterday",
-    avatarColor: "bg-red-100 text-red-700", status: "flagged",
-  },
-  {
-    id: "4", initials: "DV", name: "Dutch Van", studentId: "#44923",
-    documentType: "Language Proficiency", submittedAt: "Yesterday",
-    avatarColor: "bg-amber-100 text-amber-700", status: "verified",
-  },
+const AVATAR_COLORS = [
+  "bg-emerald-100 text-emerald-700",
+  "bg-blue-100 text-blue-700",
+  "bg-red-100 text-red-700",
+  "bg-amber-100 text-amber-700",
+  "bg-purple-100 text-purple-700",
+  "bg-pink-100 text-pink-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-orange-100 text-orange-700",
 ];
+
+function getAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+interface AdviserSubmission {
+  id: string;
+  student_name: string;
+  student_number: string | null;
+  initials: string;
+  document_type_name: string | null;
+  status: string;
+  created_at: string;
+}
 
 interface RecentSubmissionsTableProps {
   data?: RecentSubmission[];
@@ -62,12 +71,50 @@ function toDocumentDetailItem(submission: RecentSubmission): DocumentDetailItem 
 }
 
 export default function RecentSubmissionsTable({
-  data = defaultSubmissions,
+  data: propData,
 }: RecentSubmissionsTableProps) {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
   const navigate = useNavigate();
+  const [data, setData] = React.useState<RecentSubmission[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [selectedItem, setSelectedItem] = React.useState<DocumentDetailItem | null>(null);
   const [modalOpen, setModalOpen] = React.useState(false);
   const [updatingStatus, setUpdatingStatus] = React.useState<string>("");
+
+  React.useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetchWithClerkAuth("/api/adviser/submissions", token);
+        if (!res.ok) return;
+        const items = (await res.json()) as AdviserSubmission[];
+        if (!isMounted) return;
+        setData(
+          items.map((item) => ({
+            id: item.id,
+            initials: item.initials,
+            name: item.student_name,
+            studentId: item.student_number ?? item.id,
+            documentType: item.document_type_name ?? "Unclassified",
+            submittedAt: item.created_at,
+            avatarColor: getAvatarColor(item.student_name),
+            status: item.status as TeacherSubmissionStatus,
+          })),
+        );
+      } catch {
+        // ignore
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => { isMounted = false; };
+  }, [getToken, isLoaded, isSignedIn, propData]);
 
   const handleRowClick = React.useCallback(
     (row: RecentSubmission) => {
@@ -225,6 +272,12 @@ export default function RecentSubmissionsTable({
           </h4>
         </div>
         <div className="p-5">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-slate-400 text-sm">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading submissions...
+            </div>
+          ) : (
           <DataTable
             data={data}
             columns={columns}
@@ -261,6 +314,7 @@ export default function RecentSubmissionsTable({
               </div>
             )}
           />
+          )}
         </div>
       </div>
       <DocumentDetailModal
