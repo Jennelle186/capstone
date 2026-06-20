@@ -11,9 +11,11 @@ from ..models import DocumentTypeStatus, StudentClassification
 
 
 class StudentClassificationSchema(str, Enum):
-    REGULAR = "regular"
+    FRESHMAN = "freshman"
     TRANSFEREE = "transferee"
-    SHIFTEE = "shiftee"
+    SHIFTER = "shifter"
+    RETURNING = "returning"
+    CROSS_ENROLLEE = "cross_enrollee"
 
 
 class DocumentTypeResponse(BaseModel):

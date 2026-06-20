@@ -18,9 +18,11 @@ import { Badge } from "@/components/ui/badge";
 import type { DocumentTypeFormState, StudentClassification } from "@/types/documentType";
 
 const CLASSIFICATION_OPTIONS: { value: StudentClassification; label: string }[] = [
-    { value: "regular", label: "Regular Students" },
+    { value: "freshman", label: "Freshmen" },
     { value: "transferee", label: "Transferees" },
-    { value: "shiftee", label: "Shiftees" },
+    { value: "shifter", label: "Shifters" },
+    { value: "returning", label: "Returning / Continuing" },
+    { value: "cross_enrollee", label: "Cross-Enrolees" },
 ];
 
 interface DocumentTypeFormProps {

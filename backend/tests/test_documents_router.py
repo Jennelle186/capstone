@@ -66,7 +66,7 @@ def mock_student(mock_user):
         id=uuid4(),
         user_id=mock_user.id,
         school_year_id=uuid4(),
-        classification=SimpleNamespace(value="regular"),
+        classification=SimpleNamespace(value="freshman"),
         student_number="20260001",
     )
 

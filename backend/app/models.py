@@ -22,9 +22,11 @@ class SchoolYearStatus(str, enum.Enum):
 
 
 class StudentClassification(str, enum.Enum):
-    REGULAR = "regular"
+    FRESHMAN = "freshman"
     TRANSFEREE = "transferee"
-    SHIFTEE = "shiftee"
+    SHIFTER = "shifter"
+    RETURNING = "returning"
+    CROSS_ENROLLEE = "cross_enrollee"
 
 
 class AdviserInvitationStatus(str, enum.Enum):
@@ -109,7 +111,7 @@ class Student(Base):
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=True,
-        default=StudentClassification.REGULAR,
+        default=StudentClassification.FRESHMAN,
     )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

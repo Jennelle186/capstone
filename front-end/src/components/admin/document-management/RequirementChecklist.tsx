@@ -31,9 +31,11 @@ const CODE_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
 };
 
 const CLASSIFICATION_LABELS: Record<StudentClassification, string> = {
-    regular: "Regular",
+    freshman: "Freshman",
     transferee: "Transferee",
-    shiftee: "Shiftee",
+    shifter: "Shifter",
+    returning: "Returning / Continuing",
+    cross_enrollee: "Cross-Enrolee",
 };
 
 function getDocumentIcon(code: string) {

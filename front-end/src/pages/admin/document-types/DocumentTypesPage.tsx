@@ -46,7 +46,7 @@ function createDefaultFormState(): DocumentTypeFormState {
         description: "",
         classifierDescription: "",
         keywords: [],
-        applicableClassifications: ["regular"],
+        applicableClassifications: ["freshman"],
         isActive: true,
     };
 }
@@ -174,7 +174,7 @@ export default function DocumentTypesPage() {
             description: item.description,
             classifierDescription: item.classifierDescription,
             keywords: [...item.keywords],
-            applicableClassifications: [...(item.applicableClassifications ?? ["regular"])],
+            applicableClassifications: [...(item.applicableClassifications ?? ["freshman"])],
             isActive: !isArchived(item),
         });
         setKeywordInput("");
