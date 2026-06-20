@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useUser } from "@clerk/clerk-react";
+import { useUser, useReverification } from "@clerk/clerk-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { KeyRound, Loader2 } from "lucide-react";
@@ -31,12 +31,12 @@ import {
 
 export default function PasswordSection() {
   const { user } = useUser();
+  const hasPassword = user?.passwordEnabled ?? true;
 
   const [open, setOpen] = React.useState(false);
   const form = useForm<ChangePasswordFormData>({
     resolver: zodResolver(changePasswordSchema),
     defaultValues: {
-      currentPassword: "",
       newPassword: "",
       confirmPassword: "",
     },
@@ -46,15 +46,20 @@ export default function PasswordSection() {
     if (open) form.reset();
   }, [open, form]);
 
-  const onSubmit = form.handleSubmit(async (values) => {
-    try {
+  const enhancedUpdatePassword = useReverification(
+    async (newPassword: string) => {
       await user!.updatePassword({
-        currentPassword: values.currentPassword,
-        newPassword: values.newPassword,
+        newPassword,
         signOutOfOtherSessions: true,
       });
+    },
+  );
+
+  const onSubmit = form.handleSubmit(async (values) => {
+    setOpen(false);
+    try {
+      await enhancedUpdatePassword(values.newPassword);
       toast.success("Password updated.");
-      setOpen(false);
       form.reset();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to update password.";
@@ -71,7 +76,7 @@ export default function PasswordSection() {
           </div>
           <div>
             <p className="text-sm font-semibold text-slate-900">Password</p>
-            <p className="text-xs text-slate-500">Last changed via Clerk</p>
+            <p className="text-xs text-slate-500">Managed by Clerk</p>
           </div>
         </div>
         <Button
@@ -80,33 +85,22 @@ export default function PasswordSection() {
           className="rounded-xl"
           onClick={() => setOpen(true)}
         >
-          Change Password
+          {hasPassword ? "Change Password" : "Set Password"}
         </Button>
       </section>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="rounded-2xl max-w-md">
           <DialogHeader>
-            <DialogTitle>Change Password</DialogTitle>
+            <DialogTitle>{hasPassword ? "Change Password" : "Set Password"}</DialogTitle>
             <DialogDescription>
-              Enter your current password and a new password.
+              {hasPassword
+                ? "Enter your new password below. You may be asked to verify your identity."
+                : "Set a password for your account."}
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
             <form id="change-password-form" onSubmit={onSubmit} className="space-y-4 py-2">
-              <FormField
-                control={form.control}
-                name="currentPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Current Password</FormLabel>
-                    <FormControl>
-                      <PasswordInput {...field} className="h-11 rounded-xl" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
               <FormField
                 control={form.control}
                 name="newPassword"

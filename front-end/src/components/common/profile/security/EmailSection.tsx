@@ -90,6 +90,7 @@ export default function EmailSection() {
       const emailRes = user!.emailAddresses.find((e) => e.id === pendingEmailId);
       if (!emailRes) throw new Error("Email not found");
       await emailRes.attemptVerification({ code: values.code });
+      await user?.reload();
       toast.success("Email verified.");
       setOpen(false);
     } catch (err: unknown) {
@@ -113,6 +114,7 @@ export default function EmailSection() {
     }
     try {
       await enhancedDestroy(emailId);
+      await user?.reload();
       toast.success("Email removed.");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to remove email.";
@@ -123,6 +125,7 @@ export default function EmailSection() {
   const handleSetPrimary = async (emailId: string) => {
     try {
       await user!.update({ primaryEmailAddressId: emailId });
+      await user?.reload();
       toast.success("Primary email updated.");
     } catch {
       toast.error("Failed to set primary email.");

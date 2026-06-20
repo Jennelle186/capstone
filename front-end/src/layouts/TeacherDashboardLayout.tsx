@@ -5,6 +5,7 @@ import TeacherHeader from "@/components/teacher/TeacherHeader";
 import TeacherSidebar from "@/components/teacher/TeacherSidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function TeacherDashboardLayout() {
   const location = useLocation();
@@ -30,6 +31,7 @@ export default function TeacherDashboardLayout() {
               </AnimatePresence>
             </div>
           </main>
+          <Toaster />
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

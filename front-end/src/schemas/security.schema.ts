@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-const currentPasswordSchema = z.string().min(1, { message: "Enter your current password" });
-
 const newPasswordSchema = z
   .string()
   .min(8, { message: "Minimum 8 characters" })
@@ -20,7 +18,6 @@ const newPasswordSchema = z
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: currentPasswordSchema,
     newPassword: newPasswordSchema,
     confirmPassword: z.string(),
   })
