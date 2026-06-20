@@ -1,10 +1,9 @@
 export interface DashboardStats {
-  pendingVerifications: number;
-  newToday: number;
   totalStudents: number;
-  activeLabel: string;
-  actionRequired: number;
-  priorityLabel: string;
+  pendingReviews: number;
+  submittedToday: number;
+  verifiedCount: number;
+  progressPercent: number;
 }
 
 export type TeacherSubmissionStatus = "submitted" | "verified" | "flagged" | "needs-revision";
@@ -45,12 +44,4 @@ export const teacherStatusConfig: Record<TeacherSubmissionStatus, { label: strin
 
 export interface QuickAnalyticsData {
   reviewProgress: number;
-  weeklyReport: {
-    label: string;
-    timestamp: string;
-  };
-  activityLog: {
-    label: string;
-    description: string;
-  };
 }

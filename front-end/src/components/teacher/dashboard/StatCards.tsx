@@ -1,5 +1,5 @@
 import { motion, type Variants } from "framer-motion";
-import { Clock, Users, AlertTriangle } from "lucide-react";
+import { Users, Clock, FileText, CheckCircle } from "lucide-react";
 import type { DashboardStats } from "@/types/teacher-dashboard";
 
 const containerVariants: Variants = {
@@ -20,78 +20,97 @@ const itemVariants: Variants = {
 };
 
 const defaultStats: DashboardStats = {
-  pendingVerifications: 24,
-  newToday: 4,
-  totalStudents: 1402,
-  activeLabel: "Active",
-  actionRequired: 8,
-  priorityLabel: "High Priority",
+  totalStudents: 0,
+  pendingReviews: 0,
+  submittedToday: 0,
+  verifiedCount: 0,
+  progressPercent: 0,
 };
 
 interface StatCardsProps {
   stats?: DashboardStats;
 }
 
-export default function StatCards({ stats = defaultStats }: StatCardsProps) {
-  const cards = [
-    {
-      label: "Pending Verifications",
-      value: stats.pendingVerifications,
-      badge: `+${stats.newToday} today`,
-      badgeClass: "text-emerald-700 bg-emerald-100",
-      icon: Clock,
-      iconBg: "bg-emerald-100",
-      valueClass: "text-emerald-600",
-    },
-    {
-      label: "Total Students",
-      value: stats.totalStudents,
-      badge: stats.activeLabel,
-      badgeClass: "text-slate-500 bg-slate-100",
-      icon: Users,
-      iconBg: "bg-blue-100",
-      valueClass: "text-slate-900",
-    },
-    {
-      label: "Action Required",
-      value: String(stats.actionRequired).padStart(2, "0"),
-      badge: stats.priorityLabel,
-      badgeClass: "text-red-700 bg-red-100",
-      icon: AlertTriangle,
-      iconBg: "bg-red-100",
-      valueClass: "text-red-600",
-    },
-  ];
+const cards = [
+  {
+    key: "totalStudents" as const,
+    label: "Total Advisees",
+    icon: Users,
+    iconBg: "bg-blue-100",
+    iconColor: "text-blue-600",
+    subtitle: "This semester",
+    badge: null as null | ((v: number) => { text: string; className: string } | null),
+  },
+  {
+    key: "pendingReviews" as const,
+    label: "Pending Reviews",
+    icon: Clock,
+    iconBg: "bg-amber-100",
+    iconColor: "text-amber-600",
+    subtitle: null,
+    badge: (v: number) => v > 0
+      ? { text: "Action needed", className: "bg-amber-50 text-amber-700 border border-amber-200" }
+      : { text: "Idle", className: "bg-slate-100 text-slate-500" },
+  },
+  {
+    key: "submittedToday" as const,
+    label: "Submitted Today",
+    icon: FileText,
+    iconBg: "bg-emerald-100",
+    iconColor: "text-emerald-600",
+    subtitle: null,
+    badge: (v: number) => v > 0
+      ? { text: "New files", className: "bg-emerald-50 text-emerald-700 border border-emerald-200" }
+      : { text: "None yet", className: "bg-slate-100 text-slate-500" },
+  },
+  {
+    key: "verifiedCount" as const,
+    label: "Verified Docs",
+    icon: CheckCircle,
+    iconBg: "bg-emerald-100",
+    iconColor: "text-emerald-600",
+    subtitle: "Verified & Completed",
+    badge: null,
+  },
+];
 
+export default function StatCards({ stats = defaultStats }: StatCardsProps) {
   return (
-    <motion.section
+    <motion.div
       variants={containerVariants}
       initial="hidden"
       animate="show"
-      className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3"
+      className="grid grid-cols-1 md:grid-cols-4 gap-6"
     >
-      {cards.map((card) => (
-        <motion.div
-          key={card.label}
-          variants={itemVariants}
-          className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
-        >
-          <div className={`absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-xl ${card.iconBg}`}>
-            <card.icon className={`h-6 w-6 ${card.valueClass}`} />
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            {card.label}
-          </p>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className={`text-4xl font-bold tracking-tight ${card.valueClass}`}>
-              {card.value}
-            </h3>
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${card.badgeClass}`}>
-              {card.badge}
-            </span>
-          </div>
-        </motion.div>
-      ))}
-    </motion.section>
+      {cards.map((card) => {
+        const value = stats[card.key];
+        const badgeData = card.badge?.(value);
+
+        return (
+          <motion.div
+            key={card.key}
+            variants={itemVariants}
+            className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+          >
+            <div className={`absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full ${card.iconBg}`}>
+              <card.icon className={`h-6 w-6 ${card.iconColor}`} />
+            </div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              {card.label}
+            </p>
+            <p className="text-2xl font-bold text-slate-900 leading-tight mt-1">
+              {value}
+            </p>
+            {badgeData ? (
+              <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full mt-1.5 ${badgeData.className}`}>
+                {badgeData.text}
+              </span>
+            ) : card.subtitle ? (
+              <p className="text-[10px] text-slate-500 mt-1.5">{card.subtitle}</p>
+            ) : null}
+          </motion.div>
+        );
+      })}
+    </motion.div>
   );
 }

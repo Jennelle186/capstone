@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Building2, Calendar } from "lucide-react";
+import { Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AdviserProfileResponse } from "@/types/adviser";
 
@@ -14,13 +14,26 @@ function buildFullName(profile: AdviserProfileResponse): string {
     .join(" ");
 }
 
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function WelcomeSection({ profile, isLoading }: WelcomeSectionProps) {
   if (isLoading) {
     return (
-      <section className="space-y-2">
-        <Skeleton className="h-9 w-72" />
-        <Skeleton className="h-5 w-96" />
-      </section>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-5 w-96" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-7 w-36 rounded-lg" />
+          <Skeleton className="h-7 w-36 rounded-lg" />
+        </div>
+      </div>
     );
   }
 
@@ -29,35 +42,34 @@ export default function WelcomeSection({ profile, isLoading }: WelcomeSectionPro
   const fullName = buildFullName(profile);
 
   return (
-    <motion.section
+    <motion.div
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
+      className="flex flex-col md:flex-row md:items-center md:justify-between gap-4"
     >
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-        Dashboard Overview
-      </h2>
-      <p className="mt-1 text-base text-slate-500">
-        Welcome back,{" "}
-        <span className="font-semibold text-slate-900">{fullName || "Adviser"}</span>.
-        You have{" "}
-        <span className="font-semibold text-emerald-600">12 pending verifications</span>{" "}
-        to complete today.
-      </p>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          {getGreeting()}, {fullName || "Adviser"}
+        </h1>
+        <p className="text-sm text-slate-500 mt-1">
+          College of Computer Studies &mdash; Here&apos;s what&rsquo;s happening with your advisees today.
+        </p>
+      </div>
+      <div className="flex gap-2">
         {profile.department && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-            <Building2 className="h-3.5 w-3.5" />
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             {profile.department}
           </span>
         )}
         {profile.school_year && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 border border-slate-200 shadow-sm">
             <Calendar className="h-3.5 w-3.5" />
             S.Y. {profile.school_year}
           </span>
         )}
       </div>
-    </motion.section>
+    </motion.div>
   );
 }
