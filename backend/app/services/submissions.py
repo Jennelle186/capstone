@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
+from fastapi import HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import attributes
 
@@ -12,6 +14,7 @@ from ..models import (
     DocumentType,
     ExtractionSchema,
     ExtractionSchemaStatus,
+    Notification,
     SchoolYearRequirement,
     Student,
     SubmissionStatus,
@@ -261,4 +264,119 @@ async def save_submission_extraction_field(
         "value": value,
         "needs_review": False,
         "confidence": 1.0,
+    }
+
+
+async def verify_submission(
+    db: SessionDep,
+    submission_id_str: str,
+    adviser: Adviser,
+) -> dict | None:
+    """Verify a document submission. Sets status to VERIFIED, clears rejection
+    state, and creates a notification for the student."""
+    try:
+        sub_uuid = uuid.UUID(submission_id_str)
+    except ValueError:
+        return None
+
+    submission = await db.get(DocumentSubmission, sub_uuid)
+    if submission is None:
+        return None
+
+    student = await db.get(Student, submission.student_id)
+    if student is None:
+        return None
+
+    if student.school_year_id is None:
+        return None
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        return None
+
+    now = datetime.now(timezone.utc)
+
+    submission.status = SubmissionStatus.VERIFIED
+    submission.rejection_reason = None
+    submission.flagged_at = None
+    submission.flagged_by = None
+    submission.verified_at = now
+    submission.verified_by = adviser.user_id
+
+    notification = Notification(
+        recipient_id=student.user_id,
+        title="Document Approved",
+        message=f"Your document '{submission.original_filename}' has been reviewed and verified.",
+        notification_type="DOCUMENT_VERIFIED",
+        reference_id=submission.id,
+    )
+    db.add(notification)
+
+    await db.commit()
+
+    return {
+        "status": "verified",
+        "submission_id": str(submission.id),
+    }
+
+
+async def flag_submission(
+    db: SessionDep,
+    submission_id_str: str,
+    adviser: Adviser,
+    reason: str,
+) -> dict | None:
+    """Flag a document submission. Sets status to FLAGGED, stores the rejection
+    reason, and creates a notification for the student."""
+    clean_reason = reason.strip()
+    if not clean_reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A descriptive reason is required to flag a document.",
+        )
+
+    try:
+        sub_uuid = uuid.UUID(submission_id_str)
+    except ValueError:
+        return None
+
+    submission = await db.get(DocumentSubmission, sub_uuid)
+    if submission is None:
+        return None
+
+    student = await db.get(Student, submission.student_id)
+    if student is None:
+        return None
+
+    if student.school_year_id is None:
+        return None
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        return None
+
+    now = datetime.now(timezone.utc)
+
+    submission.status = SubmissionStatus.FLAGGED
+    submission.rejection_reason = clean_reason
+    submission.flagged_at = now
+    submission.flagged_by = adviser.user_id
+    submission.verified_at = None
+    submission.verified_by = None
+
+    notification = Notification(
+        recipient_id=student.user_id,
+        title="Action Required: Document Flagged",
+        message=f"Your document '{submission.original_filename}' needs revision: {clean_reason}",
+        notification_type="DOCUMENT_FLAGGED",
+        reference_id=submission.id,
+    )
+    db.add(notification)
+
+    await db.commit()
+
+    return {
+        "status": "flagged",
+        "submission_id": str(submission.id),
+        "reason": clean_reason,
     }

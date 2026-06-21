@@ -332,6 +332,21 @@ export function useDocumentReviewDesk() {
       if (!currentSubmission) return;
       try {
         setActioning(true);
+
+        if (status === "verified") {
+          const token = await getTokenRef.current();
+          if (!token) return;
+          const res = await fetchWithClerkAuth(
+            `/api/adviser/submissions/${currentSubmission.id}/verify`,
+            token,
+            { method: "PATCH" },
+          );
+          if (!res.ok) {
+            toast.error("Failed to verify document on server", { position: "top-right" });
+            return;
+          }
+        }
+
         setSubmissionsList((prev) => {
           const next = [...prev];
           next[currentIndex] = { ...next[currentIndex], status };
@@ -362,22 +377,44 @@ export function useDocumentReviewDesk() {
         setActioning(false);
       }
     },
-    [currentSubmission, currentIndex, submissionsList.length, autoAdvance],
+    [currentSubmission, currentIndex, submissionsList.length, autoAdvance, getTokenRef],
   );
 
-  const handleSubmitFlag = useCallback(() => {
+  const handleSubmitFlag = useCallback(async () => {
     if (!currentSubmission) return;
     const reason = flagReasons[currentSubmission.id];
     if (!reason || !reason.trim()) {
       toast.error("Please provide a reason for flagging", { position: "top-right" });
       return;
     }
-    setSubmittedFlags((prev) => ({ ...prev, [currentSubmission.id]: true }));
-    toast.success(
-      `${currentSubmission.document_type} flagged: ${reason}`,
-      { position: "top-right" },
-    );
-  }, [currentSubmission, flagReasons]);
+    try {
+      setActioning(true);
+      const token = await getTokenRef.current();
+      if (!token) return;
+      const res = await fetchWithClerkAuth(
+        `/api/adviser/submissions/${currentSubmission.id}/flag`,
+        token,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        },
+      );
+      if (!res.ok) {
+        toast.error("Failed to flag document on server", { position: "top-right" });
+        return;
+      }
+      setSubmittedFlags((prev) => ({ ...prev, [currentSubmission.id]: true }));
+      toast.success(
+        `${currentSubmission.document_type} flagged: ${reason.trim()}`,
+        { position: "top-right" },
+      );
+    } catch {
+      toast.error("Failed to flag document", { position: "top-right" });
+    } finally {
+      setActioning(false);
+    }
+  }, [currentSubmission, flagReasons, getTokenRef]);
 
   const handleSaveField = useCallback(
     async (fieldId: string, value: string) => {
@@ -406,7 +443,8 @@ export function useDocumentReviewDesk() {
         setExtractionEdits((prev) => {
           const currentEdits = prev[currentSubmission.id];
           if (!currentEdits) return prev;
-          const { [fieldId]: _, ...rest } = currentEdits;
+          const rest = { ...currentEdits };
+          delete rest[fieldId];
           return { ...prev, [currentSubmission.id]: rest };
         });
 

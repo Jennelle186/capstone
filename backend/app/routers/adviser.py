@@ -13,10 +13,12 @@ from ..services.analytics import get_analytics as svc_get_analytics, get_archive
 from ..services.school_years import list_school_years as svc_list_school_years
 from ..services.students import list_students as svc_list_students, get_student_detail as svc_get_student_detail
 from ..services.submissions import (
+    flag_submission as svc_flag_submission,
     list_submissions as svc_list_submissions,
     get_submission_download_url as svc_get_download_url,
     get_submission_extractions as svc_get_extractions,
     save_submission_extraction_field as svc_save_extraction_field,
+    verify_submission as svc_verify_submission,
 )
 
 router = APIRouter(tags=["adviser"])
@@ -299,6 +301,60 @@ async def get_adviser_analytics(
         return AdviserAnalyticsResponse(totalStudents=0, pendingReviews=0, submittedToday=0, verifiedCount=0, progressPercent=0)
     data = await svc_get_analytics(db, adviser)
     return AdviserAnalyticsResponse(**data)
+
+
+# ─── PATCH /api/adviser/submissions/{submission_id}/verify ──────────────────
+
+
+class VerifySubmissionResponse(BaseModel):
+    status: str
+    submission_id: str
+
+
+@router.patch("/api/adviser/submissions/{submission_id}/verify", response_model=VerifySubmissionResponse)
+async def verify_adviser_submission(
+    submission_id: str,
+    current_user: dict = CurrentAdviser,
+    db: SessionDep = None,
+) -> VerifySubmissionResponse:
+    """Mark a submission as verified."""
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(404, "Adviser not found.")
+    result = await svc_verify_submission(db, submission_id, adviser)
+    if result is None:
+        raise HTTPException(404, "Submission not found.")
+    return VerifySubmissionResponse(**result)
+
+
+# ─── PATCH /api/adviser/submissions/{submission_id}/flag ────────────────────
+
+
+class FlagSubmissionRequest(BaseModel):
+    reason: str
+
+
+class FlagSubmissionResponse(BaseModel):
+    status: str
+    submission_id: str
+    reason: str
+
+
+@router.patch("/api/adviser/submissions/{submission_id}/flag", response_model=FlagSubmissionResponse)
+async def flag_adviser_submission(
+    submission_id: str,
+    body: FlagSubmissionRequest,
+    current_user: dict = CurrentAdviser,
+    db: SessionDep = None,
+) -> FlagSubmissionResponse:
+    """Flag a submission with a reason."""
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(404, "Adviser not found.")
+    result = await svc_flag_submission(db, submission_id, adviser, body.reason)
+    if result is None:
+        raise HTTPException(404, "Submission not found.")
+    return FlagSubmissionResponse(**result)
 
 
 # ─── GET /api/adviser/archived ──────────────────────────────────────────────
