@@ -49,7 +49,7 @@ const updateAdviserProfile: ProfileSettingsConfig["updateProfile"] = async (toke
   };
 };
 
-export default function TeacherAccountSettings() {
+export default function AdviserAccountSettings() {
   return (
     <ProfileSettings
       role="adviser"
@@ -57,19 +57,19 @@ export default function TeacherAccountSettings() {
       updateProfile={updateAdviserProfile}
       readOnlyFields={(profile) => [
         {
-          id: "teacher-email",
+          id: "adviser-email",
           label: "Email Address",
           value: profile.email as string | null | undefined,
           icon: Mail,
         },
         {
-          id: "teacher-department",
+          id: "adviser-department",
           label: "Department",
           value: profile.department as string | null | undefined,
           icon: Building2,
         },
         {
-          id: "teacher-school-year",
+          id: "adviser-school-year",
           label: "School Year",
           value: profile.school_year as string | null | undefined,
         },

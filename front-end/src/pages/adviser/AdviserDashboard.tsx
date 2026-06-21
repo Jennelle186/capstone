@@ -1,10 +1,10 @@
 import { useAdviserProfile } from "@/hooks/useAdviserProfile";
-import WelcomeSection from "@/components/teacher/dashboard/WelcomeSection";
-import StatCards from "@/components/teacher/dashboard/StatCards";
-import RecentSubmissionsTable from "@/components/teacher/dashboard/RecentSubmissionsTable";
-import QuickAnalytics from "@/components/teacher/dashboard/QuickAnalytics";
+import WelcomeSection from "@/components/adviser/dashboard/WelcomeSection";
+import StatCards from "@/components/adviser/dashboard/StatCards";
+import RecentSubmissionsTable from "@/components/adviser/dashboard/RecentSubmissionsTable";
+import QuickAnalytics from "@/components/adviser/dashboard/QuickAnalytics";
 
-export default function TeacherDashboard() {
+export default function AdviserDashboard() {
   const { profile, isLoading } = useAdviserProfile();
 
   return (

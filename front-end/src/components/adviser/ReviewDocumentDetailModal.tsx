@@ -1,51 +1,80 @@
 "use client";
 
 import * as React from "react";
+import { useAuth } from "@clerk/clerk-react";
 import ReviewDocumentDetailModal from "@/components/common/document-detail/ReviewDocumentDetailModal";
 import { fetchWithClerkAuth } from "@/lib/api";
-import type { SubmissionItem, DownloadUrlResponse } from "@/types/submission";
-import type { ExtractionItemResponse } from "@/types/extraction";
 import type {
   DocumentDetailItem,
   ExtractionField,
   ExtractionSection,
 } from "@/components/common/document-detail/DocumentDetailModal";
 
+interface SubmissionBrief {
+  id: string;
+  student_id: string;
+  student_name: string;
+  document_type: string;
+  status: string;
+  submitted_at: string;
+}
+
+interface ExtractionFieldResponse {
+  id: string;
+  key: string;
+  description: string;
+  value: string;
+  confidence: number;
+  needs_review: boolean;
+  section_title: string | null;
+}
+
+interface ExtractionItemResponse {
+  submission_id: string;
+  fields: ExtractionFieldResponse[];
+}
+
 interface Props {
-  submissions: SubmissionItem[];
+  submissions: SubmissionBrief[];
   currentIndex: number;
   onIndexChange: (index: number) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  getToken: () => Promise<string | null>;
+  footer?: React.ReactNode;
 }
 
 const statusConfig: Record<string, { label: string; badge: string; dot: string }> = {
-  ready: {
-    label: "Ready",
+  submitted: {
+    label: "Pending Review",
+    badge: "bg-blue-100 text-blue-700",
+    dot: "bg-blue-500",
+  },
+  verified: {
+    label: "Verified",
     badge: "bg-emerald-100 text-emerald-700",
     dot: "bg-emerald-500",
   },
-  "needs-review": {
-    label: "Needs Review",
+  flagged: {
+    label: "Flagged",
+    badge: "bg-rose-100 text-rose-700",
+    dot: "bg-rose-500",
+  },
+  "needs-revision": {
+    label: "Needs Revision",
     badge: "bg-amber-100 text-amber-700",
     dot: "bg-amber-500",
   },
-  pending: {
-    label: "Pending",
-    badge: "bg-slate-100 text-slate-600",
-    dot: "bg-slate-400",
-  },
 };
 
-export default function StudentReviewDocumentDetailModal({
+export default function TeacherReviewDocumentDetailModal({
   submissions,
   currentIndex,
   onIndexChange,
   open,
   onOpenChange,
-  getToken,
+  footer,
 }: Props) {
+  const { getToken } = useAuth();
   const getTokenRef = React.useRef(getToken);
   React.useEffect(() => {
     getTokenRef.current = getToken;
@@ -62,14 +91,28 @@ export default function StudentReviewDocumentDetailModal({
     const fetchAll = async () => {
       const token = await getTokenRef.current();
       if (!token) return;
-      const extRes = await fetchWithClerkAuth("/api/me/documents/extractions", token);
-      if (cancelled || !extRes.ok) return;
-      const allExtractions = (await extRes.json()) as ExtractionItemResponse[];
+
+      const results = await Promise.allSettled(
+        submissions.map(async (sub) => {
+          const res = await fetchWithClerkAuth(
+            `/api/adviser/submissions/${sub.id}/extractions`,
+            token,
+          );
+          if (!res.ok) return null;
+          const data = (await res.json()) as ExtractionItemResponse | null;
+          return data;
+        }),
+      );
+
+      if (cancelled) return;
 
       const map: Record<string, ExtractionSection[]> = {};
-      for (const ext of allExtractions) {
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status !== "fulfilled" || !result.value) continue;
+        const item = result.value;
         const grouped = new Map<string, ExtractionField[]>();
-        for (const f of ext.fields) {
+        for (const f of item.fields) {
           const title = f.section_title ?? "Extracted Fields";
           if (!grouped.has(title)) grouped.set(title, []);
           grouped.get(title)!.push({
@@ -80,7 +123,7 @@ export default function StudentReviewDocumentDetailModal({
             warning: f.needs_review || f.confidence < 0.7,
           });
         }
-        map[ext.submission_id] = Array.from(grouped.entries()).map(
+        map[item.submission_id] = Array.from(grouped.entries()).map(
           ([title, fields]) => ({ title, fields }),
         );
       }
@@ -91,24 +134,24 @@ export default function StudentReviewDocumentDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [open, getToken]);
+  }, [open, getToken, submissions]);
 
   const items: DocumentDetailItem[] = React.useMemo(
     () =>
-      submissions.map((submission) => {
-        const config =
-          statusConfig[submission.status] ?? statusConfig.pending;
+      submissions.map((sub) => {
+        const config = statusConfig[sub.status] ?? statusConfig.submitted;
         return {
-          id: submission.id,
-          title: submission.fileName,
-          subtitle: `Type: ${submission.documentType}`,
-          metaLines: [],
-          initials: submission.fileName.charAt(0).toUpperCase(),
+          id: sub.id,
+          title: sub.document_type,
+          subtitle: sub.student_name,
+          metaLines: [`Submitted ${sub.submitted_at}`],
+          initials: sub.student_name.charAt(0).toUpperCase(),
           avatarColor: "bg-primary/10 text-primary",
           statusLabel: config.label,
           statusBadge: config.badge,
           statusDot: config.dot,
-          extractionSections: sectionsBySubmissionId[submission.id] ?? [],
+          extractionSections: sectionsBySubmissionId[sub.id] ?? [],
+          studentId: sub.student_id,
         };
       }),
     [submissions, sectionsBySubmissionId],
@@ -125,25 +168,14 @@ export default function StudentReviewDocumentDetailModal({
         const token = await getTokenRef.current();
         if (!token) return undefined;
         const res = await fetchWithClerkAuth(
-          `/api/me/documents/${id}/download-url`,
+          `/api/adviser/submissions/${id}/download-url`,
           token,
         );
         if (!res.ok) return undefined;
-        const data = (await res.json()) as DownloadUrlResponse;
-        return data.url;
+        const data = await res.json();
+        return data.url as string;
       }}
-      footer={
-        <div className="w-full text-center py-2 px-4 bg-slate-50 border border-slate-100 rounded-xl">
-          <p className="text-xs text-slate-500 leading-relaxed">
-            This is a read-only preview of your auto-extracted details. You can
-            complete the overall submission using the main{" "}
-            <strong className="font-semibold text-slate-700">
-              Submit All Documents
-            </strong>{" "}
-            option on the dashboard.
-          </p>
-        </div>
-      }
+      footer={footer}
     />
   );
 }

@@ -15,6 +15,15 @@ export interface ExtractionField {
   verified: boolean;
   confidence?: string;
   warning?: boolean;
+  _raw?: {
+    id: string;
+    key: string;
+    type: string;
+    required: boolean;
+    ui_component: string | null;
+    options: { value: string; label: string }[] | null;
+    confidence: number;
+  };
 }
 
 export interface ExtractionSection {

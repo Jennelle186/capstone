@@ -1,4 +1,4 @@
-import { LayoutDashboard, LogOut, UserCircle2, Users } from "lucide-react";
+import { BarChart3, History, LayoutDashboard, LogOut, UserCircle2, Users } from "lucide-react";
 import CommonAppSidebar from "@/components/common/AppSidebar";
 import LogoutConfirmDialog from "@/components/common/LogoutConfirmDialog";
 import type { SidebarGroupConfig } from "@/components/common/AppSidebar";
@@ -6,7 +6,7 @@ import { useClerk, useUser } from "@clerk/clerk-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-export default function TeacherSidebar() {
+export default function AdviserSidebar() {
   const { signOut } = useClerk();
   const { isLoaded, user } = useUser();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
@@ -14,13 +14,13 @@ export default function TeacherSidebar() {
 
   // Display info comes from Clerk (signed-in user). This is UI-only and does not affect RBAC enforcement.
   const userName = isLoaded
-    ? (user?.fullName ?? user?.username ?? user?.firstName ?? "Teacher")
-    : "Teacher";
+    ? (user?.fullName ?? user?.username ?? user?.firstName ?? "Adviser")
+    : "Adviser";
 
   // Use email as fallback for avatar initials if name is not available.
   const userEmail = isLoaded
-    ? (user?.primaryEmailAddress?.emailAddress ?? "teacher@example.com")
-    : "teacher@example.com";
+    ? (user?.primaryEmailAddress?.emailAddress ?? "adviser@example.com")
+    : "adviser@example.com";
 
   const initials = (() => {
     // Fallback initials for the avatar.
@@ -28,8 +28,8 @@ export default function TeacherSidebar() {
     const parts = source.split(/\s+/).filter(Boolean);
     if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
-    if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? "T";
-    return "T";
+    if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? "A";
+    return "A";
   })();
 
   const handleLogoutConfirm = async () => {
@@ -49,7 +49,7 @@ export default function TeacherSidebar() {
     }
   };
 
-  const teacherGroups: SidebarGroupConfig[] = useMemo(
+  const adviserGroups: SidebarGroupConfig[] = useMemo(
     () => [
       {
         label: "Dashboards",
@@ -61,6 +61,8 @@ export default function TeacherSidebar() {
         label: "Management",
         items: [
           { title: "My Advisees", icon: Users, url: "/adviser/students" },
+          { title: "Analytics", icon: BarChart3, url: "/adviser/analytics" },
+          { title: "Archived Sessions", icon: History, url: "/adviser/archived" },
           { title: "Profile Settings", icon: UserCircle2, url: "/adviser/profile" },
 
           {
@@ -81,9 +83,9 @@ export default function TeacherSidebar() {
   return (
     <>
       <CommonAppSidebar
-        portalLabel="Teacher Portal"
+        portalLabel="Adviser Portal"
         portalTitle="Document Management System"
-        groups={teacherGroups}
+        groups={adviserGroups}
         userName={userName}
         userEmail={userEmail}
         userAvatarSrc={user?.imageUrl}

@@ -11,12 +11,15 @@ import ProfileSettings from "./pages/students/ProfileSettings";
 import ExtractionDetailPage from "./pages/students/ExtractionDetailPage";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
-import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
+import AdviserDashboardLayout from "./layouts/AdviserDashboardLayout";
 import AdminLayout from "./layouts/AdminLayout";
-import TeacherDashboard from "./pages/teachers/TeacherDashboard";
-import TeacherProfilePage from "./pages/teachers/TeacherProfilePage";
-import AdviseesPlaceholder from "./pages/teachers/AdviseesPlaceholder";
-import StudentDetailPage from "./pages/teachers/StudentDetailPage";
+import AdviserDashboard from "./pages/adviser/AdviserDashboard";
+import AdviserProfilePage from "./pages/adviser/AdviserProfilePage";
+import AdviseesPage from "./pages/adviser/AdviseesPage";
+import StudentDetailPage from "./pages/adviser/StudentDetailPage";
+import ArchivedPage from "./pages/adviser/ArchivedPage";
+import AnalyticsPage from "./pages/adviser/AnalyticsPage";
+import DocumentReviewDesk from "./pages/adviser/DocumentReviewDesk";
 import AdminDashboardPage from "./pages/admin/dashboard/AdminDashboardPage";
 import AdvisersPage from "./pages/admin/advisers/AdvisersPage";
 import ReportsPage from "./pages/admin/reports/ReportsPage";
@@ -78,18 +81,21 @@ const AppRoutes = createBrowserRouter([
         Component: RequireAdviser,
         children: [
             {
-                Component: TeacherDashboardLayout,
+                Component: AdviserDashboardLayout,
                 children: [
                     { index: true, element: <Navigate to="dashboard" replace /> },
-                    { path: "dashboard", Component: TeacherDashboard },
+                    { path: "dashboard", Component: AdviserDashboard },
                     {
                         path: "students",
                         children: [
-                            { index: true, Component: AdviseesPlaceholder },
+                            { index: true, Component: AdviseesPage },
                             { path: ":id", Component: StudentDetailPage },
+                            { path: ":studentId/review/:submissionId", Component: DocumentReviewDesk },
                         ],
                     },
-                    { path: "profile/*", Component: TeacherProfilePage },
+                    { path: "analytics", Component: AnalyticsPage },
+                    { path: "archived", Component: ArchivedPage },
+                    { path: "profile/*", Component: AdviserProfilePage },
                 ],
             },
         ],

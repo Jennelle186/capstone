@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router";
 import { Users, FileText, Clock, ArrowRight } from "lucide-react";
-import type { QuickAnalyticsData } from "@/types/teacher-dashboard";
+import type { QuickAnalyticsData } from "@/types/adviser-dashboard";
 
 const defaultData: QuickAnalyticsData = {
   reviewProgress: 0,

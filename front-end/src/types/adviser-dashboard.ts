@@ -6,20 +6,21 @@ export interface DashboardStats {
   progressPercent: number;
 }
 
-export type TeacherSubmissionStatus = "submitted" | "verified" | "flagged" | "needs-revision";
+export type AdviserSubmissionStatus = "submitted" | "verified" | "flagged" | "needs-revision";
 
 export interface RecentSubmission {
   id: string;
   initials: string;
   name: string;
   studentId: string;
+  studentNumber?: string | null;
   documentType: string;
   submittedAt: string;
   avatarColor: string;
-  status: TeacherSubmissionStatus;
+  status: AdviserSubmissionStatus;
 }
 
-export const teacherStatusConfig: Record<TeacherSubmissionStatus, { label: string; badge: string; dot: string }> = {
+export const adviserStatusConfig: Record<AdviserSubmissionStatus, { label: string; badge: string; dot: string }> = {
   submitted: {
     label: "Pending Review",
     badge: "bg-blue-100 text-blue-700",

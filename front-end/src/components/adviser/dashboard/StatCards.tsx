@@ -1,6 +1,6 @@
 import { motion, type Variants } from "framer-motion";
 import { Users, Clock, FileText, CheckCircle } from "lucide-react";
-import type { DashboardStats } from "@/types/teacher-dashboard";
+import type { DashboardStats } from "@/types/adviser-dashboard";
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
