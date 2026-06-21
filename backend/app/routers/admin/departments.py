@@ -10,11 +10,13 @@ from sqlalchemy import desc, func, select
 from ...database import SessionDep
 from ...models import Adviser, Department, Program, ProgramAdviserAssignment, SchoolYear, SchoolYearStatus, Student, User, UserRole
 from ...rbac import require_admin
-from .program_assignment import (
+from ...services.helpers import (
     get_active_school_year_id,
+    program_uuid_for_department_code,
+)
+from .program_assignment import (
     get_adviser_department_map_for_school_year,
     get_department_adviser_counts_for_school_year,
-    program_uuid_for_department_code,
 )
 
 router = APIRouter(prefix="/departments")

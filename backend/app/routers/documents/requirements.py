@@ -7,7 +7,7 @@ from sqlalchemy import desc, select
 
 from ...database import SessionDep
 from ...models import Adviser, Department, ProgramAdviserAssignment, SchoolYear, Student, User
-from ...routers.admin.program_assignment import program_uuid_for_department_code
+from ...services.helpers import program_uuid_for_department_code
 from ...services.document_requirements import get_required_document_types_for_student
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims

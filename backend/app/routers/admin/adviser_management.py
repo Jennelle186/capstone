@@ -26,12 +26,12 @@ from ...services.clerk import (
     unlock_user_account,
     update_user_personal_names,
 )
-from .program_assignment import (
+from ...services.helpers import (
     get_active_school_year_id,
-    get_adviser_department_map_for_school_year,
     get_program_id_to_department_code_map,
     program_uuid_for_department_code,
 )
+from .program_assignment import get_adviser_department_map_for_school_year
 
 router = APIRouter(prefix="/advisers")
 

@@ -8,16 +8,14 @@ from pydantic import BaseModel
 from ..database import SessionDep
 from ..models import UserRole
 from ..rbac import require_roles
-from ..services.adviser_service import (
-    get_analytics as svc_get_analytics,
-    get_archived as svc_get_archived,
-    get_student_detail as svc_get_student_detail,
+from ..services.adviser_core import resolve_adviser
+from ..services.analytics import get_analytics as svc_get_analytics, get_archived as svc_get_archived
+from ..services.school_years import list_school_years as svc_list_school_years
+from ..services.students import list_students as svc_list_students, get_student_detail as svc_get_student_detail
+from ..services.submissions import (
+    list_submissions as svc_list_submissions,
     get_submission_download_url as svc_get_download_url,
     get_submission_extractions as svc_get_extractions,
-    list_school_years as svc_list_school_years,
-    list_students as svc_list_students,
-    list_submissions as svc_list_submissions,
-    resolve_adviser,
     save_submission_extraction_field as svc_save_extraction_field,
 )
 

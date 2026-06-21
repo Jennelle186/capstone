@@ -11,7 +11,7 @@ from typing_extensions import Annotated
 from ..database import SessionDep
 from ..models import Adviser, ProgramAdviserAssignment, SchoolYear, Student, User, UserRole
 from ..rbac import require_roles, require_student
-from ..routers.admin.program_assignment import get_program_id_to_department_code_map
+from ..services.helpers import get_program_id_to_department_code_map
 from ..services.clerk import update_user_personal_names, update_user_public_metadata
 from ..services.user_sync import ensure_user_row
 

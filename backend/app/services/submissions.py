@@ -1,0 +1,264 @@
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy import desc, select
+from sqlalchemy.orm import attributes
+
+from ..database import SessionDep
+from ..models import (
+    Adviser,
+    DocumentSubmission,
+    DocumentType,
+    ExtractionSchema,
+    ExtractionSchemaStatus,
+    SchoolYearRequirement,
+    Student,
+    SubmissionStatus,
+    User,
+)
+from .adviser_core import get_department_ids_for_adviser, get_school_year_id
+from .gcp_storage import generate_presigned_url as gcs_generate_presigned_url
+from .helpers import compute_initials, relative_time
+
+
+async def list_submissions(
+    db: SessionDep,
+    adviser: Adviser,
+    school_year_id_str: str | None,
+) -> list[dict]:
+    target_school_year_id = await get_school_year_id(db, school_year_id_str)
+    if target_school_year_id is None:
+        return []
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, target_school_year_id)
+    if not dept_ids:
+        return []
+
+    stmt = (
+        select(
+            DocumentSubmission.id,
+            DocumentSubmission.created_at,
+            DocumentSubmission.status,
+            DocumentSubmission.extracted_data,
+            User.first_name,
+            User.last_name,
+            Student.id.label("student_id"),
+            Student.student_number,
+            DocumentType.name.label("document_type_name"),
+        )
+        .select_from(DocumentSubmission)
+        .join(Student, DocumentSubmission.student_id == Student.id)
+        .join(User, Student.user_id == User.id)
+        .outerjoin(DocumentType, DocumentSubmission.document_type_id == DocumentType.id)
+        .where(
+            Student.program_id.in_(dept_ids),
+            Student.school_year_id == target_school_year_id,
+            DocumentSubmission.status == SubmissionStatus.SUBMITTED,
+        )
+        .order_by(desc(DocumentSubmission.created_at))
+    )
+    rows = (await db.execute(stmt)).all()
+
+    return [
+        {
+            "id": str(row.id),
+            "student_id": str(row.student_id) if row.student_id else "",
+            "student_name": f"{row.first_name} {row.last_name}".strip(),
+            "student_number": row.student_number,
+            "initials": compute_initials(row.first_name, row.last_name),
+            "document_type_name": row.document_type_name,
+            "status": row.status.value if hasattr(row.status, "value") else str(row.status),
+            "created_at": relative_time(row.created_at),
+            "extraction_fields": row.extracted_data or {},
+        }
+        for row in rows
+    ]
+
+
+async def get_submission_download_url(
+    db: SessionDep,
+    adviser: Adviser,
+    submission_id_str: str,
+) -> str | None:
+    try:
+        sub_uuid = uuid.UUID(submission_id_str)
+    except ValueError:
+        return None
+
+    submission = await db.get(DocumentSubmission, sub_uuid)
+    if submission is None:
+        return None
+
+    student = await db.get(Student, submission.student_id)
+    if student is None:
+        return None
+    if student.school_year_id is None:
+        return None
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        return None
+
+    if submission.status not in (
+        SubmissionStatus.UPLOADED,
+        SubmissionStatus.FLAGGED,
+        SubmissionStatus.CLASSIFIED,
+        SubmissionStatus.PROCESSING,
+        SubmissionStatus.SUBMITTED,
+        SubmissionStatus.IN_REVIEW,
+    ):
+        return None
+
+    return gcs_generate_presigned_url(submission.file_key)
+
+
+async def get_submission_extractions(
+    db: SessionDep,
+    adviser: Adviser,
+    submission_id_str: str,
+) -> dict | None:
+    try:
+        sub_uuid = uuid.UUID(submission_id_str)
+    except ValueError:
+        return None
+
+    submission = await db.get(DocumentSubmission, sub_uuid)
+    if submission is None:
+        return None
+
+    student = await db.get(Student, submission.student_id)
+    if student is None:
+        return None
+    if student.school_year_id is None:
+        return None
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        return None
+
+    if not submission.document_type_id:
+        return {
+            "submission_id": str(submission.id),
+            "classification_result": submission.classification_result,
+            "fields": [],
+        }
+
+    req_result = await db.execute(
+        select(SchoolYearRequirement)
+        .where(
+            SchoolYearRequirement.school_year_id == student.school_year_id,
+            SchoolYearRequirement.document_type_id == submission.document_type_id,
+            SchoolYearRequirement.extraction_schema_id.isnot(None),
+        )
+    )
+    req = req_result.scalar_one_or_none()
+
+    if req is None or req.extraction_schema_id is None:
+        return {
+            "submission_id": str(submission.id),
+            "classification_result": submission.classification_result,
+            "fields": [],
+        }
+
+    schema = await db.get(ExtractionSchema, req.extraction_schema_id)
+    if schema is None or schema.status == ExtractionSchemaStatus.ARCHIVED:
+        return {
+            "submission_id": str(submission.id),
+            "classification_result": submission.classification_result,
+            "fields": [],
+        }
+
+    extracted = submission.extracted_data or {}
+    if not isinstance(extracted, dict):
+        extracted = {}
+
+    fields: list[dict] = []
+    for field_def in (schema.fields_json or []):
+        field_id = field_def.get("id", "")
+        existing = extracted.get(field_id, {})
+        if isinstance(existing, str):
+            value = existing
+            needs_review = False
+            confidence = 1.0
+        elif isinstance(existing, dict):
+            value = str(existing.get("value", "") or "")
+            needs_review = existing.get("needs_review", True)
+            confidence = existing.get("confidence", 0.0)
+        else:
+            continue
+
+        fields.append({
+            "id": field_id,
+            "key": field_def.get("key", ""),
+            "type": field_def.get("type", "string"),
+            "description": field_def.get("description", ""),
+            "required": field_def.get("required", False),
+            "value": value,
+            "confidence": confidence,
+            "needs_review": needs_review,
+            "ui_component": field_def.get("ui_component"),
+            "options": field_def.get("options"),
+            "section_title": field_def.get("section_title"),
+        })
+
+    return {
+        "submission_id": str(submission.id),
+        "classification_result": submission.classification_result,
+        "fields": fields,
+    }
+
+
+async def save_submission_extraction_field(
+    db: SessionDep,
+    adviser: Adviser,
+    submission_id_str: str,
+    field_id: str,
+    value: str,
+) -> dict | None:
+    """Save a single extracted field value for a document submission.
+
+    Stores the field value in `extracted_data` JSONB, keyed by field_id.
+    Also sets `needs_review` to False once the adviser has touched the field.
+    """
+    try:
+        sub_uuid = uuid.UUID(submission_id_str)
+    except ValueError:
+        return None
+
+    submission = await db.get(DocumentSubmission, sub_uuid)
+    if submission is None:
+        return None
+
+    student = await db.get(Student, submission.student_id)
+    if student is None:
+        return None
+    if student.school_year_id is None:
+        return None
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        return None
+
+    extracted = submission.extracted_data or {}
+    if not isinstance(extracted, dict):
+        extracted = {}
+
+    extracted[field_id] = {
+        "value": value,
+        "needs_review": False,
+        "confidence": 1.0,
+        "source_key": "adviser_manual",
+    }
+
+    submission.extracted_data = extracted
+    attributes.flag_modified(submission, "extracted_data")
+    await db.commit()
+    await db.refresh(submission)
+
+    return {
+        "field_id": field_id,
+        "value": value,
+        "needs_review": False,
+        "confidence": 1.0,
+    }

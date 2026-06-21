@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -8,32 +7,11 @@ from sqlalchemy import desc, func, select
 
 from ...database import SessionDep
 from ...models import Department, ProgramAdviserAssignment, SchoolYear
-
-# Stable namespace so department-code -> program UUID is deterministic.
-PROGRAM_UUID_NAMESPACE = uuid.UUID("e40ec4af-aa57-47e2-9169-cc4f1f6d03ff")
-
-# Helper function to generate a stable program UUID based on the department code. This ensures that the same department code will always map to the same program UUID, allowing for consistent program identification across different parts of the application and database.
-def program_uuid_for_department_code(department_code: str) -> UUID:
-    return uuid.uuid5(PROGRAM_UUID_NAMESPACE, department_code.strip().upper())
-
-# Helper function to retrieve the active school year ID from the database. It queries the SchoolYear table for the active school year, ordered by the most recently updated, and returns its ID. If no active school year is found, it returns None.
-async def get_active_school_year_id(db: SessionDep) -> UUID | None:
-    stmt = (
-        select(SchoolYear.id)
-        .where(SchoolYear.is_active.is_(True))
-        .order_by(desc(SchoolYear.updated_at))
-    )
-    return (await db.execute(stmt)).scalars().first()
-
-# Helper function to create a mapping of program IDs to their corresponding department codes. It queries the Department table for all department codes and constructs a dictionary where the keys are program UUIDs generated from the department codes, and the values are the original department codes. This mapping allows for easy lookup of department codes based on program IDs in other parts of the application.
-async def get_program_id_to_department_code_map(db: SessionDep) -> dict[UUID, str]:
-    departments_stmt = select(Department.code)
-    department_codes = (await db.execute(departments_stmt)).scalars().all()
-
-    return {
-        program_uuid_for_department_code(code): code
-        for code in department_codes
-    }
+from ...services.helpers import (
+    get_active_school_year_id,
+    get_program_id_to_department_code_map,
+    program_uuid_for_department_code,
+)
 
 # The get_adviser_department_map function retrieves a mapping of adviser IDs to their assigned department codes for a given list of adviser IDs. It first checks if the list of adviser IDs is empty and returns an empty dictionary if so. Then, it retrieves the active school year ID and the program ID to department code mapping. It queries the ProgramAdviserAssignment table for assignments that match the active school year and the provided adviser IDs, ordered by the most recently updated. Finally, it constructs a dictionary mapping each adviser ID to their corresponding department code based on their program assignment, ensuring that only the most recent assignment is considered for each adviser.
 async def get_adviser_department_map(db: SessionDep, adviser_ids: Sequence[UUID]) -> dict[UUID, str]:
