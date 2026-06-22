@@ -19,6 +19,7 @@ from .routers.documents import router as documents_router
 from .routers.users import router as users_router
 from .routers.debug import router as debug_router
 from .routers.adviser import router as adviser_router
+from .routers.notifications import router as notifications_router
 from .routers import admin
 from .services.user_sync import ensure_user_row
 from .services.clerk import update_user_personal_names, update_user_public_metadata
@@ -54,6 +55,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(documents_router)
 app.include_router(users_router)
 app.include_router(adviser_router)
+app.include_router(notifications_router)
 app.include_router(debug_router)
 app.include_router(admin.router)
 

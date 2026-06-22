@@ -30,6 +30,7 @@ def _mock_session(submission, document_types=None):
 
     execute_result = MagicMock()
     execute_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=document_types or [])))
+    execute_result.scalar_one_or_none = MagicMock(return_value=None)
     session.execute = AsyncMock(return_value=execute_result)
     return session
 
@@ -37,6 +38,7 @@ def _mock_session(submission, document_types=None):
 def _submission(status=SubmissionStatus.UPLOADED, is_compiled=False):
     return SimpleNamespace(
         id=uuid4(),
+        student_id=uuid4(),
         status=status,
         is_compiled=is_compiled,
         file_key="staging/student-id/file.pdf",

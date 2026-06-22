@@ -117,7 +117,7 @@ export default function StudentDetailPage() {
         ),
       },
     ],
-    [tableData],
+    [tableData, navigate, student?.id],
   );
 
   if (loading) {
