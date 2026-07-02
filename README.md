@@ -195,30 +195,38 @@ Verified         Flagged
 
 # Submission Lifecycle
 
-```mermaid
-graph TD
-PENDING[PENDING]
-UPLOADED[UPLOADED]
-PROCESSING[PROCESSING]
-CLASSIFIED[CLASSIFIED]
-SUBMITTED[SUBMITTED]
-IN_REVIEW[IN REVIEW]
-VERIFIED[VERIFIED]
-FLAGGED[FLAGGED]
-
-PENDING --> UPLOADED
-UPLOADED --> PROCESSING
-PROCESSING --> CLASSIFIED
-CLASSIFIED --> SUBMITTED
-SUBMITTED --> IN_REVIEW
-IN_REVIEW --> VERIFIED
-CLASSIFIED -->|Low Confidence| FLAGGED
-IN_REVIEW -->|Rejected| FLAGGED
-FLAGGED -->|Student Re-upload| UPLOADED
-
-style VERIFIED fill:#d4edda
-style FLAGGED fill:#f8d7da
+```text
+PENDING
+   |
+   v
+UPLOADED <-------------------------+
+   |                               |
+   v                               |
+PROCESSING                         |
+   |                               |
+   v                               |
+CLASSIFIED --(Low Confidence)--> FLAGGED
+   |                               ^
+   v                               |
+SUBMITTED                          |
+   |                               |
+   v                               |
+IN_REVIEW ----(Rejected)-----------+
+   |
+   v
+VERIFIED
 ```
+
+| State | Description |
+|---|---|
+| `PENDING` | Submission record created; awaiting document upload. |
+| `UPLOADED` | Document file has been received and stored. |
+| `PROCESSING` | Document is being classified and prepared for extraction. |
+| `CLASSIFIED` | AI has determined the document type. Low-confidence results are flagged for manual review. |
+| `SUBMITTED` | Student has confirmed classification and extracted data. |
+| `IN_REVIEW` | Adviser is reviewing the submission. |
+| `VERIFIED` | Submission has been approved and is immutable. |
+| `FLAGGED` | Submission requires correction; student must re-upload. |
 
 ---
 
