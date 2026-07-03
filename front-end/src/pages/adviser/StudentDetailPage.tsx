@@ -12,7 +12,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import DataTable from "@/components/common/data-table/DataTable";
 import PageHeader from "@/components/adviser/ui/PageHeader";
 import SubmissionStatusBadge from "@/components/adviser/ui/SubmissionStatusBadge";
@@ -204,6 +204,7 @@ export default function StudentDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex items-start gap-5">
                 <Avatar className="h-16 w-16">
+                  <AvatarImage src={student.image_url ?? undefined} />
                   <AvatarFallback className="text-lg font-bold bg-primary/10 text-primary">
                     {student.initials}
                   </AvatarFallback>

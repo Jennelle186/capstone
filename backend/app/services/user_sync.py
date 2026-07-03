@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,10 @@ from ..models import (
 from .clerk import fetch_user_profile, update_user_personal_names
 
 logger = logging.getLogger(__name__)
+
+# Tracks last image_url sync time per clerk_user_id to avoid calling Clerk API on every request.
+# Resets on server restart (acceptable — one extra fetch per user after restart).
+_last_image_sync: dict[str, float] = {}
 
 # Must match the namespace used by admin program assignment logic so the mapping is deterministic.
 PROGRAM_UUID_NAMESPACE = uuid.UUID("e40ec4af-aa57-47e2-9169-cc4f1f6d03ff")
@@ -369,6 +374,7 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
     ):
         should_sync_from_clerk_api = True
 
+    api_image_url = None
     if should_sync_from_clerk_api:
         api_email, api_first_name, api_middle_name, api_last_name, _api_metadata, api_image_url = await fetch_user_profile(clerk_user_id)
         api_email = _normalize_email(api_email)
@@ -392,6 +398,21 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
             changed = True
         if api_image_url is not None and user.image_url != api_image_url:
             user.image_url = api_image_url
+            changed = True
+
+    # Periodic image_url refresh (5 min cooldown) — catches avatar changes made in Clerk.
+    _now = time.time()
+    if (_now - _last_image_sync.get(clerk_user_id, 0)) > 300:
+        _last_image_sync[clerk_user_id] = _now
+        if not should_sync_from_clerk_api:
+            _, _, _, _, _, fresh_image_url = await fetch_user_profile(clerk_user_id)
+        else:
+            fresh_image_url = api_image_url
+        if fresh_image_url is not None and user.image_url != fresh_image_url:
+            user.image_url = fresh_image_url
+            changed = True
+        elif fresh_image_url is None and user.image_url is not None:
+            user.image_url = None
             changed = True
 
     if changed:
