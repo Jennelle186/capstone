@@ -1,5 +1,21 @@
 export type AdviserStudentClassification = "freshman" | "transferee" | "shifter" | "returning" | "cross_enrollee";
 
+export interface ExtractedAnalyticsValue {
+    value: string;
+    label: string;
+}
+
+export interface UnmappedField {
+    key: string;
+    value: string;
+    section_title: string;
+}
+
+export interface UnmappedDocGroup {
+    document_type: string;
+    fields: UnmappedField[];
+}
+
 export interface AdviserStudent {
     id: string;
     name: string;
@@ -13,11 +29,8 @@ export interface AdviserStudent {
     documents_submitted: number;
     documents_total: number;
     completion_pct: number;
-    gender: string | null;
-    cet_score: number | null;
-    gpa: number | null;
-    high_school: string | null;
-    provincial_address: string | null;
+    extracted_analytics?: Record<string, ExtractedAnalyticsValue>;
+    unmapped_data?: UnmappedDocGroup[];
     created_at: string;
 }
 

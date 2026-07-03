@@ -101,11 +101,6 @@ class AdviserStudentResponse(BaseModel):
     documents_submitted: int
     documents_total: int
     completion_pct: int
-    gender: str | None = None
-    cet_score: int | None = None
-    gpa: float | None = None
-    high_school: str | None = None
-    provincial_address: str | None = None
     created_at: str
 
 
@@ -130,11 +125,8 @@ class AdviserStudentDetailResponse(BaseModel):
     documents_submitted: int
     documents_total: int
     completion_pct: int
-    gender: str | None = None
-    cet_score: int | None = None
-    gpa: float | None = None
-    high_school: str | None = None
-    provincial_address: str | None = None
+    extracted_analytics: dict = {}
+    unmapped_data: list = []
     created_at: str
     submissions: list[AdviserStudentSubmissionResponse]
 

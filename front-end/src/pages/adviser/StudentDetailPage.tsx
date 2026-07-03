@@ -6,10 +6,19 @@ import {
   Eye,
   Mail,
   Calendar,
+  FileText,
+  User,
 } from "lucide-react";
 import { type ColumnDef } from "@tanstack/react-table";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -27,6 +36,26 @@ const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
+
+function formatLabelValue(key: string, val: string) {
+  const label = key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bShs\b/i, "SHS")
+    .replace(/\bJhs\b/i, "JHS");
+
+  let value = val.replace(/_/g, " ");
+  if (/^p\d+_?p?\d*$/i.test(value.replace(/\s/g, ""))) {
+    value = value
+      .toUpperCase()
+      .replace(/P(\d+)/g, " ₱$1,")
+      .replace(/_/g, " - ")
+      .replace(/,\s*-/, " -");
+  }
+  return { label, value };
+}
+
+
 
 interface TableSubmission {
   id: string;
@@ -238,27 +267,120 @@ export default function StudentDetailPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CET Score</p>
-                  <p className="text-sm font-extrabold text-slate-800">{student.cet_score ?? "N/A"}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">GPA</p>
-                  <p className="text-sm font-extrabold text-slate-800">{student.gpa ? student.gpa.toFixed(2) : "N/A"}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">High School</p>
-                  <p className="text-xs font-semibold text-slate-700">{student.high_school ?? "N/A"}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Provincial Address</p>
-                  <p className="text-xs font-semibold text-slate-700">{student.provincial_address ?? "N/A"}</p>
-                </div>
+                {Object.entries(student.extracted_analytics ?? {}).map(([key, { value, label }]) => (
+                  <div key={key} className="space-y-1">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
+                    <p className="text-sm font-extrabold text-slate-800">{value}</p>
+                  </div>
+                ))}
               </div>
+
             </div>
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Extracted Data */}
+      {(student.unmapped_data ?? []).length > 0 && (
+        <Accordion type="single" collapsible className="w-full">
+          <AccordionItem value="extracted" className="border rounded-xl border-slate-200 bg-white shadow-sm overflow-hidden">
+            <AccordionTrigger className="px-5 py-4 hover:no-underline [&[data-state=open]]:border-b [&[data-state=open]]:border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <span className="text-base font-semibold text-slate-900">Extracted Data</span>
+                <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 bg-slate-100 text-slate-500 rounded-full">
+                  {student.unmapped_data!.reduce((s, g) => s + g.fields.filter((f) => f.value?.trim()).length, 0)}
+                </Badge>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="p-0">
+              {student.unmapped_data!.map((group, gi) => {
+                const sectionGroups: Record<string, typeof group.fields> = {};
+                for (const field of group.fields) {
+                  if (!field.value || field.value.trim() === "") continue;
+                  const st = field.section_title;
+                  if (!sectionGroups[st]) sectionGroups[st] = [];
+                  sectionGroups[st].push(field);
+                }
+                const sectionKeys = Object.keys(sectionGroups);
+                if (sectionKeys.length === 0) return null;
+
+                return (
+                  <div key={gi} className={gi > 0 ? "border-t border-slate-200" : ""}>
+                    <div className="bg-slate-50/70 border-b border-slate-100 p-4 flex items-center gap-2.5">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Source Document
+                        </p>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {group.document_type}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="ml-auto text-xs bg-white font-medium border-slate-200 text-slate-600"
+                      >
+                        {sectionKeys.reduce((s, k) => s + sectionGroups[k].length, 0)} fields
+                      </Badge>
+                    </div>
+
+                    <Accordion
+                      type="multiple"
+                      defaultValue={sectionKeys.slice(0, 1)}
+                      className="w-full divide-y divide-slate-100"
+                    >
+                      {sectionKeys.map((sectionTitle) => {
+                        const fields = sectionGroups[sectionTitle];
+                        return (
+                          <AccordionItem
+                            value={sectionTitle}
+                            key={sectionTitle}
+                            className="border-b-0 px-4 py-1"
+                          >
+                            <AccordionTrigger className="hover:no-underline py-3 group">
+                              <div className="flex items-center gap-2 text-slate-600 group-hover:text-slate-900 transition-colors">
+                                <User className="h-4 w-4 text-slate-400 group-hover:text-slate-500" />
+                                <span className="text-xs font-bold tracking-wide uppercase">
+                                  {sectionTitle}
+                                </span>
+                                <Badge
+                                  variant="secondary"
+                                  className="ml-1 text-[10px] px-1.5 py-0 bg-slate-100 text-slate-500 rounded-full"
+                                >
+                                  {fields.length}
+                                </Badge>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="pb-4 pt-1">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3.5 bg-slate-50/40 border border-slate-100/70 rounded-xl p-4">
+                                {fields.map((f) => {
+                                  const { label, value } = formatLabelValue(f.key, f.value);
+                                  return (
+                                    <div key={f.key} className="space-y-1 group/field">
+                                      <span className="text-[10px] font-medium text-slate-400 block tracking-tight">
+                                        {label}
+                                      </span>
+                                      <p className="text-xs font-semibold text-slate-700 break-words leading-relaxed select-all">
+                                        {value}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        );
+                      })}
+                    </Accordion>
+                  </div>
+                );
+              })}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
 
       {/* Document Submissions */}
       <motion.div variants={fadeInUp} initial="hidden" animate="visible">

@@ -17,6 +17,7 @@ from ..models import (
     DocumentSubmission,
     DocumentType,
     DocumentTypeStatus,
+    ExtractionSchema,
     SchoolYear,
     SchoolYearRequirement,
     Student,
@@ -27,6 +28,48 @@ from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .clerk import fetch_user_profile
 from .document_requirements import get_required_document_types_for_student
 from .helpers import compute_initials, exclude_replaced_submissions
+
+_ANALYTICS_KEYWORDS: dict[str, list[str]] = {
+    "gpa": ["gpa", "gwa", "grade point", "general weighted"],
+    "cet_score": ["cet", "college entrance", "admission test", "entrance exam"],
+    "high_school": ["high school", "secondary school", "graduating school"],
+    "provincial_address": ["provincial", "home address", "permanent address", "barangay", "municipality"],
+    "gender": ["gender", "sex"],
+}
+
+_ANALYTICS_LABELS: dict[str, str] = {
+    "gpa": "GPA",
+    "cet_score": "CET Score",
+    "high_school": "High School",
+    "provincial_address": "Provincial Address",
+    "gender": "Gender",
+}
+
+
+def _infer_analytics_tag(source_key: str) -> str | None:
+    key_lower = source_key.lower().replace("_", " ")
+    for tag, keywords in _ANALYTICS_KEYWORDS.items():
+        if any(kw in key_lower for kw in keywords):
+            return tag
+    return None
+
+
+def _compute_gpa_from_semesters(extracted_data: dict) -> str | None:
+    grades = []
+    for field_id, field_data in extracted_data.items():
+        if not isinstance(field_data, dict):
+            continue
+        source_key = field_data.get("source_key", "")
+        if any(kw in source_key.lower() for kw in ["semester", "term", "quarter"]):
+            try:
+                val = float(field_data.get("value", ""))
+                if 0 <= val <= 100:
+                    grades.append(val)
+            except (ValueError, TypeError):
+                pass
+    if grades:
+        return f"{sum(grades) / len(grades):.2f}"
+    return None
 
 
 async def get_required_doc_counts_by_class(
@@ -233,6 +276,56 @@ async def get_student_detail(
         for sub in submissions
     ]
 
+    # Build section_title lookup: {document_type_id -> {source_key -> section_title}}
+    section_map: dict[uuid.UUID, dict[str, str]] = {}
+    syr_stmt = select(SchoolYearRequirement, ExtractionSchema).join(
+        ExtractionSchema, SchoolYearRequirement.extraction_schema_id == ExtractionSchema.id
+    ).where(SchoolYearRequirement.school_year_id == student.school_year_id)
+    for syr, schema in (await db.execute(syr_stmt)).all():
+        key_to_section: dict[str, str] = {}
+        for field in (schema.fields_json or []):
+            if isinstance(field, dict) and field.get("key"):
+                key_to_section[field["key"]] = field.get("section_title") or "General"
+        if syr.document_type_id:
+            section_map[syr.document_type_id] = key_to_section
+
+    analytics: dict[str, dict[str, str]] = {}
+    unmapped: list[dict] = []
+
+    for sub in submissions:
+        if sub.status != SubmissionStatus.VERIFIED or not sub.extracted_data:
+            continue
+        doc_type = sub.document_type.name if sub.document_type else "Unknown"
+        fields: list[dict] = []
+        doc_section_map = section_map.get(sub.document_type_id) if sub.document_type_id else None
+        for field_id, field_data in sub.extracted_data.items():
+            if not isinstance(field_data, dict):
+                continue
+            source_key = field_data.get("source_key", "")
+            value = field_data.get("value")
+            if not source_key or value is None:
+                continue
+            tag = _infer_analytics_tag(source_key)
+            if tag and tag not in analytics:
+                analytics[tag] = {
+                    "value": str(value),
+                    "label": _ANALYTICS_LABELS.get(tag, source_key),
+                }
+            elif not tag:
+                section_title = (doc_section_map or {}).get(source_key, "General")
+                fields.append({"key": source_key, "value": str(value), "section_title": section_title})
+        if fields:
+            unmapped.append({"document_type": doc_type, "fields": fields})
+
+    if "gpa" not in analytics:
+        for sub in submissions:
+            if sub.status != SubmissionStatus.VERIFIED or not sub.extracted_data:
+                continue
+            computed = _compute_gpa_from_semesters(sub.extracted_data)
+            if computed:
+                analytics["gpa"] = {"value": computed, "label": "GPA (Computed)"}
+                break
+
     return {
         "id": str(student.id),
         "name": f"{first or ''} {last or ''}".strip() or "Unknown",
@@ -246,6 +339,8 @@ async def get_student_detail(
         "documents_submitted": documents_submitted,
         "documents_total": documents_total,
         "completion_pct": completion_pct,
+        "extracted_analytics": analytics,
+        "unmapped_data": unmapped,
         "created_at": student.created_at.isoformat() if student.created_at else "",
         "submissions": sub_responses,
     }
