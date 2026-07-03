@@ -12,7 +12,7 @@ from ..models import DocumentSubmission, DocumentSubmissionHistory, User, UserRo
 from ..rbac import require_roles
 from ..services.adviser_core import resolve_adviser
 from ..services.analytics import get_analytics as svc_get_analytics, get_archived as svc_get_archived
-from ..services.school_years import list_school_years as svc_list_school_years
+from ..services.school_years import list_adviser_school_years as svc_list_school_years
 from ..services.students import list_students as svc_list_students, get_student_detail as svc_get_student_detail
 from ..services.submissions import (
     flag_submission as svc_flag_submission,

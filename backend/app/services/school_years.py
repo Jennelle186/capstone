@@ -727,7 +727,7 @@ async def rollover_school_year(
 # ─── Adviser-specific school year listing ─────────────────────────────────────
 
 
-async def list_school_years(
+async def list_adviser_school_years(
     db: SessionDep,
     adviser: Adviser,
 ) -> list[dict]:
