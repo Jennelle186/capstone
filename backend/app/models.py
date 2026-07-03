@@ -62,6 +62,9 @@ class User(Base):
     middle_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
 
+    # Profile image URL from Clerk.
+    image_url = Column(String(1024), nullable=True)
+
     # Entire publicMetadata snapshot (useful for debugging/syncing without extra Clerk calls).
     public_metadata = Column(JSONB, nullable=True)
 

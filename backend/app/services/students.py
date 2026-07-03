@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from collections import defaultdict
 
 from sqlalchemy import desc, func, select
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload
 
 from ..database import SessionDep
@@ -20,6 +24,7 @@ from ..models import (
     User,
 )
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
+from .clerk import fetch_user_profile
 from .document_requirements import get_required_document_types_for_student
 from .helpers import compute_initials, exclude_replaced_submissions
 
@@ -78,11 +83,36 @@ async def list_students(
     student_ids = [s.id for s in students]
 
     user_stmt = (
-        select(User.id, User.first_name, User.last_name, User.email)
+        select(User.id, User.first_name, User.last_name, User.email, User.image_url, User.clerk_user_id)
         .where(User.id.in_([s.user_id for s in students]))
     )
     user_rows = (await db.execute(user_stmt)).all()
     user_map = {row.id: row for row in user_rows}
+
+    missing_image = [
+        (row.id, row.clerk_user_id) for row in user_rows
+        if not row.image_url and row.clerk_user_id
+    ]
+    if missing_image:
+        async def _fetch(uid):
+            _, _, _, _, _, url = await fetch_user_profile(uid)
+            return url
+
+        ids, clerk_ids = zip(*missing_image)
+        results = await asyncio.gather(*[_fetch(cid) for cid in clerk_ids])
+        changed = False
+        for user_id, url in zip(ids, results):
+            if not url:
+                continue
+            user = await db.get(User, user_id)
+            if user and user.image_url != url:
+                user.image_url = url
+                changed = True
+        if changed:
+            await db.commit()
+            user_map.clear()
+            fresh_rows = (await db.execute(user_stmt)).all()
+            user_map.update({row.id: row for row in fresh_rows})
 
     school_year = await db.get(SchoolYear, target_sy_id)
 
@@ -129,6 +159,7 @@ async def list_students(
             "initials": compute_initials(first, last),
             "student_number": s.student_number,
             "email": email,
+            "image_url": u.image_url if u else None,
             "program": dept_map.get(s.program_id) if s.program_id else None,
             "school_year": school_year.name if school_year else None,
             "classification": classification_val,
@@ -208,6 +239,7 @@ async def get_student_detail(
         "initials": compute_initials(first, last),
         "student_number": student.student_number,
         "email": email,
+        "image_url": u.image_url if u else None,
         "program": program_name,
         "school_year": school_year.name if school_year else None,
         "classification": classification_val,

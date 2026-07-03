@@ -86,7 +86,7 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
                 variant="ghost"
                 size="sm"
                 className="gap-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-                onClick={() => console.log("clicked", row.id)}
+                onClick={() => {}}
             >
                 <Eye className="h-4 w-4" />
                 View

@@ -47,7 +47,6 @@ export default function ForgotPasswordDialog({
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      console.log("Forgot password submitted", values);
       toast.success("Password reset link sent. Check your email.");
       onSubmitted?.(values.email);
       setOpen(false);

@@ -132,7 +132,7 @@ async def _promote_and_finalize_adviser_invitation(db: AsyncSession, user: User)
     """
     # If token claims missed email on the first pass, try Clerk API once more before giving up.
     if not user.email:
-        api_email, _api_first_name, _api_middle_name, _api_last_name, _api_metadata = await fetch_user_profile(user.clerk_user_id)
+        api_email, _api_first_name, _api_middle_name, _api_last_name, _api_metadata, _api_image_url = await fetch_user_profile(user.clerk_user_id)
         normalized_api_email = _normalize_email(api_email)
         if normalized_api_email:
             user.email = normalized_api_email
@@ -282,13 +282,17 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
         middle_name = token_middle_name
         role = _coerce_role(token_role_value) or UserRole.STUDENT
 
-        # Fallback: if token claims are incomplete, fetch profile values from Clerk.
+        # Fallback: fetch missing fields + image_url from Clerk API.
+        api_image_url = None
         if (not email) or (not first_name) or (not middle_name) or (not last_name):
-            api_email, api_first_name, api_middle_name, api_last_name, _api_metadata = await fetch_user_profile(clerk_user_id)
+            api_email, api_first_name, api_middle_name, api_last_name, _api_metadata, api_image_url = await fetch_user_profile(clerk_user_id)
             email = email or _normalize_email(api_email)
             first_name = first_name or _normalize_name(api_first_name)
             middle_name = middle_name or _normalize_name(api_middle_name)
             last_name = last_name or _normalize_name(api_last_name)
+        else:
+            # Fetch image_url separately since it's not in token claims.
+            _, _, _, _, _, api_image_url = await fetch_user_profile(clerk_user_id)
 
         user = User(
             clerk_user_id=clerk_user_id,
@@ -297,6 +301,7 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
             middle_name=middle_name,
             last_name=last_name,
             role=role,
+            image_url=api_image_url,
         )
         db.add(user)
         try:
@@ -353,7 +358,8 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
     user_middle_ok = _normalize_name(user.middle_name) if user.middle_name else None
     user_last_ok = _normalize_name(user.last_name) if user.last_name else None
     should_sync_from_clerk_api = (
-        ((not user_email_ok) and (not token_email))
+        (not user.image_url)
+        or ((not user_email_ok) and (not token_email))
         or ((not user_first_ok) and (not token_first_name))
         or ((not user_middle_ok) and (not token_middle_name))
         or ((not user_last_ok) and (not token_last_name))
@@ -364,7 +370,7 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
         should_sync_from_clerk_api = True
 
     if should_sync_from_clerk_api:
-        api_email, api_first_name, api_middle_name, api_last_name, _api_metadata = await fetch_user_profile(clerk_user_id)
+        api_email, api_first_name, api_middle_name, api_last_name, _api_metadata, api_image_url = await fetch_user_profile(clerk_user_id)
         api_email = _normalize_email(api_email)
         api_first_name = _normalize_name(api_first_name)
         api_middle_name = _normalize_name(api_middle_name)
@@ -383,6 +389,9 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
             changed = True
         if profile_fetch_succeeded and token_last_name is None and user_last_ok != api_last_name:
             user.last_name = api_last_name
+            changed = True
+        if api_image_url is not None and user.image_url != api_image_url:
+            user.image_url = api_image_url
             changed = True
 
     if changed:

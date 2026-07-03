@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Table,
   TableBody,
@@ -20,6 +20,7 @@ import {
 import PageHeader from "@/components/adviser/ui/PageHeader";
 import DataTable from "@/components/common/data-table/DataTable";
 import { useAdviserStudents } from "@/hooks/useAdviserStudents";
+import { useAdviserProfile } from "@/hooks/useAdviserProfile";
 import {
   type AdviserStudent,
   CLASSIFICATION_LABELS,
@@ -43,6 +44,7 @@ const classificationOptions = [
 export default function AdviseesPage() {
   const navigate = useNavigate();
   const { students, loading } = useAdviserStudents();
+  const { profile } = useAdviserProfile();
 
   const columns: ColumnDef<AdviserStudent>[] = [
     {
@@ -62,6 +64,7 @@ export default function AdviseesPage() {
       cell: ({ row }) => (
         <div className="flex items-center gap-3">
           <Avatar className="h-9 w-9">
+            <AvatarImage src={row.original.image_url ?? undefined} />
             <AvatarFallback>{row.original.initials}</AvatarFallback>
           </Avatar>
           <div>
@@ -69,29 +72,10 @@ export default function AdviseesPage() {
               {row.original.name}
             </div>
             <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-              {row.original.student_number || "NO STUDENT ID"}
+              {row.original.student_number || <span className="text-destructive font-semibold">NO STUDENT ID</span>}
             </div>
           </div>
         </div>
-      ),
-    },
-    {
-      accessorKey: "program",
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Program
-          <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
-        </Button>
-      ),
-      cell: ({ row }) => (
-        <span className="text-[10px] font-extrabold text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 uppercase tracking-wide">
-          {row.getValue("program") as string}
-        </span>
       ),
     },
     {
@@ -120,7 +104,6 @@ export default function AdviseesPage() {
       filterFn: "equals",
     },
     {
-      id: "progress",
       accessorKey: "completion_pct",
       header: ({ column }) => (
         <Button
@@ -134,7 +117,7 @@ export default function AdviseesPage() {
         </Button>
       ),
       cell: ({ row }) => {
-        const pct = row.getValue("completion_pct") as number;
+        const pct = (row.getValue("completion_pct") as number) ?? 0;
         const barColor =
           pct === 100
             ? "bg-emerald-500"
@@ -143,11 +126,8 @@ export default function AdviseesPage() {
               : "bg-amber-500";
         return (
           <div className="space-y-1.5 min-w-[140px] max-w-[200px]">
-            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
-              <span>
-                {row.original.documents_submitted}/{row.original.documents_total} docs
-              </span>
-              <span className="text-slate-900">{pct}%</span>
+            <div className="text-[10px] font-bold text-slate-900">
+              {pct}% ({row.original.documents_submitted}/{row.original.documents_total} docs)
             </div>
             <div className="relative h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
@@ -180,7 +160,7 @@ export default function AdviseesPage() {
         <div className="flex items-start justify-between gap-4">
           <PageHeader
             title="My Advisees"
-            subtitle="Student listings in your adviser program for the current school year."
+            subtitle={`Student listings for ${profile?.department ?? "your program"} (${profile?.school_year ?? "Current School Year"})`}
           />
           <Badge className="bg-primary/15 text-primary text-sm font-extrabold px-3 py-0.5 rounded-lg mt-1 shrink-0">
             {students.length} Active
@@ -196,9 +176,6 @@ export default function AdviseesPage() {
                 <TableRow className="bg-slate-50/75 hover:bg-slate-50/75 border-b border-slate-200">
                   <TableHead className="px-6 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                     Student
-                  </TableHead>
-                  <TableHead className="px-6 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Program
                   </TableHead>
                   <TableHead className="px-6 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                     Classification
@@ -222,9 +199,6 @@ export default function AdviseesPage() {
                           <Skeleton className="h-3 w-20" />
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell className="px-6 py-4">
-                      <Skeleton className="h-4 w-24" />
                     </TableCell>
                     <TableCell className="px-6 py-4">
                       <Skeleton className="h-5 w-16 rounded-full" />
@@ -270,41 +244,34 @@ export default function AdviseesPage() {
               <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 transition-all hover:shadow-sm active:scale-[0.99]">
                 <div className="flex items-start gap-3">
                   <Avatar className="h-9 w-9 shrink-0">
+                    <AvatarImage src={student.image_url ?? undefined} />
                     <AvatarFallback>{student.initials}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-slate-900">
                       {student.name}
                     </p>
-                    <p className="text-[10px] uppercase tracking-tighter text-slate-400">
-                      {student.student_number ?? "NO STUDENT ID"}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] font-extrabold text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-100 uppercase tracking-wide">
-                        {student.program}
-                      </span>
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[student.classification]}`}
-                      >
-                        {CLASSIFICATION_LABELS[student.classification]}
-                      </span>
-                    </div>
-                    <div className="mt-2 space-y-1">
-                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
-                        <span>
-                          {student.documents_submitted}/{student.documents_total} docs
-                        </span>
-                        <span className="text-slate-900">
-                          {student.completion_pct}%
-                        </span>
-                      </div>
-                      <div className="relative h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-300 ${student.completion_pct === 100 ? "bg-emerald-500" : student.completion_pct > 50 ? "bg-primary" : "bg-amber-500"}`}
-                          style={{ width: `${student.completion_pct}%` }}
-                        />
-                      </div>
-                    </div>
+            <p className="text-[10px] uppercase tracking-tighter text-slate-400">
+              {student.student_number ?? <span className="text-destructive font-semibold">NO STUDENT ID</span>}
+            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <span
+                className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[student.classification]}`}
+              >
+                {CLASSIFICATION_LABELS[student.classification]}
+              </span>
+            </div>
+            <div className="mt-2 space-y-1">
+              <div className="text-[10px] font-bold text-slate-900">
+                {(student.completion_pct ?? 0)}% ({student.documents_submitted}/{student.documents_total} docs)
+              </div>
+              <div className="relative h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${(student.completion_pct ?? 0) === 100 ? "bg-emerald-500" : (student.completion_pct ?? 0) > 50 ? "bg-primary" : "bg-amber-500"}`}
+                  style={{ width: `${student.completion_pct ?? 0}%` }}
+                />
+              </div>
+            </div>
                   </div>
                   <ChevronRight className="h-4 w-4 text-slate-400 shrink-0 mt-2" />
                 </div>

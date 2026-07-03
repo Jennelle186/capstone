@@ -66,6 +66,15 @@ async def get_program_id_to_department_code_map(db: SessionDep) -> dict[UUID, st
     }
 
 
+async def get_program_id_to_department_name_map(db: SessionDep) -> dict[UUID, str]:
+    departments_stmt = select(Department.code, Department.name)
+    departments = (await db.execute(departments_stmt)).all()
+    return {
+        program_uuid_for_department_code(d.code): d.name
+        for d in departments
+    }
+
+
 def exclude_replaced_submissions(query):
     """Add a WHERE clause excluding submissions that have a child replacement.
 

@@ -26,6 +26,7 @@ export function useStudentDetail(id: string | undefined) {
         setStudent({
           id: data.id, name: data.name, initials: data.initials,
           student_number: data.student_number ?? null, email: data.email ?? null,
+          image_url: data.image_url ?? null,
           program: data.program ?? "", school_year: data.school_year ?? "",
           classification: data.classification ?? "freshman",
           documents_submitted: data.documents_submitted ?? 0,

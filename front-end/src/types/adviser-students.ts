@@ -6,6 +6,7 @@ export interface AdviserStudent {
     initials: string;
     student_number: string | null;
     email: string | null;
+    image_url: string | null;
     program: string;
     school_year: string;
     classification: AdviserStudentClassification;

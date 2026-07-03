@@ -94,6 +94,7 @@ class AdviserStudentResponse(BaseModel):
     initials: str
     student_number: str | None
     email: str | None
+    image_url: str | None = None
     program: str | None
     school_year: str | None
     classification: str | None
@@ -122,6 +123,7 @@ class AdviserStudentDetailResponse(BaseModel):
     initials: str
     student_number: str | None
     email: str | None
+    image_url: str | None = None
     program: str | None
     school_year: str | None
     classification: str | None

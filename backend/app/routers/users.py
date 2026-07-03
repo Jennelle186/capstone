@@ -11,7 +11,7 @@ from typing_extensions import Annotated
 from ..database import SessionDep
 from ..models import Adviser, ProgramAdviserAssignment, SchoolYear, Student, User, UserRole
 from ..rbac import require_roles, require_student
-from ..services.helpers import get_program_id_to_department_code_map
+from ..services.helpers import get_program_id_to_department_code_map, get_program_id_to_department_name_map
 from ..services.clerk import update_user_personal_names, update_user_public_metadata
 from ..services.user_sync import ensure_user_row
 
@@ -103,8 +103,8 @@ async def _get_active_assignment_for_adviser(db: SessionDep, adviser_id: Any) ->
     if program_id is None:
         return None, active_school_year.name
 
-    program_id_to_code = await get_program_id_to_department_code_map(db)
-    return program_id_to_code.get(program_id), active_school_year.name
+    program_id_to_name = await get_program_id_to_department_name_map(db)
+    return program_id_to_name.get(program_id), active_school_year.name
 
 
 def _build_adviser_profile_response(
