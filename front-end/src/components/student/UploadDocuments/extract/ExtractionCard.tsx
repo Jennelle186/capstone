@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   ChevronDown,
   Maximize2,
-  Minimize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -235,18 +234,6 @@ export default function ExtractionCard({ item, onAutoSave }: ExtractionCardProps
                 — {item.documentTypeName}
               </span>
             </DialogTitle>
-            <div className="flex items-center gap-2">
-              <CardConfidenceBadge label={item.confidenceLabel} needsReview={needsReview} />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setIsMaximized(false)}
-              >
-                <Minimize2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-6">
             <FormProvider {...form}>

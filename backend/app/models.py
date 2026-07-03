@@ -451,9 +451,57 @@ class DocumentSubmission(Base):
     flagged_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     verified_at = Column(DateTime(timezone=True), nullable=True)
     verified_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    parent_submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     student = relationship("Student", back_populates="submissions")
     document_type = relationship("DocumentType")
+    parent_submission = relationship(
+        "DocumentSubmission",
+        remote_side="DocumentSubmission.id",
+        foreign_keys="DocumentSubmission.parent_submission_id",
+        post_update=True,
+    )
+    history_entries = relationship(
+        "DocumentSubmissionHistory",
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        order_by="DocumentSubmissionHistory.created_at",
+        foreign_keys="DocumentSubmissionHistory.submission_id",
+    )
+
+
+class DocumentSubmissionHistory(Base):
+    __tablename__ = "document_submission_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    action = Column(String(40), nullable=False, index=True)
+    previous_status = Column(String(30), nullable=True)
+    new_status = Column(String(30), nullable=True)
+    reason = Column(Text, nullable=True)
+    reference_submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    submission = relationship("DocumentSubmission", back_populates="history_entries", foreign_keys=[submission_id])
+    actor_user = relationship("User")
 
 
 class Notification(Base):

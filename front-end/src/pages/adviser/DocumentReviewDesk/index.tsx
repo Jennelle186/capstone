@@ -2,6 +2,7 @@ import { Sparkles, BadgeAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router";
 import { useDocumentReviewDesk } from "./hooks/useDocumentReviewDesk";
+import { useSubmissionHistory } from "@/hooks/useSubmissionHistory";
 import ReviewDeskLayout from "./components/ReviewDeskLayout";
 
 export default function DocumentReviewDesk() {
@@ -38,6 +39,9 @@ export default function DocumentReviewDesk() {
     handleUpdateStatus,
     handleSaveField,
   } = useDocumentReviewDesk();
+
+  const { entries: historyEntries, loading: historyLoading } =
+    useSubmissionHistory(currentSubmission?.id, "adviser");
 
   const flagReason = currentSubmission ? flagReasons[currentSubmission.id] ?? "" : "";
   const flagSubmitted = currentSubmission ? submittedFlags[currentSubmission.id] ?? false : false;
@@ -107,6 +111,8 @@ export default function DocumentReviewDesk() {
       onFlagReasonChange={handleFlagReasonChange}
       onSubmitFlag={handleSubmitFlag}
       onUpdateStatus={handleUpdateStatus}
+      historyEntries={historyEntries}
+      historyLoading={historyLoading}
     />
   );
 }

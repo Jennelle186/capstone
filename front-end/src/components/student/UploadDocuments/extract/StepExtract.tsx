@@ -33,7 +33,7 @@ export default function StepExtract({
   const fetchExtractions = useCallback(async () => {
     const token = await getTokenRef.current();
     if (!token) { setLoading(false); return; }
-    const res = await fetchWithClerkAuth("/api/me/documents/extractions", token);
+    const res = await fetchWithClerkAuth("/api/me/documents/extractions?status=classified,processing", token);
     if (res.ok) {
       const data = (await res.json()) as ExtractionItemResponse[];
       setItems(data.map(toExtractionItem));

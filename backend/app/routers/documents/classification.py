@@ -9,6 +9,7 @@ from sqlalchemy.orm import attributes, selectinload
 
 from ...database import SessionDep
 from ...models import DocumentSubmission, Student, SubmissionStatus
+from ...services.gcp_storage import delete_file as gcs_delete_file
 from ...services.processor import process_submission
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims, SubmissionDetailResponse
@@ -55,6 +56,27 @@ async def classify_document(
 
     await db.refresh(submission)
     await db.refresh(submission, attribute_names=["document_type"])
+
+    if submission.document_type_id is not None:
+        verified_stmt = select(DocumentSubmission.id).where(
+            DocumentSubmission.student_id == student.id,
+            DocumentSubmission.document_type_id == submission.document_type_id,
+            DocumentSubmission.status == SubmissionStatus.VERIFIED,
+            DocumentSubmission.id != submission.id,
+        )
+        if (await db.execute(verified_stmt)).scalar_one_or_none() is not None:
+            doc_type_name = submission.document_type.name if submission.document_type else "that type"
+            if submission.file_key:
+                try:
+                    await asyncio.to_thread(gcs_delete_file, submission.file_key)
+                except Exception:
+                    logger.exception("Failed to delete GCS file for verified duplicate %s", submission.id)
+            await db.delete(submission)
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Document classified as '{doc_type_name}' but that type is already verified. The duplicate has been removed.",
+            )
 
     return SubmissionDetailResponse(
         id=str(submission.id),
@@ -156,12 +178,36 @@ async def classify_all_documents(
         await asyncio.sleep(2)
 
     if submissions:
+        submission_ids = [submission.id for submission in submissions]
         result = await db.execute(
             select(DocumentSubmission)
             .options(selectinload(DocumentSubmission.document_type))
-            .where(DocumentSubmission.id.in_([submission.id for submission in submissions]))
+            .where(DocumentSubmission.id.in_(submission_ids))
         )
         updated_submissions = list(result.scalars().all())
+
+        # Check for verified-duplicate classifications
+        verified_type_ids_stmt = select(DocumentSubmission.document_type_id).where(
+            DocumentSubmission.student_id == student.id,
+            DocumentSubmission.status == SubmissionStatus.VERIFIED,
+        )
+        verified_type_ids = set(
+            (await db.execute(verified_type_ids_stmt)).scalars().all()
+        )
+
+        final_submissions: list[DocumentSubmission] = []
+        for sub in updated_submissions:
+            if sub.document_type_id is not None and sub.document_type_id in verified_type_ids:
+                if sub.file_key:
+                    try:
+                        await asyncio.to_thread(gcs_delete_file, sub.file_key)
+                    except Exception:
+                        logger.exception("Failed to delete GCS file for verified duplicate %s", sub.id)
+                await db.delete(sub)
+            else:
+                final_submissions.append(sub)
+        updated_submissions = final_submissions
+        await db.commit()
     else:
         updated_submissions = []
 

@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, FolderCheck } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, FolderCheck, Lock } from "lucide-react";
+import { toast } from "sonner";
 import SubmissionCard from "@/components/student/UploadDocuments/submit/SubmissionCard";
 import SubmissionSummary from "@/components/student/UploadDocuments/submit/SubmissionSummary";
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
@@ -27,6 +28,7 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
   const [extractionAccuracy, setExtractionAccuracy] = React.useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
+  const [verifiedExpanded, setVerifiedExpanded] = React.useState(false);
   const getTokenRef = React.useRef(getToken);
 
   React.useEffect(() => {
@@ -60,8 +62,14 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
     return () => { cancelled = true; };
   }, []);
 
-  const items = submissions
-    .filter((s) => s.document_type_id != null)
+  const pendingSubmissions = submissions.filter(
+    (s) => s.status !== "verified" && s.document_type_id != null,
+  );
+  const verifiedSubmissions = submissions.filter(
+    (s) => s.status === "verified" && s.document_type_id != null,
+  );
+
+  const items = pendingSubmissions
     .map((s) => ({
       id: s.id,
       fileName: s.original_filename,
@@ -91,6 +99,26 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
         setIsSubmitting(false);
         return;
       }
+      const result = await res.json() as { status: string; submitted_count: number; skipped_count?: number; skipped?: Array<{ submission_id: string; document_type_name: string | null; reason: string }> };
+      if (result.skipped_count && result.skipped_count > 0 && result.skipped) {
+        const names = result.skipped
+          .map((s) => s.document_type_name)
+          .filter(Boolean);
+        if (names.length > 0) {
+          const label = names.slice(0, 3).join(", ");
+          const remaining = names.length > 3 ? ` (+${names.length - 3} more)` : "";
+          toast.warning(`${result.skipped_count} file(s) skipped — already verified: ${label}${remaining}`, {
+            duration: 6000,
+          });
+        } else {
+          toast.warning(`${result.skipped_count} file(s) skipped because they match already-verified documents.`, {
+            duration: 6000,
+          });
+        }
+      }
+      toast.success(`${result.submitted_count} document(s) submitted for adviser review.`, {
+        duration: 5000,
+      });
       setSubmitted(true);
       onSubmitted?.();
     } catch {
@@ -161,8 +189,13 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
               {readOnly ? "Submitted Documents" : "Review Documents"}
             </h2>
             <span className="text-sm text-slate-500">
-              {items.length} Document{items.length !== 1 ? "s" : ""}
-              {readOnly ? "" : " Pending Submission"}
+                {items.length} Document{items.length !== 1 ? "s" : ""}
+                {readOnly ? "" : " Pending Submission"}
+                {verifiedSubmissions.length > 0 && (
+                  <span className="ml-2 text-xs text-emerald-600 font-medium">
+                    ({verifiedSubmissions.length} verified)
+                  </span>
+                )}
             </span>
           </div>
           {readOnly && (
@@ -178,6 +211,34 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
           {submitError && (
             <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {submitError}
+            </div>
+          )}
+          {verifiedSubmissions.length > 0 && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setVerifiedExpanded((v) => !v)}
+                className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-emerald-800 hover:bg-emerald-100/50 transition-colors"
+              >
+                {verifiedExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <Lock className="h-4 w-4" />
+                {verifiedSubmissions.length} Document{verifiedSubmissions.length !== 1 ? "s" : ""} Already Verified
+              </button>
+              {verifiedExpanded && (
+                <div className="divide-y divide-emerald-200 border-t border-emerald-200">
+                  {verifiedSubmissions.map((s) => (
+                    <div key={s.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                      <Lock className="h-4 w-4 shrink-0 text-emerald-500" />
+                      <span className="flex-1 truncate font-medium text-emerald-900">
+                        {s.document_type_name ?? s.original_filename}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        Verified
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <div className="space-y-3">

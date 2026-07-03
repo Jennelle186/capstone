@@ -28,6 +28,8 @@ export default function UploadDocuments() {
   const [initialLoading, setInitialLoading] = useState(true);
   const newlyUploadedIdsRef = useRef<Set<string>>(new Set());
 
+  const replaceSubmissionId = searchParams.get("replace");
+
   const getExtractedData = (submission: SubmissionDetail) =>
     (submission as unknown as { extracted_data?: unknown; extractedData?: unknown }).extracted_data ??
     (submission as unknown as { extracted_data?: unknown; extractedData?: unknown }).extractedData;
@@ -217,9 +219,29 @@ export default function UploadDocuments() {
     };
   }, [getToken, isLoaded, isSignedIn]);
 
-  const handleUploadComplete = useCallback((result: ConfirmUploadResponse) => {
+  const handleUploadComplete = useCallback(async (result: ConfirmUploadResponse) => {
+    if (replaceSubmissionId) {
+      const token = await getToken();
+      if (token) {
+        try {
+          await fetchWithClerkAuth(`/api/me/documents/${result.id}/classify`, token, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+        } catch {
+          // fallback: goToStep will retry
+        }
+        const freshRes = await fetchWithClerkAuth("/api/me/documents", token);
+        if (freshRes.ok) {
+          const data = (await freshRes.json()) as SubmissionDetail[];
+          setExistingSubmissions(data);
+        }
+      }
+      return;
+    }
     newlyUploadedIdsRef.current = new Set(newlyUploadedIdsRef.current).add(result.id);
-  }, []);
+  }, [getToken, replaceSubmissionId]);
 
   const handleDeleted = useCallback(async () => {
     const token = await getToken();
@@ -247,6 +269,12 @@ export default function UploadDocuments() {
 
   return (
     <UploadWizard step={step} onStepChange={goToStep} nextDisabled={nextDisabled}>
+      {replaceSubmissionId && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+          You are re-uploading this document to replace a previously flagged version.
+          Complete the upload wizard to submit the corrected file.
+        </div>
+      )}
       {step === 1 && (
         <StepUpload
           requiredDocuments={requiredDocs}
@@ -257,6 +285,7 @@ export default function UploadDocuments() {
           }
           onDeleted={handleDeleted}
           existingSubmissions={existingSubmissions}
+          replaceSubmissionId={replaceSubmissionId}
         />
       )}
       {step === 2 && (

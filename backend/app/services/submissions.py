@@ -11,6 +11,7 @@ from ..database import SessionDep
 from ..models import (
     Adviser,
     DocumentSubmission,
+    DocumentSubmissionHistory,
     DocumentType,
     ExtractionSchema,
     ExtractionSchemaStatus,
@@ -22,7 +23,29 @@ from ..models import (
 )
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .gcp_storage import generate_presigned_url as gcs_generate_presigned_url
-from .helpers import compute_initials, relative_time
+from .helpers import compute_initials, exclude_replaced_submissions, relative_time
+
+
+async def log_submission_event(
+    db: SessionDep,
+    submission_id: uuid.UUID,
+    action: str,
+    actor_user_id: uuid.UUID | None = None,
+    previous_status: str | None = None,
+    new_status: str | None = None,
+    reason: str | None = None,
+    reference_submission_id: uuid.UUID | None = None,
+) -> None:
+    entry = DocumentSubmissionHistory(
+        submission_id=submission_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        previous_status=previous_status,
+        new_status=new_status,
+        reason=reason,
+        reference_submission_id=reference_submission_id,
+    )
+    db.add(entry)
 
 
 async def list_submissions(
@@ -59,8 +82,8 @@ async def list_submissions(
             Student.school_year_id == target_school_year_id,
             DocumentSubmission.status == SubmissionStatus.SUBMITTED,
         )
-        .order_by(desc(DocumentSubmission.created_at))
     )
+    stmt = exclude_replaced_submissions(stmt).order_by(desc(DocumentSubmission.created_at))
     rows = (await db.execute(stmt)).all()
 
     return [
@@ -110,6 +133,7 @@ async def get_submission_download_url(
         SubmissionStatus.PROCESSING,
         SubmissionStatus.SUBMITTED,
         SubmissionStatus.IN_REVIEW,
+        SubmissionStatus.VERIFIED,
     ):
         return None
 
@@ -295,6 +319,7 @@ async def verify_submission(
         return None
 
     now = datetime.now(timezone.utc)
+    previous_status = submission.status.value
 
     submission.status = SubmissionStatus.VERIFIED
     submission.rejection_reason = None
@@ -302,6 +327,15 @@ async def verify_submission(
     submission.flagged_by = None
     submission.verified_at = now
     submission.verified_by = adviser.user_id
+
+    await log_submission_event(
+        db,
+        sub_uuid,
+        action="VERIFIED",
+        actor_user_id=adviser.user_id,
+        previous_status=previous_status,
+        new_status=SubmissionStatus.VERIFIED.value,
+    )
 
     notification = Notification(
         recipient_id=student.user_id,
@@ -356,6 +390,7 @@ async def flag_submission(
         return None
 
     now = datetime.now(timezone.utc)
+    previous_status = submission.status.value
 
     submission.status = SubmissionStatus.FLAGGED
     submission.rejection_reason = clean_reason
@@ -363,6 +398,16 @@ async def flag_submission(
     submission.flagged_by = adviser.user_id
     submission.verified_at = None
     submission.verified_by = None
+
+    await log_submission_event(
+        db,
+        sub_uuid,
+        action="FLAGGED",
+        actor_user_id=adviser.user_id,
+        previous_status=previous_status,
+        new_status=SubmissionStatus.FLAGGED.value,
+        reason=clean_reason,
+    )
 
     notification = Notification(
         recipient_id=student.user_id,

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from ..database import AsyncSessionLocal
-from ..models import DocumentSubmission, DocumentType, DocumentTypeStatus, SubmissionStatus
+from ..models import DocumentSubmission, DocumentSubmissionHistory, DocumentType, DocumentTypeStatus, SubmissionStatus
 from ..services.gcp_pipeline import (
     GcpPipelineError,
     process_document_sync,
@@ -71,11 +71,22 @@ async def _save_classification(
     status: SubmissionStatus,
     classification_result: dict,
     document_type_id=None,
+    reason: str | None = None,
 ) -> None:
+    previous_status = submission.status.value
     submission.status = status
     submission.classification_result = classification_result
     if document_type_id is not None:
         submission.document_type_id = document_type_id
+    session.add(
+        DocumentSubmissionHistory(
+            submission_id=submission.id,
+            action=status.value.upper().replace("-", "_"),
+            previous_status=previous_status,
+            new_status=status.value,
+            reason=reason,
+        )
+    )
     await session.commit()
 
 
@@ -109,6 +120,16 @@ async def process_submission(submission_id: UUID) -> None:
             submission.status = SubmissionStatus.PROCESSING
             await session.commit()
             logger.info("process_submission: status set to PROCESSING for %s", submission_id)
+
+            session.add(
+                DocumentSubmissionHistory(
+                    submission_id=submission.id,
+                    action="PROCESSING",
+                    previous_status=SubmissionStatus.UPLOADED.value,
+                    new_status=SubmissionStatus.PROCESSING.value,
+                )
+            )
+            await session.commit()
 
             document_types = await _get_active_document_types(session)
 
@@ -182,7 +203,7 @@ async def process_submission(submission_id: UUID) -> None:
                     submission.status = SubmissionStatus.FLAGGED
                     submission.classification_result = classification_result
                     await session.commit()
-                    delete_file(submission.file_key)
+                    await asyncio.to_thread(delete_file, submission.file_key)
                     raise HTTPException(
                         status_code=409,
                         detail="You cannot submit the same document. A record for this requirement has already been submitted and is locked for advisor review.",
@@ -211,7 +232,7 @@ async def process_submission(submission_id: UUID) -> None:
                     submission.status = SubmissionStatus.FLAGGED
                     submission.classification_result = classification_result
                     await session.commit()
-                    delete_file(submission.file_key)
+                    await asyncio.to_thread(delete_file, submission.file_key)
                     raise HTTPException(
                         status_code=409,
                         detail="You cannot submit the same document. A record for this requirement has already been submitted and is locked for advisor review.",

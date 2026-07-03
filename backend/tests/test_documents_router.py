@@ -155,6 +155,7 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
         classification_result={"type": "ADMISSION_FORM", "confidence": 0.95},
         extracted_data=None,
         llama_job_id="llama-file-id",
+        rejection_reason=None,
         created_at=None,
     )
 

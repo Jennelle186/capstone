@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import desc, select
 
 from ..database import SessionDep
-from ..models import Department, SchoolYear
+from ..models import Department, DocumentSubmission, SchoolYear
 
 
 # ─── Pure helpers ────────────────────────────────────────────────────────────
@@ -64,3 +64,17 @@ async def get_program_id_to_department_code_map(db: SessionDep) -> dict[UUID, st
         program_uuid_for_department_code(code): code
         for code in department_codes
     }
+
+
+def exclude_replaced_submissions(query):
+    """Add a WHERE clause excluding submissions that have a child replacement.
+
+    A submission is considered replaced when another submission has
+    ``parent_submission_id`` pointing to it.
+    """
+    subq = (
+        select(DocumentSubmission.parent_submission_id)
+        .where(DocumentSubmission.parent_submission_id.isnot(None))
+        .subquery()
+    )
+    return query.where(DocumentSubmission.id.notin_(subq))

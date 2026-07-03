@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { motion } from "framer-motion";
 import {
@@ -41,6 +41,19 @@ export default function StudentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { student, submissions, loading, error } = useStudentDetail(id);
+
+  useEffect(() => {
+    console.group("[StudentDetailPage] Document Submissions Table Data");
+    console.log("Raw Submissions:", submissions);
+    console.table(submissions.map((s) => ({
+      id: s.id,
+      document_type: s.document_type,
+      status: s.status,
+      submitted_at: s.submitted_at,
+    })));
+    console.log("Student:", student);
+    console.groupEnd();
+  }, [submissions, student]);
 
   const tableData: TableSubmission[] = useMemo(
     () =>

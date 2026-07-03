@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Literal
 from uuid import UUID
@@ -226,7 +227,7 @@ async def generate_extraction_schema(
     finally:
         if temp_key:
             try:
-                delete_file(temp_key)
+                await asyncio.to_thread(delete_file, temp_key)
             except Exception:
                 pass
 

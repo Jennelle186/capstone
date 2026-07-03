@@ -30,7 +30,8 @@ type RowStatus =
   | "classified"
   | "needs-review"
   | "accepted"
-  | "submitted";
+  | "submitted"
+  | "verified";
 
 interface RowData {
   doc: RequiredDocument;
@@ -53,6 +54,7 @@ function getDocIcon(code: string) {
 }
 
 const STATUS_PRIORITY: Record<RowStatus, number> = {
+  verified: 6,
   accepted: 5,
   submitted: 5,
   classified: 4,
@@ -63,6 +65,7 @@ const STATUS_PRIORITY: Record<RowStatus, number> = {
 };
 
 function deriveRowStatus(item: ClassificationItem): RowStatus {
+  if (item.status === "verified") return "verified";
   if (item.originalStatus === "submitted" || item.originalStatus === "in-review") return "submitted";
   if (item.status === "overridden") return "accepted";
   if (item.status === "classified" && !item.needsReview) return "classified";
@@ -95,6 +98,8 @@ function buildRows(requiredDocuments: RequiredDocument[], items: ClassificationI
 
 function StatusIcon({ status, className }: { status: RowStatus; className?: string }) {
   switch (status) {
+    case "verified":
+      return <CheckCircle className={cn("h-4 w-4 text-emerald-600", className)} />;
     case "accepted":
       return <CheckCircle className={cn("h-4 w-4 text-emerald-600", className)} />;
     case "submitted":
@@ -114,6 +119,13 @@ function StatusIcon({ status, className }: { status: RowStatus; className?: stri
 
 function StatusLabel({ status, confidence, fileName }: { status: RowStatus; confidence: number | null; fileName: string | null }) {
   switch (status) {
+    case "verified":
+      return (
+        <div className="flex flex-col">
+          <span className="text-xs font-semibold text-emerald-600">Verified by Adviser</span>
+          {fileName && <span className="text-[11px] text-slate-400 truncate max-w-[160px]">{fileName}</span>}
+        </div>
+      );
     case "accepted":
       return (
         <div className="flex flex-col">
@@ -157,7 +169,7 @@ function StatusLabel({ status, confidence, fileName }: { status: RowStatus; conf
 
 export default function SubmissionChecklist({ requiredDocuments, items }: SubmissionChecklistProps) {
   const rows = buildRows(requiredDocuments, items);
-  const acceptedCount = rows.filter((r) => r.status === "accepted" || r.status === "classified" || r.status === "submitted").length;
+  const acceptedCount = rows.filter((r) => r.status === "verified" || r.status === "accepted" || r.status === "classified" || r.status === "submitted").length;
   const total = rows.length;
 
   return (
@@ -172,7 +184,7 @@ export default function SubmissionChecklist({ requiredDocuments, items }: Submis
         <ul className="divide-y divide-slate-100">
           {rows.map((row) => {
             const DocIcon = getDocIcon(row.doc.code);
-            const isDone = row.status === "accepted" || row.status === "classified";
+            const isDone = row.status === "verified" || row.status === "accepted" || row.status === "classified";
             const isMissing = row.status === "not-uploaded";
 
             return (
@@ -180,7 +192,7 @@ export default function SubmissionChecklist({ requiredDocuments, items }: Submis
                 <div
                   className={cn(
                     "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg",
-                    isDone && "bg-emerald-50",
+                    (isDone || row.status === "verified") && "bg-emerald-50",
                     row.status === "submitted" && "bg-slate-100",
                     row.status === "needs-review" && "bg-amber-50",
                     row.status === "processing" && "bg-blue-50",
@@ -191,7 +203,7 @@ export default function SubmissionChecklist({ requiredDocuments, items }: Submis
                   <DocIcon
                     className={cn(
                       "h-4 w-4",
-                      isDone && "text-emerald-600",
+                      (isDone || row.status === "verified") && "text-emerald-600",
                       row.status === "submitted" && "text-slate-500",
                       row.status === "needs-review" && "text-amber-600",
                       row.status === "processing" && "text-blue-600",

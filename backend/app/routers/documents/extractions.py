@@ -5,9 +5,9 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.orm import attributes, selectinload
+from pydantic import BaseModel, Field
+from sqlalchemy import desc, select
+from sqlalchemy.orm import aliased, attributes, selectinload
 
 from ...database import AsyncSessionLocal, SessionDep
 from ...models import (
@@ -53,7 +53,7 @@ class ExtractionItemResponse(BaseModel):
     status: str
     fields: list[ExtractionFieldResponse]
     ocr_text: str = ""
-    raw_kie: dict[str, str] = {}
+    raw_kie: dict[str, str] = Field(default_factory=dict)
 
 
 class ExtractAllRequest(BaseModel):
@@ -262,14 +262,22 @@ async def extract_all_documents(
         else:
             submissions = []
     else:
+        replacement = aliased(DocumentSubmission)
         result = await db.execute(
             select(DocumentSubmission)
             .options(selectinload(DocumentSubmission.document_type))
+            .outerjoin(
+                replacement,
+                (replacement.parent_submission_id == DocumentSubmission.id)
+                & (replacement.student_id == student.id),
+            )
             .where(
                 DocumentSubmission.student_id == student.id,
                 DocumentSubmission.status.in_(eligible_statuses),
                 DocumentSubmission.document_type_id.isnot(None),
+                replacement.id.is_(None),
             )
+            .order_by(desc(DocumentSubmission.created_at))
         )
         submissions = list(result.scalars().all())
 
@@ -365,16 +373,42 @@ async def list_extractions(
     else:
         statuses = (SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED, SubmissionStatus.PROCESSING)
 
+    replacement = aliased(DocumentSubmission)
+
     submissions_result = await db.execute(
         select(DocumentSubmission)
         .options(selectinload(DocumentSubmission.document_type))
+        .outerjoin(
+            replacement,
+            (replacement.parent_submission_id == DocumentSubmission.id)
+            & (replacement.student_id == student.id),
+        )
         .where(
             DocumentSubmission.student_id == student.id,
             DocumentSubmission.status.in_(statuses),
             DocumentSubmission.document_type_id.isnot(None),
+            replacement.id.is_(None),
         )
+        .order_by(desc(DocumentSubmission.created_at))
     )
     submissions = list(submissions_result.scalars().all())
+
+    # Keep only the latest submission per document type
+    latest_by_type: dict[UUID, DocumentSubmission] = {}
+    for sub in submissions:
+        if sub.document_type_id not in latest_by_type:
+            latest_by_type[sub.document_type_id] = sub
+    submissions = list(latest_by_type.values())
+
+    verified_type_ids = set(
+        (await db.execute(
+            select(DocumentSubmission.document_type_id).where(
+                DocumentSubmission.student_id == student.id,
+                DocumentSubmission.status == SubmissionStatus.VERIFIED,
+            )
+        )).scalars().all()
+    )
+    submissions = [s for s in submissions if s.document_type_id not in verified_type_ids]
 
     if not submissions:
         return []

@@ -45,6 +45,8 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     status = "submitted";
   } else if (s.status === "flagged" || isFlagged) {
     status = "needs-review";
+  } else if (s.status === "verified") {
+    status = "verified";
   } else {
     status = "pending";
   }
@@ -115,19 +117,24 @@ export default function StepClassify({
     itemsRef.current = items;
   }, [items]);
 
+  const visibleItems = React.useMemo(
+    () => items.filter((i) => i.status !== "verified"),
+    [items],
+  );
+
   React.useEffect(() => {
     setItems(submissions.map(submissionToItem));
   }, [submissions]);
 
   const classifyAllInProgress = classifyingAll || classifyingIds.size > 0;
-  const isProcessing = items.some((i) => i.status === "processing");
+  const isProcessing = visibleItems.some((i) => i.status === "processing");
 
   React.useEffect(() => {
-    const uploaded = items.filter((i) => i.status === "pending" || i.status === "processing");
-    const allDone = items.length > 0 && uploaded.length === 0;
-    const allReviewed = allDone && items.every((i) => !i.needsReview);
+    const uploaded = visibleItems.filter((i) => i.status === "pending" || i.status === "processing");
+    const allDone = visibleItems.length > 0 && uploaded.length === 0;
+    const allReviewed = allDone && visibleItems.every((i) => !i.needsReview);
     onClassificationChange?.(allReviewed);
-  }, [items, onClassificationChange]);
+  }, [items, onClassificationChange, visibleItems]);
 
   // ── Poll backend when any item is still processing ────────────────────
   React.useEffect(() => {
@@ -149,30 +156,30 @@ export default function StepClassify({
   }, [isProcessing, onSubmissionsUpdate]);
 
   const counts = React.useMemo(() => {
-    const total = items.length;
-    const needsReview = items.filter((i) => i.needsReview).length;
-    const ready = items.filter((i) => !i.needsReview && i.status !== "pending" && i.status !== "processing").length;
+    const total = visibleItems.length;
+    const needsReview = visibleItems.filter((i) => i.needsReview).length;
+    const ready = visibleItems.filter((i) => !i.needsReview && i.status !== "pending" && i.status !== "processing").length;
     return { total, needsReview, ready };
-  }, [items]);
+  }, [visibleItems]);
 
   const [activeTab, setActiveTab] = React.useState<FilterTab>("all");
 
   const filtered = React.useMemo(() => {
     switch (activeTab) {
       case "needs-review":
-        return items.filter((i) => i.needsReview);
+        return visibleItems.filter((i) => i.needsReview);
       case "ready":
-        return items.filter((i) => !i.needsReview && i.status !== "pending" && i.status !== "processing");
+        return visibleItems.filter((i) => !i.needsReview && i.status !== "pending" && i.status !== "processing");
       default:
-        return items;
+        return visibleItems;
     }
-  }, [items, activeTab]);
+  }, [visibleItems, activeTab]);
 
   const handleClassifyAll = React.useCallback(async () => {
     const token = await getTokenRef.current();
     if (!token) return;
 
-    const pending = items.filter((i) => i.status === "pending" || i.status === "needs-review");
+    const pending = visibleItems.filter((i) => i.status === "pending" || i.status === "needs-review");
     if (pending.length === 0) return;
 
     const pendingIds = new Set(pending.map((p) => p.id));
@@ -202,11 +209,18 @@ export default function StepClassify({
 
       if (res.ok) {
         const updated: SubmissionDetail[] = await res.json();
+        const responseIds = new Set(updated.map((u) => u.id));
+        const removedCount = itemsRef.current.length - updated.length;
+        if (removedCount > 0) {
+          toast.warning(`${removedCount} document(s) skipped — already verified.`);
+        }
         setItems((prev) =>
-          prev.map((item) => {
-            const match = updated.find((u) => u.id === item.id);
-            return match ? submissionToItem(match) : item;
-          }),
+          prev
+            .filter((item) => responseIds.has(item.id))
+            .map((item) => {
+              const match = updated.find((u) => u.id === item.id);
+              return match ? submissionToItem(match) : item;
+            }),
         );
         onSubmissionsUpdate?.(updated);
       } else {
@@ -239,7 +253,7 @@ export default function StepClassify({
 
     setClassifyingIds(new Set());
     setClassifyingAll(false);
-  }, [items, onSubmissionsUpdate]);
+  }, [onSubmissionsUpdate, visibleItems]);
 
   const handleClassifyOne = React.useCallback(
     async (id: string) => {
@@ -269,13 +283,26 @@ export default function StepClassify({
           );
         } else {
           const err = await res.json().catch(() => null);
-          toast.error(err?.detail ?? "Classification failed.");
-          setItems((prev) =>
-            prev.map((i) => {
-              if (i.id !== id) return i;
-              return { ...i, status: "needs-review" as ClassificationStatus, needsReview: true };
-            }),
-          );
+          if (res.status === 409) {
+            toast.warning(err?.detail ?? "Document removed — already verified.");
+            setItems((prev) => prev.filter((i) => i.id !== id));
+            const refreshToken = await getTokenRef.current();
+            if (refreshToken) {
+              const freshRes = await fetchWithClerkAuth("/api/me/documents", refreshToken);
+              if (freshRes.ok) {
+                const data = await freshRes.json() as SubmissionDetail[];
+                onSubmissionsUpdate?.(data);
+              }
+            }
+          } else {
+            toast.error(err?.detail ?? "Classification failed.");
+            setItems((prev) =>
+              prev.map((i) => {
+                if (i.id !== id) return i;
+                return { ...i, status: "needs-review" as ClassificationStatus, needsReview: true };
+              }),
+            );
+          }
         }
       } catch {
         setItems((prev) =>
@@ -292,7 +319,7 @@ export default function StepClassify({
         return next;
       });
     },
-    [],
+    [onSubmissionsUpdate],
   );
 
   const handleOverride = React.useCallback(
@@ -349,15 +376,15 @@ export default function StepClassify({
     [],
   );
 
-  const hasPending = items.some((i) => i.status === "pending" || i.status === "needs-review");
-  const allClassified = items.length > 0 && items.every(
+  const hasPending = visibleItems.some((i) => i.status === "pending" || i.status === "needs-review");
+  const allClassified = visibleItems.length > 0 && visibleItems.every(
     (i) => i.status === "classified" || i.status === "overridden" || i.status === "submitted",
   );
-  const hasItems = items.length > 0;
+  const hasItems = visibleItems.length > 0;
 
   const previewableItems = React.useMemo(
-    () => items.filter((i) => i.status !== "pending" && i.status !== "processing"),
-    [items],
+    () => visibleItems.filter((i) => i.status !== "pending" && i.status !== "processing"),
+    [visibleItems],
   );
 
   const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
@@ -405,8 +432,8 @@ export default function StepClassify({
     return () => { cancelled = true; };
   }, [previewIndex, previewableItems]);
 
-  const processingItems = items.filter((i) => i.status === "processing");
-  const interactiveItems = items.filter((i) => i.status !== "processing");
+  const processingItems = visibleItems.filter((i) => i.status === "processing");
+  const interactiveItems = visibleItems.filter((i) => i.status !== "processing");
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -552,7 +579,7 @@ export default function StepClassify({
         {/* Read-only List (all classified, nothing processing) */}
         {allClassified && !isProcessing && (
           <div className="space-y-3">
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <div
                 key={item.id}
                 className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"

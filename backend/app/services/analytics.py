@@ -17,7 +17,7 @@ from ..models import (
     User,
 )
 from .adviser_core import get_department_ids_for_adviser
-from .helpers import compute_initials, get_active_school_year_id
+from .helpers import compute_initials, exclude_replaced_submissions, get_active_school_year_id
 from .students import get_required_doc_counts_by_class
 
 
@@ -51,7 +51,7 @@ async def get_analytics(
     )
     total_students = (await db.execute(student_count_stmt)).scalar() or 0
 
-    sub_query = (
+    sub_query = exclude_replaced_submissions(
         select(DocumentSubmission.id, DocumentSubmission.status, DocumentSubmission.created_at)
         .select_from(DocumentSubmission)
         .join(Student, DocumentSubmission.student_id == Student.id)
@@ -119,7 +119,7 @@ async def get_archived(
     )
     total_students = (await db.execute(student_count_stmt)).scalar() or 0
 
-    sub_query = (
+    sub_query = exclude_replaced_submissions(
         select(
             DocumentSubmission.id,
             DocumentSubmission.status,
@@ -190,7 +190,7 @@ async def get_archived(
     dept_rows = (await db.execute(dept_stmt)).all()
     dept_map = {r.id: r.name for r in dept_rows}
 
-    sub_count_stmt = (
+    sub_count_stmt = exclude_replaced_submissions(
         select(DocumentSubmission.student_id, func.count(DocumentSubmission.id))
         .where(
             DocumentSubmission.student_id.in_([s.id for s in students]),

@@ -5,7 +5,8 @@ export type ClassificationStatus =
   | "needs-review"
   | "overridden"
   | "flagged"
-  | "submitted";
+  | "submitted"
+  | "verified";
 
 export interface ClassificationResult {
   type?: string | null;

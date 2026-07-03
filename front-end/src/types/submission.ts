@@ -39,6 +39,7 @@ export interface SubmissionDetail {
   document_type_code: string | null;
   classification_result: Record<string, unknown> | null;
   extracted_data: Record<string, unknown> | null;
+  rejection_reason: string | null;
   llama_job_id: string | null;
   created_at: string;
 }

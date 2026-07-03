@@ -1,8 +1,12 @@
+import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import ReviewDeskNavbar from "./ReviewDeskNavbar";
 import SubmissionSidebar from "./SubmissionSidebar";
 import DocumentCanvas from "./DocumentCanvas";
 import ExtractionFieldEditor from "./ExtractionFieldEditor";
 import ReviewActionFooter from "./ReviewActionFooter";
+import SubmissionHistoryTimeline from "@/components/common/document-detail/SubmissionHistoryTimeline";
+import type { SubmissionHistoryEntry } from "@/types/submission-history";
 import type { AdviserStudentSubmission } from "@/types/adviser-students";
 import type { ExtractionSection } from "@/components/common/document-detail/DocumentDetailModal";
 import type { ReviewDeskStats, ReviewStatus } from "../types";
@@ -43,6 +47,8 @@ interface Props {
   onFlagReasonChange: (submissionId: string, reason: string) => void;
   onSubmitFlag: () => void;
   onUpdateStatus: (status: ReviewStatus) => void;
+  historyEntries: SubmissionHistoryEntry[];
+  historyLoading: boolean;
 }
 
 export default function ReviewDeskLayout({
@@ -75,7 +81,10 @@ export default function ReviewDeskLayout({
   onFlagReasonChange,
   onSubmitFlag,
   onUpdateStatus,
+  historyEntries,
+  historyLoading,
 }: Props) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white text-slate-900 font-sans antialiased h-screen w-screen overflow-hidden">
       <ReviewDeskNavbar
@@ -132,6 +141,29 @@ export default function ReviewDeskLayout({
               onFieldChange={onFieldChange}
               onSaveField={onSaveField}
             />
+            <div className="px-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="flex items-center justify-between w-full py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700"
+              >
+                <span>Document History</span>
+                {historyOpen ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </button>
+              {historyOpen && (
+                <div className="pb-3 overflow-y-auto max-h-48">
+                  <SubmissionHistoryTimeline
+                    entries={historyEntries}
+                    loading={historyLoading}
+                    showSystemEventsDefault
+                  />
+                </div>
+              )}
+            </div>
             <ReviewActionFooter
               currentSubmission={currentSubmission}
               actioning={actioning}

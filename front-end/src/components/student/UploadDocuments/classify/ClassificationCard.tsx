@@ -67,6 +67,8 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     status = "submitted";
   } else if (s.status === "flagged" || isFlagged) {
     status = "needs-review";
+  } else if (s.status === "verified") {
+    status = "verified";
   } else {
     status = "pending";
   }
@@ -152,6 +154,13 @@ function StatusBadge({ status, confidence }: { status: ClassificationStatus; con
         <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-slate-500">
           <CheckCircle className="h-3 w-3 text-slate-400" />
           Submitted — locked
+        </span>
+      );
+    case "verified":
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-emerald-700">
+          <CheckCircle className="h-3 w-3" />
+          Verified
         </span>
       );
     default:

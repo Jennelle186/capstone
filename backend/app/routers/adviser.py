@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from ..database import SessionDep
-from ..models import UserRole
+from ..models import DocumentSubmission, DocumentSubmissionHistory, User, UserRole
 from ..rbac import require_roles
 from ..services.adviser_core import resolve_adviser
 from ..services.analytics import get_analytics as svc_get_analytics, get_archived as svc_get_archived
@@ -36,7 +38,7 @@ class AdviserSubmissionResponse(BaseModel):
     document_type_name: str | None
     status: str
     created_at: str
-    extraction_fields: dict = {}
+    extraction_fields: dict = Field(default_factory=dict)
 
 
 class DownloadUrlResponse(BaseModel):
@@ -375,3 +377,58 @@ async def get_adviser_archived(
         analytics=AdviserArchivedAnalytics(**result["analytics"]),
         students=[AdviserStudentResponse(**s) for s in result["students"]],
     )
+
+
+class SubmissionHistoryEntryResponse(BaseModel):
+    id: str
+    action: str
+    actor_name: str | None = None
+    previous_status: str | None = None
+    new_status: str | None = None
+    reason: str | None = None
+    reference_submission_id: str | None = None
+    created_at: str
+
+
+@router.get("/api/adviser/submissions/{submission_id}/history", response_model=list[SubmissionHistoryEntryResponse])
+async def get_adviser_submission_history(
+    submission_id: UUID,
+    current_user: dict = CurrentAdviser,
+    db: SessionDep = None,
+) -> list[SubmissionHistoryEntryResponse]:
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(404, "Adviser not found.")
+
+    submission = await db.get(DocumentSubmission, submission_id)
+    if submission is None:
+        raise HTTPException(404, "Submission not found.")
+
+    db_result = await db.execute(
+        select(DocumentSubmissionHistory, User)
+        .outerjoin(User, DocumentSubmissionHistory.actor_user_id == User.id)
+        .where(DocumentSubmissionHistory.submission_id == submission_id)
+        .order_by(DocumentSubmissionHistory.created_at)
+    )
+    rows = db_result.all()
+
+    result_entries = []
+    for history, user_obj in rows:
+        reason = history.reason
+        if history.action in ("REPLACEMENT_OF", "REUPLOADED") and history.reference_submission_id:
+            ref_sub = await db.get(DocumentSubmission, history.reference_submission_id)
+            if ref_sub and ref_sub.rejection_reason:
+                reason = ref_sub.rejection_reason
+
+        result_entries.append(SubmissionHistoryEntryResponse(
+            id=str(history.id),
+            action=history.action,
+            actor_name=f"{user_obj.first_name} {user_obj.last_name}".strip() if user_obj else None,
+            previous_status=history.previous_status,
+            new_status=history.new_status,
+            reason=reason,
+            reference_submission_id=str(history.reference_submission_id) if history.reference_submission_id else None,
+            created_at=history.created_at.isoformat() if history.created_at else "",
+        ))
+
+    return result_entries

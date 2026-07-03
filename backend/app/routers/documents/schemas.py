@@ -20,4 +20,5 @@ class SubmissionDetailResponse(BaseModel):
     document_type_code: str | None = None
     classification_result: dict | None = None
     extracted_data: dict | None = None
+    rejection_reason: str | None = None
     created_at: str

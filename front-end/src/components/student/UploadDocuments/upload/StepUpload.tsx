@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { Lock } from "lucide-react";
 import { toast } from "sonner";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
@@ -18,16 +19,12 @@ const MAX_FILE_SIZE = 315 * 1024 * 1024;
 
 interface StepUploadProps {
   requiredDocuments?: RequiredDocument[];
-  // Clerk auth token provider for authenticated API calls
   getToken: () => Promise<string | null>;
-  // Called after each file is uploaded successfully
   onUploadComplete?: (result: ConfirmUploadResponse) => void;
-  // Called after a previously uploaded submission is deleted from the server
   onDeleteSubmission?: (id: string) => void;
-  // Called after a successful deletion so the parent can refetch fresh data
   onDeleted?: () => void;
-  // Existing submissions fetched on mount for the resume feature
   existingSubmissions?: SubmissionDetail[];
+  replaceSubmissionId?: string | null;
 }
 
 // This is the upload workflow: drop zone, new file list, previously uploaded section, preview dialog, and sidebar.
@@ -38,6 +35,7 @@ export default function StepUpload({
   onDeleteSubmission,
   onDeleted,
   existingSubmissions,
+  replaceSubmissionId,
 }: StepUploadProps) {
   // Tracks files the user has selected but not yet uploaded
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -77,13 +75,17 @@ export default function StepUpload({
   // Requests a presigned POST URL from the backend for the given file.
   const initiateUpload = useCallback(
     async (item: FileItem, token: string): Promise<InitiateUploadResponse> => {
+      const body: Record<string, unknown> = {
+        name: item.file.name,
+        type: item.file.type || "application/octet-stream",
+        size: item.file.size,
+      };
+      if (replaceSubmissionId) {
+        body.replace_submission_id = replaceSubmissionId;
+      }
       const res = await fetchWithClerkAuth("/api/me/documents/initiate", token, {
         method: "POST",
-        body: JSON.stringify({
-          name: item.file.name,
-          type: item.file.type || "application/octet-stream",
-          size: item.file.size,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         if (res.status === 409) {
@@ -275,10 +277,38 @@ export default function StepUpload({
     return items;
   }, [files, existingSubmissions]);
 
+  const verifiedTypes = useMemo(() => {
+    if (!existingSubmissions || !requiredDocuments) return [];
+    const verifiedDocIds = new Set(
+      existingSubmissions
+        .filter((s) => s.status === "verified")
+        .map((s) => s.document_type_id)
+        .filter(Boolean),
+    );
+    return requiredDocuments.filter((doc) => verifiedDocIds.has(doc.id));
+  }, [existingSubmissions, requiredDocuments]);
+
   return (
     <div className="grid grid-cols-12 gap-4">
       {/* Left column: upload controls and file lists */}
       <div className="col-span-12 lg:col-span-8 space-y-4">
+        {verifiedTypes.length > 0 && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
+            <p className="flex items-center gap-2 font-semibold text-emerald-800">
+              <Lock className="h-4 w-4 shrink-0" />
+              Already verified — no re-uploads needed
+            </p>
+            <p className="mt-1 text-xs text-emerald-700">
+              {verifiedTypes.map((d) => d.name).join(", ")}
+              {verifiedTypes.length === 1
+                ? " is"
+                : " are"}{" "}
+              already verified by your adviser. New uploads matching
+              {verifiedTypes.length === 1 ? " this type" : " these types"} will be
+              skipped at submission.
+            </p>
+          </div>
+        )}
         <PreviouslyUploadedSection
           submissions={existingSubmissions ?? []}
           previewItems={previewItems}

@@ -1,10 +1,12 @@
 import * as React from "react";
 import { useParams, useNavigate } from "react-router";
 import { useAuth } from "@clerk/clerk-react";
-import { ArrowLeft, ExternalLink, CheckCircle2, Download, Printer } from "lucide-react";
+import { ArrowLeft, ExternalLink, CheckCircle2, Download, Printer, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { fetchWithClerkAuth } from "@/lib/api";
+import SubmissionHistoryTimeline from "@/components/common/document-detail/SubmissionHistoryTimeline";
+import { useSubmissionHistory } from "@/hooks/useSubmissionHistory";
 import type { ExtractionItemResponse } from "@/types/extraction";
 import type { SubmissionDetail, DownloadUrlResponse } from "@/types/submission";
 
@@ -33,6 +35,8 @@ export default function ExtractionDetailPage() {
   } | null>(null);
   const [error, setError] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState<string | undefined>(undefined);
+
+  const { entries: historyEntries, loading: historyLoading } = useSubmissionHistory(submissionId, "student");
 
   React.useEffect(() => {
     if (!submissionId) return;
@@ -185,6 +189,20 @@ export default function ExtractionDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {docInfo.status === "flagged" && (
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                  onClick={() =>
+                    navigate(
+                      `/student/upload?replace=${submissionId}&type=${docInfo.docType}`,
+                    )
+                  }
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Re-upload
+                </Button>
+              )}
               {previewUrl && (
                 <Button
                   variant="outline"
@@ -198,6 +216,19 @@ export default function ExtractionDetailPage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Document Activity */}
+      {submissionId && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <h2 className="text-base font-semibold text-slate-900 mb-4">
+            Document Activity
+          </h2>
+          <SubmissionHistoryTimeline
+            entries={historyEntries}
+            loading={historyLoading}
+          />
         </div>
       )}
 

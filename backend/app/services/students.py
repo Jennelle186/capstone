@@ -21,7 +21,7 @@ from ..models import (
 )
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .document_requirements import get_required_document_types_for_student
-from .helpers import compute_initials
+from .helpers import compute_initials, exclude_replaced_submissions
 
 
 async def get_required_doc_counts_by_class(
@@ -90,7 +90,7 @@ async def list_students(
     dept_rows = (await db.execute(dept_stmt)).all()
     dept_map = {row.id: row.name for row in dept_rows}
 
-    sub_count_stmt = (
+    sub_count_stmt = exclude_replaced_submissions(
         select(
             DocumentSubmission.student_id,
             func.count(DocumentSubmission.id),
@@ -176,7 +176,7 @@ async def get_student_detail(
     req_types = await get_required_document_types_for_student(db, student)
     documents_total = len(req_types)
 
-    sub_stmt = (
+    sub_stmt = exclude_replaced_submissions(
         select(DocumentSubmission)
         .options(selectinload(DocumentSubmission.document_type))
         .where(
@@ -197,6 +197,7 @@ async def get_student_detail(
             "submitted_at": sub.created_at.isoformat() if sub.created_at else "",
             "extraction_fields": sub.extracted_data or {},
             "classification_result": sub.classification_result,
+            "rejection_reason": sub.rejection_reason,
         }
         for sub in submissions
     ]
