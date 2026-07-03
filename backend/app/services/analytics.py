@@ -63,7 +63,10 @@ async def get_analytics(
     )
     all_subs = (await db.execute(sub_query)).all()
 
-    pending_reviews = sum(1 for r in all_subs if r.status == SubmissionStatus.SUBMITTED)
+    pending_reviews = sum(
+        1 for r in all_subs
+        if r.status in (SubmissionStatus.SUBMITTED, SubmissionStatus.IN_REVIEW)
+    )
     verified_count = sum(1 for r in all_subs if r.status == SubmissionStatus.VERIFIED)
 
     today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
