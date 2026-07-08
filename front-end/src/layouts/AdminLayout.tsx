@@ -16,6 +16,7 @@ export default function AdminLayout() {
         "/admin/extraction-schemas": { section: "Management", page: "Extraction Schemas" },
         "/admin/requirements": { section: "Management", page: "Requirements" },
         "/admin/reports": { section: "Management", page: "Reports" },
+        "/admin/students": { section: "Management", page: "Students" },
         "/admin/settings/school-year": { section: "Settings", page: "School Year" },
     };
     const routeMeta = routeMetaByPath[location.pathname] ?? { section: "Management", page: "Admin Portal" };

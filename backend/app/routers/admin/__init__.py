@@ -8,6 +8,7 @@ from .adviser_management import router as adviser_management_router
 from .departments import router as departments_router
 from .document_management import router as document_management_router
 from .school_years import router as school_years_router
+from .student_management import router as student_management_router
 from .users import router as users_router
 
 # Root admin router. All admin sub-domains are mounted here under `/api/admin`.
@@ -31,3 +32,5 @@ router.include_router(extraction_schemas_router)
 router.include_router(extractions_router)
 # Access control namespace (endpoints to be added incrementally).
 router.include_router(access_control_router)
+# Student management namespace.
+router.include_router(student_management_router)

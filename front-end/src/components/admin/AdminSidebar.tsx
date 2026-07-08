@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Building2, BarChart3, CalendarDays, ClipboardCheck, FileText, FileJson, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Building2, BarChart3, CalendarDays, ClipboardCheck, FileText, FileJson, LogOut, GraduationCap } from "lucide-react";
 import CommonAppSidebar from "@/components/common/AppSidebar";
 import LogoutConfirmDialog from "@/components/common/LogoutConfirmDialog";
 import type { SidebarGroupConfig } from "@/components/common/AppSidebar";
@@ -42,6 +42,7 @@ export function AdminSidebar() {
                 items: [
                     { title: "Advisers", icon: Users, url: "/admin/advisers" },
                     { title: "Departments", icon: Building2, url: "/admin/departments" },
+                    { title: "Students", icon: GraduationCap, url: "/admin/students" },
                     { title: "Document Types", icon: FileText, url: "/admin/document-types" },
                     {
                         title: "Schema Builder",

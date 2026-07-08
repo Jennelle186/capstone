@@ -25,6 +25,7 @@ import AdminDashboardPage from "./pages/admin/dashboard/AdminDashboardPage";
 import AdvisersPage from "./pages/admin/advisers/AdvisersPage";
 import ReportsPage from "./pages/admin/reports/ReportsPage";
 import DepartmentsPage from "./pages/admin/departments/DepartmentsPage";
+import StudentsPage from "./pages/admin/students/StudentsPage";
 import SchoolYearsPage from "./pages/admin/school-years/SchoolYearsPage";
 import DocumentTypesPage from "./pages/admin/document-types/DocumentTypesPage";
 import RequirementsPage from "./pages/admin/requirements/RequirementsPage";
@@ -113,6 +114,7 @@ const AppRoutes = createBrowserRouter([
                     { path: "dashboard", Component: AdminDashboardPage },
                     { path: "advisers", Component: AdvisersPage },
                     { path: "departments", Component: DepartmentsPage },
+                    { path: "students", Component: StudentsPage },
                     { path: "document-types", Component: DocumentTypesPage },
                     {
                         path: "extraction-schemas",
