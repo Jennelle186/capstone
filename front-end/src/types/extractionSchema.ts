@@ -59,3 +59,30 @@ export interface ExtractionSchemaGenerateResponse {
     document_type_id?: string | null;
     effective_date?: string | null;
 }
+
+export interface SandboxClassificationResult {
+    document_type_id: string | null;
+    document_type_name: string;
+    document_type_code: string;
+    confidence: number;
+    reasoning: string;
+}
+
+export interface SandboxSchemaInfo {
+    id: string;
+    name: string;
+}
+
+export interface SandboxFieldResult {
+    key: string;
+    label: string;
+    type: string;
+    value: string;
+    confidence: number;
+}
+
+export interface SandboxExtractionResponse {
+    classification: SandboxClassificationResult;
+    schema_info: SandboxSchemaInfo | null;
+    fields: SandboxFieldResult[];
+}

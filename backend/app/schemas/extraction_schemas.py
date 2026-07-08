@@ -187,3 +187,30 @@ class ExtractionSchemaGenerateResponse(BaseModel):
     source_file_name: str | None = None
     document_type_id: UUID | None = None
     effective_date: str | None = None
+
+
+class SandboxFieldResult(BaseModel):
+    key: str = ""
+    label: str = ""
+    type: str = "string"
+    value: str = ""
+    confidence: float = 0.0
+
+
+class SandboxClassificationResult(BaseModel):
+    document_type_id: str | None = None
+    document_type_name: str = ""
+    document_type_code: str = ""
+    confidence: float = 0.0
+    reasoning: str = ""
+
+
+class SandboxSchemaInfo(BaseModel):
+    id: str
+    name: str
+
+
+class SandboxExtractionResponse(BaseModel):
+    classification: SandboxClassificationResult
+    schema_info: SandboxSchemaInfo | None = None
+    fields: list[SandboxFieldResult] = []

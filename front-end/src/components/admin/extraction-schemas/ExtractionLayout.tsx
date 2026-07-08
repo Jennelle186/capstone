@@ -48,7 +48,8 @@ interface ExtractionLayoutProps {
 
 export default function ExtractionLayout(props: ExtractionLayoutProps) {
     const [activeTab, setActiveTab] = useState<"builder" | "sandbox">("builder");
-    const [maximized, setMaximized] = useState(false);
+    const [builderMaximized, setBuilderMaximized] = useState(false);
+    const [sandboxMaximized, setSandboxMaximized] = useState(false);
 
     return (
         <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12" id="extraction-builder-root">
@@ -102,8 +103,8 @@ export default function ExtractionLayout(props: ExtractionLayoutProps) {
                             isGenerating={props.isGenerating}
                             isActionPending={props.isActionPending}
                             formError={props.formError}
-                            maximized={maximized}
-                            onToggleMaximize={() => setMaximized(!maximized)}
+                            maximized={builderMaximized}
+                            onToggleMaximize={() => setBuilderMaximized(!builderMaximized)}
                             onFormStatePatch={props.onFormStatePatch}
                             onDocumentTypeChange={props.onDocumentTypeChange}
                             onSave={props.onSave}
@@ -121,6 +122,8 @@ export default function ExtractionLayout(props: ExtractionLayoutProps) {
                             currentPageIndex={props.currentPageIndex}
                             isExtracting={props.isExtracting ?? false}
                             sandboxResponse={props.sandboxResponse}
+                            maximized={sandboxMaximized}
+                            onToggleMaximize={() => setSandboxMaximized(!sandboxMaximized)}
                             onPageChange={props.onPageChange}
                             onSampleFilesChange={props.onSampleFilesChange}
                             onClearSampleFiles={props.onClearSampleFiles}

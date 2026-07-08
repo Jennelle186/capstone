@@ -22,6 +22,7 @@ import type {
     ExtractionSchemaGenerateResponse,
     ExtractionSchemaPayload,
     ExtractionSchemaRecord,
+    SandboxExtractionResponse,
 } from "@/types/extractionSchema";
 
 export default function ExtractionSchemasPage() {
@@ -489,7 +490,7 @@ export default function ExtractionSchemasPage() {
                 body: formData,
             });
             if (!response.ok) throw new Error("Extraction request failed.");
-            const result = (await response.json()) as unknown;
+            const result = (await response.json()) as SandboxExtractionResponse;
             setSandboxResponse(result);
             toast.success("Extraction completed successfully.");
         } catch (error) {
