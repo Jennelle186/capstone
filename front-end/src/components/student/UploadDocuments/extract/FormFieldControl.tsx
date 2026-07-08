@@ -4,16 +4,19 @@
 const Checkbox = ({
   id,
   checked,
+  disabled,
   onCheckedChange,
 }: {
   id?: string;
   checked?: boolean;
+  disabled?: boolean;
   onCheckedChange?: (next: boolean) => void;
 }) => (
   <input
     id={id}
     type="checkbox"
     checked={!!checked}
+    disabled={disabled}
     onChange={(e) => onCheckedChange?.(e.target.checked)}
     className="w-4 h-4"
   />
@@ -52,9 +55,11 @@ const RadioGroup = ({
 const RadioGroupItem = ({
   value,
   id,
+  disabled,
 }: {
   value: string;
   id?: string;
+  disabled?: boolean;
 }) => {
   const ctx = useContext(RadioGroupContext);
   const checked = ctx.value === value;
@@ -63,6 +68,7 @@ const RadioGroupItem = ({
       id={id}
       type="radio"
       checked={checked}
+      disabled={disabled}
       onChange={() => ctx.onValueChange?.(value)}
       className="w-4 h-4"
     />
@@ -76,9 +82,10 @@ interface FormFieldControlProps {
   value: string;
   onChange: (value: string) => void;
   onBlur: () => void;
+  disabled?: boolean;
 }
 
-export function FormFieldControl({ field, value, onChange, onBlur }: FormFieldControlProps) {
+export function FormFieldControl({ field, value, onChange, onBlur, disabled = false }: FormFieldControlProps) {
   switch (field.ui_component) {
     case "radio_group":
       return (
@@ -90,14 +97,14 @@ export function FormFieldControl({ field, value, onChange, onBlur }: FormFieldCo
           }}
         >
           {(field.options ?? []).map((opt) => (
-            <div key={opt.value} className="flex items-center gap-2">
-              <RadioGroupItem value={opt.value} id={`${field.key}_${opt.value}`} />
-              <Label htmlFor={`${field.key}_${opt.value}`} className="text-sm font-normal">
-                {opt.label}
-              </Label>
-            </div>
-          ))}
-        </RadioGroup>
+      <div key={opt.value} className="flex items-center gap-2">
+          <RadioGroupItem value={opt.value} id={`${field.key}_${opt.value}`} disabled={disabled} />
+          <Label htmlFor={`${field.key}_${opt.value}`} className={`text-sm font-normal ${disabled ? "text-muted-foreground" : ""}`}>
+            {opt.label}
+          </Label>
+        </div>
+      ))}
+    </RadioGroup>
       );
 
     case "checkbox_group": {
@@ -111,6 +118,7 @@ export function FormFieldControl({ field, value, onChange, onBlur }: FormFieldCo
                 <Checkbox
                   id={`${field.key}_${opt.value}`}
                   checked={checked}
+                  disabled={disabled}
                   onCheckedChange={() => {
                     const next = checked
                       ? selected.filter((v) => v !== opt.value)
@@ -131,7 +139,7 @@ export function FormFieldControl({ field, value, onChange, onBlur }: FormFieldCo
 
     case "dropdown":
       return (
-        <Select value={value} onValueChange={onChange}>
+        <Select value={value} onValueChange={disabled ? undefined : onChange} disabled={disabled}>
           <SelectTrigger onBlur={onBlur}>
             <SelectValue placeholder="Select..." />
           </SelectTrigger>
@@ -152,6 +160,7 @@ export function FormFieldControl({ field, value, onChange, onBlur }: FormFieldCo
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
+          disabled={disabled}
         />
       );
 
@@ -162,6 +171,7 @@ export function FormFieldControl({ field, value, onChange, onBlur }: FormFieldCo
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
+          disabled={disabled}
         />
       );
   }

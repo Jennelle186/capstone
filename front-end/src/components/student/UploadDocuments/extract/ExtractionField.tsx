@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useFormContext } from "react-hook-form";
-import { Pencil, Check, X, AlertTriangle } from "lucide-react";
+import { Lock, Pencil, Check, X, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   FormField,
@@ -39,6 +39,7 @@ function StaticValue({
   value: string;
   onEdit: () => void;
 }) {
+  const isLocked = field.readOnly;
   const isEmpty = value === "";
   const isMissing = isEmpty && field.required;
   const lowConfidence = field.confidence <= 0.9;
@@ -77,14 +78,18 @@ function StaticValue({
           </span>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="flex-shrink-0 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
-        title="Edit"
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </button>
+      {isLocked ? (
+        <Lock className="h-3.5 w-3.5 flex-shrink-0 text-slate-300" />
+      ) : (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex-shrink-0 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
+          title="Edit"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }
@@ -94,8 +99,9 @@ export default function ExtractionField({ field, onAutoSave }: ExtractionFieldPr
   const [editing, setEditing] = useState(false);
 
   const handleStartEdit = useCallback(() => {
+    if (field.readOnly) return;
     setEditing(true);
-  }, []);
+  }, [field.readOnly]);
 
   const handleSave = useCallback(() => {
     const val = form.getValues(field.key) ?? "";
@@ -131,6 +137,7 @@ export default function ExtractionField({ field, onAutoSave }: ExtractionFieldPr
                   value={formField.value ?? ""}
                   onChange={formField.onChange}
                   onBlur={() => {}}
+                  disabled={field.readOnly}
                 />
               </FormControl>
               <div className="mt-2 flex items-center gap-2">

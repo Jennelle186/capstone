@@ -43,6 +43,7 @@ class ExtractionFieldResponse(BaseModel):
     section_title: str | None = None
     hierarchy_level: int = 1
     parent_field_id: str | None = None
+    read_only: bool = False
 
 
 class ExtractionItemResponse(BaseModel):
@@ -504,6 +505,7 @@ async def list_extractions(
                 section_title=field_def.get("section_title"),
                 hierarchy_level=field_def.get("hierarchy_level", 1),
                 parent_field_id=field_def.get("parent_field_id"),
+                read_only=field_def.get("readOnly", False),
             ))
 
         if fields:

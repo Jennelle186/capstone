@@ -19,6 +19,7 @@ export interface ExtractionFieldResponse {
   section_title: string | null;
   hierarchy_level: number;
   parent_field_id: string | null;
+  read_only: boolean;
 }
 
 export interface ExtractionItemResponse {
@@ -47,6 +48,7 @@ export interface ExtractedField {
   section_title: string | null;
   hierarchy_level: number;
   parent_field_id: string | null;
+  readOnly: boolean;
 }
 
 export type ExtractionConfidence = "high" | "medium" | "low" | "needs-review";
@@ -79,6 +81,7 @@ export function toExtractionItem(resp: ExtractionItemResponse): ExtractionItem {
     section_title: f.section_title,
     hierarchy_level: f.hierarchy_level,
     parent_field_id: f.parent_field_id,
+    readOnly: f.read_only,
   }));
 
   const hasReview = fields.some((f) => f.needsReview);
