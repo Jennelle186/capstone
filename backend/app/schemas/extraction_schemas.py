@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ..models import ExtractionSchemaStatus
 
 
-SchemaFieldType = Literal["string", "number", "integer", "boolean"]
+SchemaFieldType = Literal["string", "number", "integer", "boolean", "select", "multi-select"]
 
 
 class FieldOption(BaseModel):
@@ -23,6 +23,7 @@ class ExtractionSchemaField(BaseModel):
     type: SchemaFieldType = "string"
     description: str = ""
     required: bool = False
+    readOnly: bool = Field(default=False, description="Admins lock fields; students cannot edit them.")
     ui_component: str | None = Field(default=None, description="UI entry type: text_input, radio_group, checkbox_group, dropdown, date_picker")
     hierarchy_level: int = Field(default=1, description="Nesting depth: 1 for top-level, 2+ for nested items")
     parent_field_id: str | None = Field(default=None, description="If nested under another field, reference its field_id")
@@ -184,3 +185,5 @@ class ExtractionSchemaGenerateResponse(BaseModel):
     fields_json: list[ExtractionSchemaField]
     file_id: str
     source_file_name: str | None = None
+    document_type_id: UUID | None = None
+    effective_date: str | None = None

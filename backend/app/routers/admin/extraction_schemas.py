@@ -8,10 +8,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 logger = logging.getLogger(__name__)
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update
 
 from ...database import SessionDep
-from ...models import ExtractionSchema, ExtractionSchemaStatus
+from ...models import DocumentType, ExtractionSchema, ExtractionSchemaStatus
 from ...rbac import require_admin
 from ...schemas.extraction_schemas import (
     ExtractionSchemaCreateRequest,
@@ -21,7 +21,7 @@ from ...schemas.extraction_schemas import (
     ExtractionSchemaUpdateRequest,
     FieldOption,
 )
-from ...services.gcp_pipeline import GcpPipelineError, generate_schema_blueprint
+from ...services.gcp_pipeline import GcpPipelineError, classify_document, generate_schema_blueprint
 from ...services.gcp_storage import _admin_temp_prefix, delete_file, upload_file_bytes
 
 router = APIRouter()
@@ -133,7 +133,7 @@ def _blueprint_to_fields(
             field_id = bf.get("field_id", f"field_{auto_id}")
             label = bf.get("label", "")
             data_type = bf.get("data_type", "string")
-            mapped_type = data_type if data_type in ("string", "number", "integer", "boolean") else "string"
+            mapped_type = data_type if data_type in ("string", "number", "integer", "boolean", "select", "multi-select") else "string"
             ui_component = bf.get("ui_component", "text_input")
             hierarchy_level = bf.get("hierarchy_level", 1)
             parent_field_id = bf.get("parent_field_id")
@@ -148,6 +148,8 @@ def _blueprint_to_fields(
                                 label=str(opt.get("label", "")),
                             )
                         )
+                if mapped_type == "string" and len(options) > 0:
+                    mapped_type = "multi-select" if ui_component == "checkbox_group" else "select"
 
             fields.append({
                 "id": f"gen_{auto_id}_{field_id}",
@@ -180,6 +182,7 @@ async def generate_extraction_schema(
     files: list[UploadFile] | None = File(default=None),
     prompt: str | None = Form(default=None),
     current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
 ):
     del current_user
 
@@ -201,6 +204,23 @@ async def generate_extraction_schema(
         upload_file_bytes(temp_key, content)
 
     try:
+        # Classify the document to match an exact document type from DB
+        matched_document_type_id: UUID | None = None
+        if temp_key:
+            try:
+                doc_types_raw = (await db.execute(select(DocumentType))).scalars().all()
+                classification = await asyncio.to_thread(classify_document, temp_key, doc_types_raw)
+                matched_type_code = classification.get("match", {}).get("type")
+                if matched_type_code:
+                    matched_dt = next(
+                        (dt for dt in doc_types_raw if dt.code == matched_type_code),
+                        None,
+                    )
+                    if matched_dt:
+                        matched_document_type_id = matched_dt.id
+            except Exception:
+                logger.warning("Document classification failed during schema generation", exc_info=True)
+
         blueprint = generate_schema_blueprint(file_key=temp_key, description=prompt)
 
         schema_json, fields = _blueprint_to_fields(blueprint, source_file_name=source_file_name)
@@ -210,6 +230,8 @@ async def generate_extraction_schema(
             fields_json=[ExtractionSchemaField(**f) for f in fields],
             file_id=temp_key or "",
             source_file_name=source_file_name,
+            document_type_id=matched_document_type_id,
+            effective_date=blueprint.get("effective_date") or None,
         )
     except GcpPipelineError as exc:
         raise HTTPException(
@@ -283,6 +305,14 @@ async def activate_extraction_schema(
     if schema is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
 
+    await db.execute(
+        update(ExtractionSchema)
+        .where(
+            ExtractionSchema.status == ExtractionSchemaStatus.ACTIVE,
+            ExtractionSchema.document_type_id == schema.document_type_id,
+        )
+        .values(status=ExtractionSchemaStatus.DRAFT)
+    )
     schema.status = ExtractionSchemaStatus.ACTIVE
     await db.commit()
     await db.refresh(schema)

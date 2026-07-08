@@ -1,15 +1,10 @@
 import { useAuth } from "@clerk/clerk-react";
-import { motion } from "framer-motion";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import SchemaBuilderCard from "@/components/admin/extraction-schemas/SchemaBuilderCard";
-import SchemaPreviewCard from "@/components/admin/extraction-schemas/SchemaPreviewCard";
-import PageHeader from "@/components/admin/document-management/PageHeader";
-import { fadeInUp, staggerContainer } from "@/components/admin/motion-variants";
-import { Button } from "@/components/ui/button";
+import ExtractionLayout from "@/components/admin/extraction-schemas/ExtractionLayout";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { parseDocumentManagementApiError } from "@/lib/document-management-utils";
 import {
@@ -29,10 +24,10 @@ import type {
     ExtractionSchemaRecord,
 } from "@/types/extractionSchema";
 
-type MaximizedPanel = "preview" | "builder" | null;
-
 export default function ExtractionSchemasPage() {
-    const { getToken, isLoaded, isSignedIn } = useAuth();
+    const { getToken: _getToken, isLoaded, isSignedIn } = useAuth();
+    const getTokenRef = useRef(_getToken);
+    getTokenRef.current = _getToken;
 
     const [schemas, setSchemas] = useState<ExtractionSchemaRecord[]>([]);
     const [documentTypes, setDocumentTypes] = useState<DocumentTypeApiRecord[]>([]);
@@ -46,11 +41,12 @@ export default function ExtractionSchemasPage() {
     const [sampleFiles, setSampleFiles] = useState<File[]>([]);
     const [samplePreviewUrls, setSamplePreviewUrls] = useState<string[]>([]);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
-    const [maximizedPanel, setMaximizedPanel] = useState<MaximizedPanel>(null);
+    const [isExtracting, setIsExtracting] = useState(false);
+    const [sandboxResponse, setSandboxResponse] = useState<unknown>(null);
 
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
-            const token = await getToken();
+            const token = await getTokenRef.current();
             if (!token) throw new Error("Missing admin authentication token.");
 
             const response = await fetchWithClerkAuth(path, token, init);
@@ -66,7 +62,7 @@ export default function ExtractionSchemasPage() {
             }
             return response.status === 204 ? null : ((await response.json()) as unknown);
         },
-        [getToken],
+        [],
     );
 
     const loadData = useCallback(async () => {
@@ -209,17 +205,8 @@ export default function ExtractionSchemasPage() {
         setSampleFiles((prev) => prev.filter((_, i) => i !== index));
     };
 
-    const toggleMaximize = (panel: MaximizedPanel) => {
-        setMaximizedPanel((prev) => (prev === panel ? null : panel));
-    };
-
     const handleDocumentTypeChange = useCallback((documentTypeId: string | null) => {
-        setSelectedSchemaId(null);
-        setFormState(createEmptyPayload());
         setFormState((prev) => ({ ...prev, document_type_id: documentTypeId }));
-        setSampleFiles([]);
-        setCurrentPageIndex(0);
-        setFormError("");
     }, []);
 
     const handleFormPatch = useCallback((patch: Partial<ExtractionSchemaPayload>) => {
@@ -263,11 +250,52 @@ export default function ExtractionSchemasPage() {
         });
     };
 
-    const addField = useCallback(() => {
-        setFormState((prev) => ({
-            ...prev,
-            fields_json: [...prev.fields_json, createField()],
-        }));
+    const addField = useCallback((afterFieldId?: string) => {
+        setFormState((prev) => {
+            const newField = createField();
+            if (!afterFieldId) {
+                return { ...prev, fields_json: [...prev.fields_json, newField] };
+            }
+            const idx = prev.fields_json.findIndex((f) => f.id === afterFieldId);
+            if (idx === -1) {
+                return { ...prev, fields_json: [...prev.fields_json, newField] };
+            }
+            let sectionId: string | null = null;
+            let sectionTitle: string | null = null;
+            for (let i = idx; i >= 0; i--) {
+                if (prev.fields_json[i].section_id) {
+                    sectionId = prev.fields_json[i].section_id!;
+                    sectionTitle = prev.fields_json[i].section_title!;
+                    break;
+                }
+            }
+            const field = { ...newField, section_id: sectionId, section_title: sectionTitle };
+            const fields = [...prev.fields_json];
+            fields.splice(idx + 1, 0, field);
+            return { ...prev, fields_json: fields };
+        });
+    }, []);
+
+    const addSection = useCallback((afterFieldId?: string) => {
+        const title = window.prompt("Section name:") || "New Section";
+        const sectionKey = title.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+        const sectionField: ExtractionSchemaField = {
+            ...createField(),
+            section_id: sectionKey || "new_section",
+            section_title: title.trim(),
+        };
+        setFormState((prev) => {
+            if (!afterFieldId) {
+                return { ...prev, fields_json: [...prev.fields_json, sectionField] };
+            }
+            const idx = prev.fields_json.findIndex((f) => f.id === afterFieldId);
+            if (idx === -1) {
+                return { ...prev, fields_json: [...prev.fields_json, sectionField] };
+            }
+            const fields = [...prev.fields_json];
+            fields.splice(idx + 1, 0, sectionField);
+            return { ...prev, fields_json: fields };
+        });
     }, []);
 
     const handleSave = async () => {
@@ -335,12 +363,19 @@ export default function ExtractionSchemasPage() {
                 },
             )) as ExtractionSchemaGenerateResponse;
 
-            setFormState((prev) => ({
-                ...prev,
-                schema_json: response.schema_json,
-                fields_json: getSchemaFields(response.schema_json, response.fields_json.length > 0 ? response.fields_json : prev.fields_json),
-                source_file_name: response.source_file_name ?? sampleFiles[0]?.name ?? prev.source_file_name,
-            }));
+            setFormState((prev) => {
+                const blueprint = response.schema_json as Record<string, unknown> | undefined;
+                return {
+                    ...prev,
+                    schema_json: response.schema_json,
+                    fields_json: getSchemaFields(response.schema_json, response.fields_json.length > 0 ? response.fields_json : prev.fields_json),
+                    source_file_name: response.source_file_name ?? sampleFiles[0]?.name ?? prev.source_file_name,
+                    name: prev.name || (blueprint?.form_name as string) || "",
+                    version_label: prev.version_label || (blueprint?.form_control_id as string) || "",
+                    document_type_id: response.document_type_id ?? prev.document_type_id,
+                    effective_date: prev.effective_date || response.effective_date || "",
+                };
+            });
             setFormError("");
             toast.success("Schema generated. Review and edit the fields before saving.");
         } catch (error) {
@@ -352,20 +387,59 @@ export default function ExtractionSchemasPage() {
         }
     };
 
-    const handleActivate = async () => {
-        if (!selectedSchemaId || isActionPending) return;
+    const handleAutoGenerate = useCallback(async (files: File[]) => {
+        if (isGenerating) return;
+        setSampleFiles(files);
+        setCurrentPageIndex(0);
+        setIsGenerating(true);
+        try {
+            const formData = new FormData();
+            files.forEach((f) => formData.append("files", f));
+            if (formState.generation_prompt?.trim()) {
+                formData.append("prompt", formState.generation_prompt.trim());
+            }
+            const response = (await requestWithAdminAuth(
+                "/api/admin/extraction-schemas/generate",
+                { method: "POST", body: formData },
+            )) as ExtractionSchemaGenerateResponse;
+            setFormState((prev) => {
+                const blueprint = response.schema_json as Record<string, unknown> | undefined;
+                return {
+                    ...prev,
+                    schema_json: response.schema_json,
+                    fields_json: getSchemaFields(response.schema_json, response.fields_json),
+                    source_file_name: response.source_file_name ?? files[0]?.name ?? prev.source_file_name,
+                    name: prev.name || (blueprint?.form_name as string) || "",
+                    version_label: prev.version_label || (blueprint?.form_control_id as string) || "",
+                    document_type_id: response.document_type_id ?? prev.document_type_id,
+                    effective_date: prev.effective_date || response.effective_date || "",
+                };
+            });
+            setFormError("");
+            toast.success("Schema auto-generated from uploaded file.");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Auto-generation failed.";
+            setFormError(message);
+            toast.error(message);
+        } finally {
+            setIsGenerating(false);
+        }
+    }, [isGenerating, formState.generation_prompt, requestWithAdminAuth]);
+
+    const handleActivate = async (schemaId: string) => {
+        if (!schemaId || isActionPending) return;
 
         setIsActionPending(true);
         try {
             const response = (await requestWithAdminAuth(
-                `/api/admin/extraction-schemas/${selectedSchemaId}/activate`,
+                `/api/admin/extraction-schemas/${schemaId}/activate`,
                 { method: "POST" },
             )) as ExtractionSchemaRecord;
             setSchemas((prev) =>
                 prev.map((schema) =>
                     schema.id === response.id
                         ? response
-                        : schema.status === "active"
+                        : schema.status === "active" && schema.document_type_id === response.document_type_id
                             ? { ...schema, status: "draft" }
                             : schema,
                 ),
@@ -379,13 +453,13 @@ export default function ExtractionSchemasPage() {
         }
     };
 
-    const handleArchive = async () => {
-        if (!selectedSchemaId || isActionPending) return;
+    const handleArchive = async (schemaId: string) => {
+        if (!schemaId || isActionPending) return;
 
         setIsActionPending(true);
         try {
             const response = (await requestWithAdminAuth(
-                `/api/admin/extraction-schemas/${selectedSchemaId}`,
+                `/api/admin/extraction-schemas/${schemaId}`,
                 {
                     method: "PATCH",
                     body: JSON.stringify({ status: "archived" }),
@@ -401,6 +475,31 @@ export default function ExtractionSchemasPage() {
         }
     };
 
+    const handleRunExtraction = useCallback(async () => {
+        if (isExtracting || sampleFiles.length === 0) return;
+        setIsExtracting(true);
+        setSandboxResponse(null);
+        try {
+            const token = await getTokenRef.current();
+            if (!token) throw new Error("Missing admin authentication token.");
+            const formData = new FormData();
+            sampleFiles.forEach((file) => formData.append("files", file));
+            const response = await fetchWithClerkAuth("/api/admin/extractions/run", token, {
+                method: "POST",
+                body: formData,
+            });
+            if (!response.ok) throw new Error("Extraction request failed.");
+            const result = (await response.json()) as unknown;
+            setSandboxResponse(result);
+            toast.success("Extraction completed successfully.");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Extraction failed.";
+            toast.error(message);
+        } finally {
+            setIsExtracting(false);
+        }
+    }, [isExtracting, sampleFiles]);
+
     if (isLoading) {
         return (
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -411,71 +510,38 @@ export default function ExtractionSchemasPage() {
     }
 
     return (
-        <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={staggerContainer}
-            className="space-y-6"
-        >
-            <PageHeader
-                title="Extraction Schemas"
-                subtitle="Build and manage LlamaExtract schemas used when documents are classified and extracted."
-                actions={(
-                    <Button onClick={startNewSchema}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        New Schema
-                    </Button>
-                )}
-            />
-
-            <motion.div
-                variants={fadeInUp}
-                className={
-                    maximizedPanel
-                        ? "grid gap-6 grid-cols-1"
-                        : "grid gap-6 xl:grid-cols-[minmax(360px,44%)_minmax(0,56%)]"
-                }
-            >
-                {!maximizedPanel || maximizedPanel === "preview" ? (
-                    <SchemaPreviewCard
-                        sampleFiles={sampleFiles}
-                        samplePreviewUrls={samplePreviewUrls}
-                        currentPageIndex={currentPageIndex}
-                        maximized={maximizedPanel === "preview"}
-                        onToggleMaximize={() => toggleMaximize("preview")}
-                        onSampleFilesChange={handleSampleFilesChange}
-                        onClearSampleFiles={clearSampleFiles}
-                        onPageChange={setCurrentPageIndex}
-                        onRemoveFileAt={removeFileAt}
-                    />
-                ) : null}
-
-                {!maximizedPanel || maximizedPanel === "builder" ? (
-                    <SchemaBuilderCard
-                        schemas={schemas}
-                        documentTypes={documentTypes}
-                        selectedSchemaId={selectedSchemaId}
-                        formState={formState}
-                        sampleFiles={sampleFiles}
-                        isSaving={isSaving}
-                        isGenerating={isGenerating}
-                        isActionPending={isActionPending}
-                        formError={formError}
-                        maximized={maximizedPanel === "builder"}
-                        onToggleMaximize={() => toggleMaximize("builder")}
-                        onSchemaSelect={handleSchemaSelectChange}
-                        onFieldUpdate={updateField}
-                        onRemoveField={removeField}
-                        onAddField={addField}
-                        onFormStatePatch={handleFormPatch}
-                        onDocumentTypeChange={handleDocumentTypeChange}
-                        onSave={handleSave}
-                        onGenerate={handleGenerateSchema}
-                        onActivate={handleActivate}
-                        onArchive={handleArchive}
-                    />
-                ) : null}
-            </motion.div>
-        </motion.div>
+        <ExtractionLayout
+            schemas={schemas}
+            documentTypes={documentTypes}
+            selectedSchemaId={selectedSchemaId}
+            formState={formState}
+            sampleFiles={sampleFiles}
+            samplePreviewUrls={samplePreviewUrls}
+            currentPageIndex={currentPageIndex}
+            isSaving={isSaving}
+            isGenerating={isGenerating}
+            isActionPending={isActionPending}
+            formError={formError}
+            isExtracting={isExtracting}
+            sandboxResponse={sandboxResponse}
+            onSchemaSelect={handleSchemaSelectChange}
+            onFieldUpdate={updateField}
+            onRemoveField={removeField}
+            onAddField={addField}
+            onAddSection={addSection}
+            onFormStatePatch={handleFormPatch}
+            onDocumentTypeChange={handleDocumentTypeChange}
+            onSave={handleSave}
+            onGenerate={handleGenerateSchema}
+            onAutoGenerate={handleAutoGenerate}
+            onActivate={handleActivate}
+            onArchive={handleArchive}
+            onClearSampleFiles={clearSampleFiles}
+            onPageChange={setCurrentPageIndex}
+            onRemoveFileAt={removeFileAt}
+            onSampleFilesChange={handleSampleFilesChange}
+            onNewSchema={startNewSchema}
+            onRunExtraction={handleRunExtraction}
+        />
     );
 }

@@ -1,6 +1,6 @@
 export type ExtractionSchemaStatus = "draft" | "active" | "archived";
 
-export type ExtractionSchemaFieldType = "string" | "number" | "integer" | "boolean";
+export type ExtractionSchemaFieldType = "string" | "number" | "integer" | "boolean" | "select" | "multi-select";
 
 export interface FieldOption {
     value: string;
@@ -13,6 +13,7 @@ export interface ExtractionSchemaField {
     type: ExtractionSchemaFieldType;
     description: string;
     required: boolean;
+    readOnly?: boolean;
     ui_component?: string | null;
     hierarchy_level?: number;
     parent_field_id?: string | null;
@@ -55,4 +56,6 @@ export interface ExtractionSchemaGenerateResponse {
     fields_json: ExtractionSchemaField[];
     file_id: string;
     source_file_name: string | null;
+    document_type_id?: string | null;
+    effective_date?: string | null;
 }

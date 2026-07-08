@@ -6,7 +6,7 @@ import type {
     ExtractionSchemaStatus,
 } from "@/types/extractionSchema";
 
-export const FIELD_TYPES: ExtractionSchemaFieldType[] = ["string", "number", "integer", "boolean"];
+export const FIELD_TYPES: ExtractionSchemaFieldType[] = ["string", "number", "integer", "boolean", "select", "multi-select"];
 
 export function createField(): ExtractionSchemaField {
     const id = crypto.randomUUID();

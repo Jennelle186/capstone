@@ -407,6 +407,15 @@ def _build_blueprint_schema() -> dict:
                 "type": "string",
                 "description": "Document routing/version code (e.g. WMSU-AO-FR-001.02).",
             },
+            "document_type": {
+                "type": "string",
+                "description": "The name of the document type (e.g. Report Card, Good Moral, Admission Form). Return empty string if not found.",
+            },
+            "effective_date": {
+                "type": "string",
+                "nullable": True,
+                "description": "The effective or issue date found on the document (e.g. 2025-06-15). Return null if no date is found.",
+            },
             "sections": {
                 "type": "array",
                 "items": {
@@ -435,7 +444,7 @@ def _build_blueprint_schema() -> dict:
                                     },
                                     "data_type": {
                                         "type": "string",
-                                        "description": "System primitive: string, number, boolean, array.",
+                                        "description": "System primitive: string, number, boolean, array, select, multi-select.",
                                     },
                                     "ui_component": {
                                         "type": "string",
