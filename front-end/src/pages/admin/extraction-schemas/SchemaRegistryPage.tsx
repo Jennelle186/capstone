@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/clerk-react";
 import { motion } from "framer-motion";
-import { ChevronDown, ExternalLink, FileJson, FileText, Loader2, Pencil } from "lucide-react";
+import { ChevronDown, ExternalLink, FileJson, FileText, ListFilter, Loader2, Pencil, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -19,6 +19,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { parseDocumentManagementApiError } from "@/lib/document-management-utils";
 import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
@@ -32,6 +34,62 @@ export default function SchemaRegistryPage() {
     const [dialogSchema, setDialogSchema] = useState<ExtractionSchemaRecord | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [dialogLoading, setDialogLoading] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [extractionFilter, setExtractionFilter] = useState<"all" | "structured" | "classification">("all");
+    const [schoolYearFilter, setSchoolYearFilter] = useState<string>("all");
+    const [expandedDocTypes, setExpandedDocTypes] = useState<Set<string>>(new Set());
+
+    const toggleExpand = (docTypeId: string) => {
+        setExpandedDocTypes((prev) => {
+            const next = new Set(prev);
+            if (next.has(docTypeId)) {
+                next.delete(docTypeId);
+            } else {
+                next.add(docTypeId);
+            }
+            return next;
+        });
+    };
+
+    const schoolYearOptions = useMemo(() => {
+        const seen = new Set<string>();
+        const options: { id: string; name: string }[] = [];
+        for (const entry of entries) {
+            for (const req of entry.requirements) {
+                if (!seen.has(req.school_year_id)) {
+                    seen.add(req.school_year_id);
+                    options.push({ id: req.school_year_id, name: req.school_year_name });
+                }
+            }
+        }
+        return options.sort((a, b) => a.name.localeCompare(b.name));
+    }, [entries]);
+
+    const filteredEntries = useMemo(() => {
+        let result = entries;
+        if (extractionFilter === "structured") {
+            result = result.filter((e) => e.extraction_type === "structured");
+        } else if (extractionFilter === "classification") {
+            result = result.filter((e) => e.extraction_type === "none");
+        }
+        if (schoolYearFilter !== "all") {
+            result = result.filter((e) =>
+                e.requirements.some((r) => r.school_year_id === schoolYearFilter),
+            );
+        }
+        const q = searchQuery.trim().toLowerCase();
+        if (q) {
+            result = result.filter(
+                (e) =>
+                    e.document_type_name.toLowerCase().includes(q) ||
+                    e.document_type_code.toLowerCase().includes(q) ||
+                    e.schemas.some((s) => s.name.toLowerCase().includes(q)),
+            );
+        }
+        return result;
+    }, [entries, searchQuery, extractionFilter, schoolYearFilter]);
+
+    const SHOW_SCHEMA_COUNT = 3;
 
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
@@ -171,11 +229,67 @@ export default function SchemaRegistryPage() {
                 </div>
             </motion.div>
 
+            <motion.div variants={fadeInUp}>
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="relative sm:w-72">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            type="search"
+                            placeholder="Search by name, code, or schema..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="h-9 pl-9 text-sm rounded-lg"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <ListFilter className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <Select
+                            value={extractionFilter}
+                            onValueChange={(v) => setExtractionFilter(v as typeof extractionFilter)}
+                        >
+                            <SelectTrigger className="h-9 w-[170px] text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all" className="text-xs">All ({entries.length})</SelectItem>
+                                <SelectItem value="structured" className="text-xs">Structured ({structuredCount})</SelectItem>
+                                <SelectItem value="classification" className="text-xs">Classification Only ({classificationOnlyCount})</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Select
+                            value={schoolYearFilter}
+                            onValueChange={setSchoolYearFilter}
+                        >
+                            <SelectTrigger className="h-9 w-[180px] text-xs">
+                                <SelectValue placeholder="School Year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all" className="text-xs">All School Years</SelectItem>
+                                {schoolYearOptions.map((sy) => (
+                                    <SelectItem key={sy.id} value={sy.id} className="text-xs">{sy.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+            </motion.div>
+
+            {filteredEntries.length === 0 ? (
+                <motion.div variants={fadeInUp} className="flex flex-col items-center gap-3 py-20 text-muted-foreground">
+                    <FileJson className="h-10 w-10" />
+                    <p className="text-lg font-medium">No matching document types</p>
+                    <p className="text-sm">Try adjusting your search or filter.</p>
+                </motion.div>
+            ) : null}
+
             <motion.div variants={fadeInUp} className="space-y-4">
-                {entries.map((entry) => {
+                {filteredEntries.map((entry) => {
                     const counts = schemaCounts(entry.schemas);
                     const nonArchivedSchemas = entry.schemas.filter((s) => s.status !== "archived");
                     const archivedSchemas = entry.schemas.filter((s) => s.status === "archived");
+                    const allSchemas = [...nonArchivedSchemas, ...archivedSchemas];
+                    const isExpanded = expandedDocTypes.has(entry.document_type_id);
+                    const displayedSchemas = isExpanded ? allSchemas : allSchemas.slice(0, SHOW_SCHEMA_COUNT);
 
                     return (
                         <Card key={entry.document_type_id}>
@@ -220,55 +334,55 @@ export default function SchemaRegistryPage() {
                                             </span>
                                         ) : null}
                                     </div>
-                                    {nonArchivedSchemas.length > 0 || archivedSchemas.length > 0 ? (
+                                    {allSchemas.length > 0 ? (
                                         <div className="space-y-2">
-                                            {nonArchivedSchemas.map((schema) => (
-                                                <button
-                                                    key={schema.id}
-                                                    type="button"
-                                                    onClick={() => void handleSchemaClick(schema.id)}
-                                                    className="flex w-full flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm text-left hover:bg-muted/50 cursor-pointer transition-colors"
-                                                >
-                                                    <FileJson className="h-3.5 w-3.5 shrink-0 text-cyan-700" />
-                                                    <span className="font-medium">{schema.name}</span>
-                                                    {schema.version_label ? (
-                                                        <span className="text-xs text-muted-foreground">
-                                                            v{schema.version_label}
-                                                        </span>
-                                                    ) : null}
-                                                    <Badge
-                                                        variant={
-                                                            schema.status === "active"
-                                                                ? "default"
-                                                                : "secondary"
-                                                        }
-                                                        className="ml-auto text-[10px]"
+                                            {displayedSchemas.map((schema) => {
+                                                const isArchived = schema.status === "archived";
+                                                return (
+                                                    <button
+                                                        key={schema.id}
+                                                        type="button"
+                                                        onClick={() => void handleSchemaClick(schema.id)}
+                                                        className={`flex w-full flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm text-left cursor-pointer transition-all ${
+                                                            isArchived
+                                                                ? "opacity-50 hover:opacity-70 bg-background"
+                                                                : "bg-muted/30 hover:bg-muted/50"
+                                                        }`}
                                                     >
-                                                        {schema.status}
-                                                    </Badge>
-                                                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                                </button>
-                                            ))}
-                                            {archivedSchemas.map((schema) => (
+                                                        <FileJson className={`h-3.5 w-3.5 shrink-0 ${isArchived ? "text-muted-foreground" : "text-cyan-700"}`} />
+                                                        <span className={`font-medium ${isArchived ? "text-muted-foreground" : ""}`}>{schema.name}</span>
+                                                        {schema.version_label ? (
+                                                            <span className="text-xs text-muted-foreground">
+                                                                v{schema.version_label}
+                                                            </span>
+                                                        ) : null}
+                                                        <Badge
+                                                            variant={
+                                                                isArchived
+                                                                    ? "outline"
+                                                                    : schema.status === "active"
+                                                                        ? "default"
+                                                                        : "secondary"
+                                                            }
+                                                            className="ml-auto text-[10px]"
+                                                        >
+                                                            {schema.status}
+                                                        </Badge>
+                                                        <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                                    </button>
+                                                );
+                                            })}
+                                            {allSchemas.length > SHOW_SCHEMA_COUNT ? (
                                                 <button
-                                                    key={schema.id}
                                                     type="button"
-                                                    onClick={() => void handleSchemaClick(schema.id)}
-                                                    className="flex w-full flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm text-left opacity-50 hover:opacity-70 cursor-pointer transition-opacity"
+                                                    onClick={() => toggleExpand(entry.document_type_id)}
+                                                    className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/30 cursor-pointer transition-colors"
                                                 >
-                                                    <FileJson className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                                    <span className="font-medium text-muted-foreground">{schema.name}</span>
-                                                    {schema.version_label ? (
-                                                        <span className="text-xs text-muted-foreground">
-                                                            v{schema.version_label}
-                                                        </span>
-                                                    ) : null}
-                                                    <Badge variant="outline" className="ml-auto text-[10px]">
-                                                        archived
-                                                    </Badge>
-                                                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                                    {isExpanded
+                                                        ? "Show less"
+                                                        : `Show ${allSchemas.length - SHOW_SCHEMA_COUNT} more`}
                                                 </button>
-                                            ))}
+                                            ) : null}
                                         </div>
                                     ) : (
                                         <p className="text-sm text-muted-foreground">No schemas assigned.</p>
