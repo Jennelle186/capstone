@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
 import {
     ADD_DEPARTMENT_VALUE,
@@ -34,7 +35,8 @@ import type {
 import type { SchoolYearCreateFormState, SchoolYearRecord } from "@/types/schoolYear";
 
 export function useAdvisersPage() {
-    const { getToken, isLoaded, isSignedIn } = useAuth();
+    const { isLoaded, isSignedIn } = useAuth();
+    const getTokenRef = useStableToken();
 
     const [advisers, setAdvisers] = useState<Adviser[]>([]);
     const [adviserInvitations, setAdviserInvitations] = useState<AdviserInvitationRecord[]>([]);
@@ -70,7 +72,7 @@ export function useAdvisersPage() {
 
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
-            const token = await getToken();
+            const token = await getTokenRef.current();
             if (!token) throw new Error("Missing admin authentication token.");
 
             const response = await fetchWithClerkAuth(path, token, init);
@@ -86,7 +88,7 @@ export function useAdvisersPage() {
             }
             return response.status === 204 ? null : ((await response.json()) as unknown);
         },
-        [getToken],
+        [],
     );
 
     const mapAdvisers = useCallback(

@@ -165,6 +165,45 @@ async def fetch_user_lock_status(clerk_user_id: str) -> bool | None:
     return bool(locked) if isinstance(locked, bool) else None
 
 
+async def fetch_users_lock_status(clerk_user_ids: list[str]) -> dict[str, bool | None]:
+    """
+    Return a dict mapping clerk_user_id -> locked status for all given user IDs.
+    Uses a single batch API call instead of N individual calls.
+    """
+    if not clerk_user_ids:
+        return {}
+
+    client = _get_clerk_client()
+    if client is None:
+        return {uid: None for uid in clerk_user_ids}
+
+    try:
+        users = await client.users.list_async(
+            request={
+                "user_id": clerk_user_ids,
+                "limit": len(clerk_user_ids),
+            }
+        )
+    except Exception:
+        logger.exception("Failed to batch-fetch Clerk lock states for %d users", len(clerk_user_ids))
+        return {uid: None for uid in clerk_user_ids}
+
+    result: dict[str, bool | None] = {}
+    found_ids: set[str] = set()
+    for user in users:
+        user_id = getattr(user, "id", None)
+        if user_id:
+            locked = getattr(user, "locked", None)
+            result[user_id] = bool(locked) if isinstance(locked, bool) else None
+            found_ids.add(user_id)
+
+    for uid in clerk_user_ids:
+        if uid not in found_ids:
+            result[uid] = None
+
+    return result
+
+
 async def lock_user_account(clerk_user_id: str) -> bool:
     """
     Lock a Clerk user so they cannot sign in.

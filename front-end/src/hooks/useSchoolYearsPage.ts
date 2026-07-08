@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
 import {
     buildDefaultRolloverForm,
@@ -58,7 +59,8 @@ function findDuplicateSchoolYear(
     // The useSchoolYearsPage hook encapsulates all the state and logic for the School Years admin page,
 // including loading school years, handling form interactions for creating/editing school years,
 export function useSchoolYearsPage() {
-    const { getToken, isLoaded, isSignedIn } = useAuth();
+    const { isLoaded, isSignedIn } = useAuth();
+    const getTokenRef = useStableToken();
     const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -110,7 +112,7 @@ export function useSchoolYearsPage() {
     // Utility function to make authenticated API requests to the admin endpoints,
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
-            const token = await getToken();
+            const token = await getTokenRef.current();
             if (!token) throw new Error("Missing admin authentication token.");
 
             const response = await fetchWithClerkAuth(path, token, init);
@@ -126,12 +128,12 @@ export function useSchoolYearsPage() {
             }
             return response.status === 204 ? null : ((await response.json()) as unknown);
         },
-        [getToken],
+        [],
     );
 
     const requestRawWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<Response> => {
-            const token = await getToken();
+            const token = await getTokenRef.current();
             if (!token) throw new Error("Missing admin authentication token.");
 
             const response = await fetchWithClerkAuth(path, token, init);
@@ -147,7 +149,7 @@ export function useSchoolYearsPage() {
             }
             return response;
         },
-        [getToken],
+        [],
     );
 
     // Function to load the list of school years from the API, with error handling and loading state management.

@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
 import {
     DEFAULT_DEPARTMENT_FORM,
@@ -27,7 +28,8 @@ function withSchoolYearQuery(path: string, schoolYearId: string | null): string 
 }
 
 export function useDepartmentsPage() {
-    const { getToken, isLoaded, isSignedIn } = useAuth();
+    const { isLoaded, isSignedIn } = useAuth();
+    const getTokenRef = useStableToken();
 
     const [advisers, setAdvisers] = useState<AdviserDepartmentRecord[]>([]);
     const [departments, setDepartments] = useState<DepartmentOption[]>([]);
@@ -57,7 +59,7 @@ export function useDepartmentsPage() {
 
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
-            const token = await getToken();
+            const token = await getTokenRef.current();
             if (!token) throw new Error("Missing admin authentication token.");
 
             const response = await fetchWithClerkAuth(path, token, init);
@@ -73,7 +75,7 @@ export function useDepartmentsPage() {
             }
             return response.status === 204 ? null : ((await response.json()) as unknown);
         },
-        [getToken],
+        [],
     );
 
     const loadData = useCallback(
