@@ -22,6 +22,7 @@ backend/test_concurrency.py
 # Planning documents
 *.docx
 SESSION_SUMMARY.md
+docs/
 
 # Misc
 es_*

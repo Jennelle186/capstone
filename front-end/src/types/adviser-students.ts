@@ -29,6 +29,11 @@ export interface AdviserStudent {
     documents_submitted: number;
     documents_total: number;
     completion_pct: number;
+    gender: string | null;
+    cet_score: number | null;
+    gpa: number | null;
+    high_school: string | null;
+    provincial_address: string | null;
     extracted_analytics?: Record<string, ExtractedAnalyticsValue>;
     unmapped_data?: UnmappedDocGroup[];
     created_at: string;

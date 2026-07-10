@@ -4,6 +4,8 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
+AnalyticsMode = Literal["distribution", "numeric_summary", "boolean_summary"]
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..models import ExtractionSchemaStatus
@@ -30,6 +32,12 @@ class ExtractionSchemaField(BaseModel):
     options: list[FieldOption] | None = Field(default=None, description="For choice inputs, the list of options printed on the form")
     section_id: str | None = Field(default=None, description="Logical section this field belongs to")
     section_title: str | None = Field(default=None, description="Visual header title of the section")
+
+    is_analytics: bool = Field(default=False, description="Mark field for analytics aggregation")
+    analytics_mode: AnalyticsMode | None = Field(default=None, description="Override aggregation mode; inferred from field type if unset")
+    analytics_group: str | None = Field(default=None, description="UI group heading in the Snapshot tab")
+    analytics_label: str | None = Field(default=None, description="Display label in analytics UIs; falls back to field label")
+    canonical_key: str | None = Field(default=None, description="Semantic key for cross-year alignment (e.g. 'shs_track', 'gender')")
 
     @field_validator("key")
     @classmethod

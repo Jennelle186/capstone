@@ -1,4 +1,4 @@
-import { GripVertical, Lock, Plus, Trash2, Unlock, X } from "lucide-react";
+import { BarChart3, GripVertical, Lock, Plus, Trash2, Unlock, X } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -135,8 +135,26 @@ export default function FieldEditorRow({
     onDelete,
     isLast,
 }: FieldEditorRowProps) {
+    const [showAnalytics, setShowAnalytics] = useState(!!field.is_analytics);
+    const analyticsModeOptions = [
+        { value: "__auto__", label: "Auto (inferred from type)" },
+        { value: "distribution", label: "Distribution" },
+        { value: "numeric_summary", label: "Numeric Summary" },
+        { value: "boolean_summary", label: "Boolean Summary" },
+    ];
+
+    const toggleAnalytics = () => {
+        const next = !field.is_analytics;
+        setShowAnalytics(next);
+        onUpdate(field.id, {
+            is_analytics: next,
+            canonical_key: next ? (field.canonical_key ?? normalizeFieldKey(field.key)) : null,
+        });
+    };
+
     return (
-        <div className={`grid grid-cols-12 gap-x-3 gap-y-2 rounded-lg border p-3 border-border items-center transition-colors hover:border-slate-300 ${field.readOnly ? 'bg-slate-50/50 dark:bg-slate-900/30' : 'bg-card'}`}>
+        <div className={`rounded-lg border p-3 border-border transition-colors hover:border-slate-300 ${field.readOnly ? 'bg-slate-50/50 dark:bg-slate-900/30' : 'bg-card'}`}>
+        <div className="grid grid-cols-12 gap-x-3 gap-y-2 items-center">
             <div className="col-span-1 flex items-center gap-1.5">
                 <button type="button" className="cursor-grab text-muted-foreground/40 hover:text-muted-foreground" aria-label="Drag to reorder">
                     <GripVertical className="h-4 w-4" />
@@ -236,6 +254,22 @@ export default function FieldEditorRow({
 
                 <button
                     type="button"
+                    disabled={field.readOnly}
+                    onClick={toggleAnalytics}
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                        field.readOnly
+                            ? "opacity-50 cursor-not-allowed"
+                            : field.is_analytics
+                              ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                              : "bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800"
+                    }`}
+                    title={field.is_analytics ? "Analytics enabled" : "Enable analytics"}
+                >
+                    <BarChart3 className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                    type="button"
                     onClick={() =>
                         onUpdate(field.id, { readOnly: !field.readOnly })
                     }
@@ -260,6 +294,71 @@ export default function FieldEditorRow({
                     <Trash2 className="h-3 w-3" />
                 </Button>
             </div>
+        </div>
+
+        {showAnalytics && field.is_analytics && (
+            <div className="mt-3 grid grid-cols-12 gap-x-3 gap-y-3 rounded-md bg-slate-50 p-3">
+                <div className="col-span-4 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Canonical Key</p>
+                    <Input
+                        value={field.canonical_key ?? ""}
+                        placeholder="e.g. gender, gpa"
+                        onChange={(e) =>
+                            onUpdate(field.id, { canonical_key: e.target.value || null })
+                        }
+                        disabled={field.readOnly}
+                        className="h-8 text-sm font-mono bg-white"
+                    />
+                </div>
+                <div className="col-span-3 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Analytics Group</p>
+                    <Input
+                        value={field.analytics_group ?? ""}
+                        placeholder="e.g. Demographics"
+                        onChange={(e) =>
+                            onUpdate(field.id, { analytics_group: e.target.value || null })
+                        }
+                        disabled={field.readOnly}
+                        className="h-8 text-sm bg-white"
+                    />
+                </div>
+                <div className="col-span-3 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Display Label</p>
+                    <Input
+                        value={field.analytics_label ?? ""}
+                        placeholder="Optional display label"
+                        onChange={(e) =>
+                            onUpdate(field.id, { analytics_label: e.target.value || null })
+                        }
+                        disabled={field.readOnly}
+                        className="h-8 text-sm bg-white"
+                    />
+                </div>
+                <div className="col-span-2 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Mode Override</p>
+                    <Select
+                        value={field.analytics_mode ?? "__auto__"}
+                        onValueChange={(value) =>
+                            onUpdate(field.id, {
+                                analytics_mode: (value === "__auto__" ? null : value) as ExtractionSchemaField["analytics_mode"],
+                            })
+                        }
+                        disabled={field.readOnly}
+                    >
+                        <SelectTrigger className="h-8 text-sm bg-white">
+                            <SelectValue placeholder="Auto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {analyticsModeOptions.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+        )}
         </div>
     );
 }

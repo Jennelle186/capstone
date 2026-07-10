@@ -15,6 +15,7 @@ export default function AdminLayout() {
         "/admin/document-types": { section: "Management", page: "Document Types" },
         "/admin/extraction-schemas": { section: "Management", page: "Extraction Schemas" },
         "/admin/requirements": { section: "Management", page: "Requirements" },
+        "/admin/analytics": { section: "Management", page: "Analytics" },
         "/admin/reports": { section: "Management", page: "Reports" },
         "/admin/students": { section: "Management", page: "Students" },
         "/admin/settings/school-year": { section: "Settings", page: "School Year" },

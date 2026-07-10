@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from ..database import AsyncSessionLocal
 from ..models import DocumentSubmission, DocumentSubmissionHistory, DocumentType, DocumentTypeStatus, SubmissionStatus
+from ..services.concurrency import CLASSIFY_SEMAPHORE
 from ..services.gcp_pipeline import (
     GcpPipelineError,
     process_document_sync,
@@ -152,11 +153,12 @@ async def process_submission(submission_id: UUID) -> None:
                 )
                 return
 
-            result = await asyncio.to_thread(
-                process_document_sync,
-                submission.file_key,
-                document_types,
-            )
+            async with CLASSIFY_SEMAPHORE:
+                result = await asyncio.to_thread(
+                    process_document_sync,
+                    submission.file_key,
+                    document_types,
+                )
 
             extracted_text_length = result.get("extracted_text_length")
             match_data = result.get("match")

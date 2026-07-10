@@ -20,6 +20,11 @@ export interface ExtractionSchemaField {
     options?: FieldOption[] | null;
     section_id?: string | null;
     section_title?: string | null;
+    is_analytics?: boolean;
+    analytics_mode?: "distribution" | "numeric_summary" | "boolean_summary" | null;
+    analytics_group?: string | null;
+    analytics_label?: string | null;
+    canonical_key?: string | null;
 }
 
 export interface ExtractionSchemaRecord {

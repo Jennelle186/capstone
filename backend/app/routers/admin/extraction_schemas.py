@@ -13,6 +13,7 @@ from sqlalchemy import desc, select, update
 from ...database import SessionDep
 from ...models import DocumentType, ExtractionSchema, ExtractionSchemaStatus
 from ...rbac import require_admin
+from ...services.concurrency import BLUEPRINT_SEMAPHORE
 from ...schemas.extraction_schemas import (
     ExtractionSchemaCreateRequest,
     ExtractionSchemaField,
@@ -163,6 +164,7 @@ def _blueprint_to_fields(
                 "options": [o.model_dump() for o in options] if options else None,
                 "section_id": section_id,
                 "section_title": section_title,
+                "is_analytics": False,
             })
             auto_id += 1
 
@@ -221,7 +223,10 @@ async def generate_extraction_schema(
             except Exception:
                 logger.warning("Document classification failed during schema generation", exc_info=True)
 
-        blueprint = generate_schema_blueprint(file_key=temp_key, description=prompt)
+        async with BLUEPRINT_SEMAPHORE:
+            blueprint = await asyncio.to_thread(
+                generate_schema_blueprint, file_key=temp_key, description=prompt
+            )
 
         schema_json, fields = _blueprint_to_fields(blueprint, source_file_name=source_file_name)
 

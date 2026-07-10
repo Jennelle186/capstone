@@ -81,7 +81,7 @@ export const columns: ColumnDef<DataTableDashboard>[] = [
         id: "actions",
         header: "Actions",
         enableSorting: false,
-        cell: ({ row }) => (
+        cell: () => (
             <Button
                 variant="ghost"
                 size="sm"

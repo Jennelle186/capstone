@@ -28,6 +28,22 @@ class GcpPipelineError(Exception):
     pass
 
 
+def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_label: str) -> bool:
+    error_text = str(exc)
+    is_429 = "429" in error_text
+    is_504 = "504" in error_text
+
+    if (is_429 or is_504) and attempt < 3:
+        wait = (5 * (2 ** attempt)) if is_504 else (2 ** attempt)
+        reason = "Server timeout" if is_504 else "Rate limited"
+        logger.warning("%s (%s), retry %d/3 in %ss...", reason, file_key, attempt + 1, wait)
+        time.sleep(wait)
+        return True
+
+    logger.error("Gemini %s failed for %s: %s", context_label, file_key, exc)
+    return False
+
+
 SYSTEM_INSTRUCTION = """You are an expert document processing AI for an academic institution.
 
 TASK: CLASSIFICATION
@@ -215,15 +231,8 @@ def classify_with_gemini(
             break
         except Exception as exc:
             last_error = exc
-            error_text = str(exc)
-            if "429" in error_text and attempt < 3:
-                wait = 2 ** attempt
-                logger.warning(
-                    "Rate limited (%s), retry %d/3 in %ss...", file_key, attempt + 1, wait
-                )
-                time.sleep(wait)
+            if _retry_on_gemini_error(exc, file_key, attempt, "classification"):
                 continue
-            logger.error("Gemini classification failed for %s: %s", file_key, exc)
             raise GcpPipelineError(f"Gemini classification failed: {exc}") from exc
 
     if last_error is not None:
@@ -547,15 +556,8 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
             break
         except Exception as exc:
             last_error = exc
-            error_text = str(exc)
-            if "429" in error_text and attempt < 3:
-                wait = 2 ** attempt
-                logger.warning(
-                    "Rate limited (%s), retry %d/3 in %ss...", file_key, attempt + 1, wait
-                )
-                time.sleep(wait)
+            if _retry_on_gemini_error(exc, file_key, attempt, "blueprint generation"):
                 continue
-            logger.error("Gemini blueprint generation failed for %s: %s", file_key, exc)
             raise GcpPipelineError(f"Gemini blueprint generation failed: {exc}") from exc
 
     if last_error is not None:
@@ -671,13 +673,8 @@ def extract_fields_from_document(
             break
         except Exception as exc:
             last_error = exc
-            error_text = str(exc)
-            if "429" in error_text and attempt < 3:
-                wait = 2 ** attempt
-                logger.warning("Rate limited (%s), retry %d/3 in %ss...", file_key, attempt + 1, wait)
-                time.sleep(wait)
+            if _retry_on_gemini_error(exc, file_key, attempt, "extraction"):
                 continue
-            logger.error("Gemini extraction failed for %s: %s", file_key, exc)
             raise GcpPipelineError(f"Gemini extraction failed: {exc}") from exc
 
     if last_error is not None:

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Database, FileSearch, Loader2 } from "lucide-react";
+import { AlertCircle, Database, FileSearch, Loader2, RefreshCw } from "lucide-react";
 import { fetchWithClerkAuth } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import ExtractionCard from "@/components/student/UploadDocuments/extract/ExtractionCard";
 import { toExtractionItem } from "@/types/extraction";
 import type { ExtractionItem, ExtractionItemResponse } from "@/types/extraction";
@@ -24,6 +25,13 @@ export default function StepExtract({
 }: StepExtractProps) {
   const [items, setItems] = useState<ExtractionItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState<Set<string>>(new Set());
+
+  const processingItems = items.filter((i) => i.status === "processing");
+  const failedItems = items.filter((i) => i.status === "flagged");
+  const doneItems = items.filter(
+    (i) => i.status !== "processing" && i.status !== "flagged",
+  );
 
   const getTokenRef = useRef(getToken);
   useEffect(() => {
@@ -33,7 +41,7 @@ export default function StepExtract({
   const fetchExtractions = useCallback(async () => {
     const token = await getTokenRef.current();
     if (!token) { setLoading(false); return; }
-    const res = await fetchWithClerkAuth("/api/me/documents/extractions?status=classified,processing", token);
+    const res = await fetchWithClerkAuth("/api/me/documents/extractions?status=classified,processing,flagged", token);
     if (res.ok) {
       const data = (await res.json()) as ExtractionItemResponse[];
       setItems(data.map(toExtractionItem));
@@ -71,13 +79,14 @@ export default function StepExtract({
 
   useEffect(() => {
     if (isExtractingAll || loading) return;
-    if (items.length === 0) {
+    const visible = [...doneItems, ...failedItems];
+    if (visible.length === 0) {
       onExtractionChange?.(true);
       return;
     }
-    const allReviewed = items.every((i) => !i.needsReview);
+    const allReviewed = visible.every((i) => !i.needsReview);
     onExtractionChange?.(allReviewed);
-  }, [items, loading, isExtractingAll, onExtractionChange]);
+  }, [doneItems, failedItems, loading, isExtractingAll, onExtractionChange]);
 
   useEffect(() => {
     if (!isExtractingAll) return;
@@ -88,7 +97,8 @@ export default function StepExtract({
   }, [isExtractingAll, fetchExtractions]);
 
   useEffect(() => {
-    if (isExtractingAll && items.length > 0 && items.every((i) => i.status !== "processing")) {
+    if (!isExtractingAll || items.length === 0) return;
+    if (items.every((i) => i.status !== "processing")) {
       onExtractionReady?.();
     }
   }, [isExtractingAll, items, onExtractionReady]);
@@ -139,8 +149,42 @@ export default function StepExtract({
     }
   }, []);
 
-  const processingItems = items.filter((i) => i.status === "processing");
-  const doneItems = items.filter((i) => i.status !== "processing");
+  const handleRetry = useCallback(async (submissionId: string) => {
+    const token = await getTokenRef.current();
+    if (!token) return;
+    setRetrying((prev) => new Set(prev).add(submissionId));
+    try {
+      await fetchWithClerkAuth("/api/me/documents/extract-all", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submission_ids: [submissionId] }),
+      });
+    } catch {
+      setRetrying((prev) => {
+        const next = new Set(prev);
+        next.delete(submissionId);
+        return next;
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (retrying.size === 0) return;
+    const interval = setInterval(() => {
+      fetchExtractions();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [retrying, fetchExtractions]);
+
+  useEffect(() => {
+    if (retrying.size === 0) return;
+    const allResolved = items.every(
+      (i) => !retrying.has(i.id) || i.status !== "processing",
+    );
+    if (allResolved) {
+      setRetrying(new Set());
+    }
+  }, [items, retrying]);
 
   return (
     <div className="space-y-4">
@@ -200,6 +244,50 @@ export default function StepExtract({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {failedItems.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-red-700">
+            Extraction Failed
+          </h3>
+          {failedItems.map((item) => {
+            const isRetrying = retrying.has(item.id);
+            return (
+              <div
+                key={item.id}
+                className="rounded-2xl border border-red-200 bg-red-50 p-5"
+              >
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-red-900">
+                      {item.fileName}
+                    </p>
+                    <p className="mt-0.5 text-xs text-red-700">
+                      Extraction failed for this document. You can retry or
+                      re-upload the document.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 gap-1.5 border-red-300 bg-white text-red-700 hover:bg-red-100"
+                      disabled={isRetrying}
+                      onClick={() => handleRetry(item.id)}
+                    >
+                      {isRetrying ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      {isRetrying ? "Retrying..." : "Retry Extraction"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
