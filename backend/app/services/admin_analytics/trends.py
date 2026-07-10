@@ -132,7 +132,9 @@ async def get_trends(
                 series.append(None)
                 continue
 
-            agg_result = aggregator.aggregate(values)
+            field_options = first.get("options")
+            buckets_config = first.get("buckets")
+            agg_result = aggregator.aggregate(values, options=field_options, buckets=buckets_config)
             entry: dict = {
                 "school_year_id": str(sy.id),
                 "school_year_name": sy.name,

@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-AnalyticsMode = Literal["distribution", "numeric_summary", "boolean_summary"]
+AnalyticsMode = Literal["distribution", "numeric_summary", "boolean_summary", "bucketized"]
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -17,6 +17,12 @@ SchemaFieldType = Literal["string", "number", "integer", "boolean", "select", "m
 class FieldOption(BaseModel):
     value: str = Field(description="System key for the option (snake_case).")
     label: str = Field(description="The literal text printed on the form.")
+
+
+class BucketConfig(BaseModel):
+    min: float | None = Field(default=None, description="Inclusive lower bound of the bucket range")
+    max: float | None = Field(default=None, description="Exclusive upper bound of the bucket range")
+    label: str = Field(description="Display label for the bucket (e.g. '75-80', 'Below 75')")
 
 
 class ExtractionSchemaField(BaseModel):
@@ -38,6 +44,7 @@ class ExtractionSchemaField(BaseModel):
     analytics_group: str | None = Field(default=None, description="UI group heading in the Snapshot tab")
     analytics_label: str | None = Field(default=None, description="Display label in analytics UIs; falls back to field label")
     canonical_key: str | None = Field(default=None, description="Semantic key for cross-year alignment (e.g. 'shs_track', 'gender')")
+    buckets: list[BucketConfig] | None = Field(default=None, description="Numeric range buckets for bucketized analytics (e.g. '75-80', '81-85')")
 
     @field_validator("key")
     @classmethod

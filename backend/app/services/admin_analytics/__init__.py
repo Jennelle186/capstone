@@ -1,4 +1,4 @@
-from .aggregators import infer_mode, DistributionAggregator, NumericAggregator, BooleanAggregator, AGGREGATORS
+from .aggregators import infer_mode, DistributionAggregator, NumericAggregator, BooleanAggregator, BucketizedAggregator, AGGREGATORS
 from .field_values import extract_values
 from .discovery import get_canonical_keys
 from .snapshot import get_extraction_analytics
@@ -11,6 +11,7 @@ __all__ = [
     "DistributionAggregator",
     "NumericAggregator",
     "BooleanAggregator",
+    "BucketizedAggregator",
     "AGGREGATORS",
     "extract_values",
     "get_canonical_keys",

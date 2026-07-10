@@ -49,12 +49,12 @@ function SnapshotChartSwitcher({
 
 export default function FieldCard({ field }: FieldCardProps) {
   const distLen = field.distribution?.length ?? 0
-  const defaultType = inferChartType(field.field_type, distLen)
+  const defaultType = inferChartType(field.field_type, distLen, field.analytics_mode)
   const [chartType, setChartType] = useChartPreference(
     field.canonical_key,
     defaultType,
   )
-  const availableTypes = getAvailableChartTypes(field.field_type)
+  const availableTypes = getAvailableChartTypes(field.field_type, field.analytics_mode)
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">

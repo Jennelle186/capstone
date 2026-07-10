@@ -118,7 +118,8 @@ async def get_extraction_analytics(
             analytics_group = field.get("analytics_group")
 
             field_options = field.get("options")
-            agg_result = aggregator.aggregate(values, options=field_options)
+            buckets_config = field.get("buckets")
+            agg_result = aggregator.aggregate(values, options=field_options, buckets=buckets_config)
 
             entry: dict = {
                 "canonical_key": canonical_key,

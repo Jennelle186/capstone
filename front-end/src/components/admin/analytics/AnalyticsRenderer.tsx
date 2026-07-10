@@ -22,6 +22,9 @@ const renderers: Record<string, Renderer> = {
 }
 
 export default function AnalyticsRenderer({ field }: AnalyticsRendererProps) {
+  if (field.analytics_mode === "bucketized") {
+    return <BarChartRenderer data={field} />
+  }
   const Renderer = renderers[field.field_type] ?? NumericRenderer
   return <Renderer data={field} />
 }

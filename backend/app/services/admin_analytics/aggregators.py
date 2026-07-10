@@ -29,7 +29,7 @@ class Aggregator(ABC):
 
 
 class DistributionAggregator(Aggregator):
-    def aggregate(self, values: list, options: list[dict] | None = None) -> dict[str, Any]:
+    def aggregate(self, values: list, options: list[dict] | None = None, **kwargs) -> dict[str, Any]:
         value_to_label: dict[str, str] = {}
         if options:
             for opt in options:
@@ -58,6 +58,57 @@ class DistributionAggregator(Aggregator):
             key=lambda x: x["count"],
             reverse=True,
         )
+        return {
+            "distribution": distribution,
+            "student_count": total,
+            "distribution_basis": "students",
+        }
+
+
+class BucketizedAggregator(Aggregator):
+    def aggregate(self, values: list, buckets: list[dict] | None = None, **kwargs) -> dict[str, Any]:
+        nums = [v for v in values if isinstance(v, (int, float))]
+        total = len(nums)
+
+        if not buckets:
+            return {"distribution": [], "student_count": 0, "distribution_basis": "students"}
+
+        sorted_buckets = sorted(buckets, key=lambda b: b.get("min") if b.get("min") is not None else float("-inf"))
+
+        counts: dict[int, int] = {}
+        for i, _ in enumerate(sorted_buckets):
+            counts[i] = 0
+
+        for v in nums:
+            assigned = False
+            for i, b in enumerate(sorted_buckets):
+                lo = b.get("min")
+                hi = b.get("max")
+                in_range = True
+                if lo is not None and v < lo:
+                    in_range = False
+                if hi is not None and v >= hi:
+                    in_range = False
+                if in_range:
+                    counts[i] += 1
+                    assigned = True
+                    break
+
+            if not assigned:
+                last_idx = len(sorted_buckets) - 1
+                above_last = sorted_buckets[last_idx].get("max") is not None and v >= sorted_buckets[last_idx]["max"]
+                if above_last:
+                    counts[last_idx] += 1
+
+        distribution = [
+            {
+                "label": b.get("label", f'{b.get("min", "")}-{b.get("max", "")}'),
+                "count": counts[i],
+                "percentage": round(counts[i] / total * 100, 1) if total else 0.0,
+            }
+            for i, b in enumerate(sorted_buckets)
+        ]
+
         return {
             "distribution": distribution,
             "student_count": total,
@@ -121,4 +172,5 @@ AGGREGATORS: dict[str, Aggregator] = {
     "distribution": DistributionAggregator(),
     "numeric_summary": NumericAggregator(),
     "boolean_summary": BooleanAggregator(),
+    "bucketized": BucketizedAggregator(),
 }

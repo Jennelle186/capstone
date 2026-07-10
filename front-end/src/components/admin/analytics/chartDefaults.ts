@@ -21,7 +21,12 @@ export const CHART_ICONS: Record<ChartType, string> = {
 export function inferChartType(
   fieldType: string,
   distributionLength: number,
+  analyticsMode?: string,
 ): ChartType {
+  if (analyticsMode === "bucketized") {
+    if (distributionLength > 10) return "table"
+    return "bar"
+  }
   if (fieldType === "number" || fieldType === "integer") return "numeric-grid"
   if (fieldType === "boolean") return "donut"
   if (distributionLength > 10) return "table"
@@ -47,7 +52,10 @@ export function inferTrendChartType(
   return "stacked-bar"
 }
 
-export function getAvailableChartTypes(fieldType: string): ChartType[] {
+export function getAvailableChartTypes(fieldType: string, analyticsMode?: string): ChartType[] {
+  if (analyticsMode === "bucketized") {
+    return ["bar", "donut", "table"]
+  }
   switch (fieldType) {
     case "select":
       return ["donut", "bar", "table"]
@@ -65,5 +73,6 @@ export function getAvailableTrendChartTypes(
   analyticsMode: string,
 ): ChartType[] {
   if (analyticsMode === "numeric_summary") return ["line"]
+  if (analyticsMode === "bucketized") return ["stacked-bar", "table"]
   return ["stacked-bar", "table"]
 }
