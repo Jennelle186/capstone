@@ -46,12 +46,24 @@ class FieldAnalytics(BaseModel):
     false: dict | None = None
 
 
+class DocumentComplianceItem(BaseModel):
+    document_type: str
+    document_code: str
+    classification_scope: list[str]
+    verified: int
+    pending: int
+    missing: int
+    eligible_students: int
+    verification_rate: float
+
+
 class SnapshotResponse(BaseModel):
     school_year_id: str
     school_year_name: str
     total_students: int
     total_verified_submissions: int
     fields: list[FieldAnalytics]
+    document_compliance: list[DocumentComplianceItem]
 
 
 class TrendSchoolYear(BaseModel):

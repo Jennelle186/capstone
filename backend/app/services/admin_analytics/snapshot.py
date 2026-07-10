@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import SessionDep
 from ...models import (
     DocumentSubmission,
+    DocumentType,
     ExtractionSchema,
     SchoolYear,
     SchoolYearRequirement,
@@ -36,6 +37,14 @@ async def get_extraction_analytics(
         )
     ).scalars().all()
 
+    all_syrs = (
+        await db.execute(
+            select(SchoolYearRequirement).where(
+                SchoolYearRequirement.school_year_id == school_year_id,
+            )
+        )
+    ).scalars().all()
+
     schema_ids = [syr.extraction_schema_id for syr in syrs if syr.extraction_schema_id]
 
     schemas = (
@@ -44,7 +53,7 @@ async def get_extraction_analytics(
         )).scalars().all()
     ) if schema_ids else []
 
-    doc_type_ids = list({syr.document_type_id for syr in syrs})
+    doc_type_ids = list({syr.document_type_id for syr in all_syrs})
 
     student_where = [Student.school_year_id == school_year_id]
     if department_id:
@@ -123,10 +132,84 @@ async def get_extraction_analytics(
 
     fields.sort(key=lambda f: (f.get("analytics_group") or "", f["canonical_key"]))
 
+    # --- Document Compliance ---
+    doc_types_result = await db.execute(
+        select(DocumentType).where(DocumentType.id.in_(doc_type_ids))
+    )
+    doc_types = {dt.id: dt for dt in doc_types_result.scalars().all()}
+
+    compliance_items: list[dict] = []
+    for doc_type_id in doc_type_ids:
+        dt = doc_types.get(doc_type_id)
+        if not dt:
+            continue
+
+        applicable = dt.applicable_classifications or []
+        if applicable:
+            eligible_students = [
+                s for s in all_students if s.classification in applicable
+            ]
+        else:
+            eligible_students = all_students
+        eligible_count = len(eligible_students)
+        if not eligible_count:
+            continue
+
+        eligible_ids = [s.id for s in eligible_students]
+
+        latest_sub = (
+            select(
+                DocumentSubmission.student_id,
+                DocumentSubmission.document_type_id,
+                DocumentSubmission.status,
+                func.row_number().over(
+                    partition_by=(
+                        DocumentSubmission.student_id,
+                        DocumentSubmission.document_type_id,
+                    ),
+                    order_by=DocumentSubmission.updated_at.desc(),
+                ).label("rn"),
+            ).where(
+                DocumentSubmission.student_id.in_(eligible_ids),
+                DocumentSubmission.document_type_id == doc_type_id,
+            )
+        ).subquery()
+
+        counts = (
+            await db.execute(
+                select(
+                    latest_sub.c.status,
+                    func.count(latest_sub.c.student_id).label("cnt"),
+                ).where(latest_sub.c.rn == 1)
+                .group_by(latest_sub.c.status)
+            )
+        ).all()
+
+        status_counts: dict = {SubmissionStatus.VERIFIED: 0, SubmissionStatus.PENDING: 0}
+        for row in counts:
+            status_counts[row.status] = row.cnt
+
+        verified = status_counts[SubmissionStatus.VERIFIED]
+        pending = status_counts[SubmissionStatus.PENDING]
+        missing = eligible_count - verified - pending
+        rate = round(verified / eligible_count * 100, 1) if eligible_count else 0.0
+
+        compliance_items.append({
+            "document_type": dt.name,
+            "document_code": dt.code or "",
+            "classification_scope": applicable,
+            "verified": verified,
+            "pending": pending,
+            "missing": missing,
+            "eligible_students": eligible_count,
+            "verification_rate": rate,
+        })
+
     return {
         "school_year_id": str(school_year_id),
         "school_year_name": school_year.name,
         "total_students": total_students,
         "total_verified_submissions": len(submissions),
         "fields": fields,
+        "document_compliance": compliance_items,
     }

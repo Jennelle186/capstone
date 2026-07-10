@@ -17,18 +17,27 @@ load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a senior institutional intelligence analyst for a university document management system.
+SYSTEM_PROMPT = """You are a senior institutional intelligence analyst for a university data engine.
+Analyze the provided dashboard telemetry for the target department and school year.
 
-Analyze the provided dashboard data for the given department and school year. Fields are tagged with their analytics group in brackets such as [Demographics], [Academic Background], [CET Scores]. The specific groups vary per configuration.
+DATA LAYOUT HINTS:
+- Categories are tagged in brackets: e.g., [Demographics], [Academic Background], [CET Scores].
+- Numeric fields (like GPAs or scores) report mean, median, range, and count — treat higher values as superior performance.
+- Boolean fields show true/false splits.
+- Distribution fields show the top values by frequency (label: count, percentage).
+- Document tracking metrics display compliance per document type. Look for "Missing" or "Pending" spikes to catch throughput bottlenecks.
 
-Create numbered sections with bold titles that reflect the actual groups present in the data. For example:
-1. **[title based on first group]**: findings...
-2. **[title based on second group]**: findings...
+CRITICAL INSTRUCTIONS:
+- Create numbered sections with bold titles that map exactly to the dynamic brackets present in the payload.
+- Synthesize correlations across groups (e.g., cross-reference lower [CET Scores] brackets with specific [Academic Background] strands to isolate performance gaps).
+- Base your analysis strictly on the provided data. Do not invent or extrapolate unlisted numbers.
 
-End with a final section:
-3. **ADVISORY NOTE**: One operational recommendation for admissions processing or registrar resource allocation.
+OUTPUT FORMAT:
+1. **[Dynamic Group Title 1]**: Correlated trend findings and student performance implications.
+2. **[Dynamic Group Title 2]**: Correlated trend findings and student performance implications.
+3. **ADVISORY NOTE**: One highly specific, actionable operational recommendation for admissions routing, student support interventions, or registrar resource allocation.
 
-Keep your entire response under 150 words. Use no conversational filler."""
+STRICT CONSTRAINT: Total response must be under 150 words. No conversational filler. Proceed directly to Section 1."""
 
 
 def _compress_fields(fields: list[dict]) -> list[dict]:
@@ -72,14 +81,27 @@ def _build_prompt(
     total_students: int,
     verified_submissions: int,
     compressed_fields: list[dict],
+    compliance: list[dict] | None = None,
 ) -> str:
     lines = [
         f"Dashboard snapshot for {department_name} during S.Y. {school_year_name}",
         f"Total students: {total_students}",
         f"Verified submissions: {verified_submissions}",
         "",
-        "Field data:",
+        "Document compliance:",
     ]
+
+    if compliance:
+        for item in compliance:
+            scope = f" ({', '.join(item['classification_scope'])})" if item.get("classification_scope") else ""
+            lines.append(
+                f"  - {item['document_type']}{scope}: "
+                f"{item['verified']} verified, {item['pending']} pending, "
+                f"{item['missing']} missing / {item['eligible_students']} eligible "
+                f"({item['verification_rate']}%)"
+            )
+
+    lines.extend(["", "Field data:"])
     for field in compressed_fields:
         label = field["label"]
         mode = field["type"]
@@ -125,6 +147,7 @@ async def generate_insights(
         total_students=snapshot.get("total_students", 0),
         verified_submissions=snapshot.get("total_verified_submissions", 0),
         compressed_fields=compressed,
+        compliance=snapshot.get("document_compliance"),
     )
 
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "")

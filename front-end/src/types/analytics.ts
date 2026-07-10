@@ -45,12 +45,24 @@ export interface FieldAnalytics {
   false?: { count: number; percentage: number | null }
 }
 
+export interface DocumentComplianceItem {
+  document_type: string
+  document_code: string
+  classification_scope: string[]
+  verified: number
+  pending: number
+  missing: number
+  eligible_students: number
+  verification_rate: number
+}
+
 export interface SnapshotResponse {
   school_year_id: string
   school_year_name: string
   total_students: number
   total_verified_submissions: number
   fields: FieldAnalytics[]
+  document_compliance: DocumentComplianceItem[]
 }
 
 export interface TrendSchoolYear {
