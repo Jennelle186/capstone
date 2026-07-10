@@ -38,8 +38,8 @@ class TestDistributionAggregator:
         assert result["distribution_basis"] == "students"
         assert len(result["distribution"]) == 2
         labels = {d["label"]: d["count"] for d in result["distribution"]}
-        assert labels["male"] == 3
-        assert labels["female"] == 2
+        assert labels["Male"] == 3
+        assert labels["Female"] == 2
 
     def test_multi_select(self):
         values = [

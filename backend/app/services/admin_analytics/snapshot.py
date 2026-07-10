@@ -14,7 +14,7 @@ from ...models import (
     Student,
     SubmissionStatus,
 )
-from .aggregators import AGGREGATORS, infer_mode
+from .aggregators import AGGREGATORS, infer_mode, snake_to_title
 from .field_values import extract_values
 
 
@@ -89,8 +89,6 @@ async def get_extraction_analytics(
             if not aggregator:
                 continue
 
-            agg_result = aggregator.aggregate(values)
-
             values_present = len(values)
             values_missing = total_students - values_present
             completion_rate = (
@@ -100,8 +98,11 @@ async def get_extraction_analytics(
             )
 
             canonical_key = field.get("canonical_key") or field_key
-            label = field.get("analytics_label") or field.get("label") or canonical_key
+            label = field.get("analytics_label") or field.get("label") or snake_to_title(canonical_key)
             analytics_group = field.get("analytics_group")
+
+            field_options = field.get("options")
+            agg_result = aggregator.aggregate(values, options=field_options)
 
             entry: dict = {
                 "canonical_key": canonical_key,
