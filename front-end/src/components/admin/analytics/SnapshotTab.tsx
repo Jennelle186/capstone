@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { FieldAnalytics, SnapshotResponse } from "@/types/analytics"
 import ComplianceChart from "./ComplianceChart"
@@ -87,6 +88,28 @@ export default function SnapshotTab({ snapshot, isLoading }: SnapshotTabProps) {
     {} as Record<string, FieldAnalytics[]>,
   )
 
+  const groupNames = Object.keys(fieldsByGroup)
+  const [visibleGroups, setVisibleGroups] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`visible_groups_${snapshot.school_year_id}`)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        return Array.isArray(parsed) ? parsed : groupNames
+      }
+    } catch {}
+    return groupNames
+  })
+
+  const toggleGroup = (g: string) => {
+    const next = visibleGroups.includes(g)
+      ? visibleGroups.filter((x) => x !== g)
+      : [...visibleGroups, g]
+    setVisibleGroups(next)
+    try {
+      localStorage.setItem(`visible_groups_${snapshot.school_year_id}`, JSON.stringify(next))
+    } catch {}
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-4">
@@ -108,20 +131,39 @@ export default function SnapshotTab({ snapshot, isLoading }: SnapshotTabProps) {
         </div>
       </div>
 
+      {groupNames.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {groupNames.map((g) => (
+            <Button
+              key={g}
+              type="button"
+              size="sm"
+              variant={visibleGroups.includes(g) ? "default" : "outline"}
+              className="rounded-full"
+              onClick={() => toggleGroup(g)}
+            >
+              {g}
+            </Button>
+          ))}
+        </div>
+      )}
+
       <ComplianceSection items={snapshot.document_compliance} />
 
-      {Object.entries(fieldsByGroup).map(([group, fields]) => (
-        <div key={group}>
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-500">
-            {group}
-          </h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {fields.map((f) => (
-              <FieldCard key={f.canonical_key} field={f} />
-            ))}
+      {Object.entries(fieldsByGroup)
+        .filter(([group]) => visibleGroups.includes(group))
+        .map(([group, fields]) => (
+          <div key={group}>
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-500">
+              {group}
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {fields.map((f) => (
+                <FieldCard key={f.canonical_key} field={f} />
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
     </div>
   )
 }

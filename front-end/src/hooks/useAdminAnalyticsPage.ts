@@ -34,7 +34,7 @@ export function useAdminAnalyticsPage() {
   const [isLoadingEnrolment, setIsLoadingEnrolment] = useState(true)
   const [isLoadingTrends, setIsLoadingTrends] = useState(false)
 
-  const [tab, setTab] = useState<"snapshot" | "trends">("snapshot")
+  const [tab, setTab] = useState<"snapshot" | "trends" | "fields">("snapshot")
   const [trendFromYear, setTrendFromYear] = useState("2023")
   const [trendToYear, setTrendToYear] = useState("2026")
   const [selectedTrendKeys, setSelectedTrendKeys] = useState<string[]>(["gender"])

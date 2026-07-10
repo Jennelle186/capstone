@@ -11,6 +11,7 @@ class CanonicalKeyItem(BaseModel):
     field_type: str
     analytics_group: str | None = None
     school_year_count: int
+    document_types: list[str] = []
 
 
 class CanonicalKeysResponse(BaseModel):

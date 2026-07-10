@@ -6,6 +6,7 @@ import AdminEmptyState from "@/components/admin/AdminEmptyState"
 import AdminPageHeader from "@/components/admin/AdminPageHeader"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAdminAnalyticsPage } from "@/hooks/useAdminAnalyticsPage"
+import FieldsTab from "@/components/admin/analytics/FieldsTab"
 import GlobalAISummary from "@/components/admin/analytics/GlobalAISummary"
 import SnapshotTab from "@/components/admin/analytics/SnapshotTab"
 import TrendsTab from "@/components/admin/analytics/TrendsTab"
@@ -21,6 +22,8 @@ export default function AnalyticsPage() {
     requestWithAdminAuth,
     snapshot,
     isLoadingSnapshot,
+    canonicalKeys,
+    isLoadingCanonical,
     tab,
     setTab,
     trendFromYear,
@@ -56,13 +59,14 @@ export default function AnalyticsPage() {
 
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as "snapshot" | "trends")}
+        onValueChange={(v) => setTab(v as "snapshot" | "trends" | "fields")}
         className="space-y-6"
       >
         <div className="flex flex-wrap items-center justify-between gap-4">
           <TabsList>
             <TabsTrigger value="snapshot">Snapshot</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
+            <TabsTrigger value="fields">Fields</TabsTrigger>
           </TabsList>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -121,6 +125,10 @@ export default function AnalyticsPage() {
               isLoadingTrends={isLoadingTrends}
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="fields">
+          <FieldsTab keys={canonicalKeys} isLoading={isLoadingCanonical} />
         </TabsContent>
       </Tabs>
     </div>

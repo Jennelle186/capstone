@@ -4,6 +4,7 @@ export interface CanonicalKeyItem {
   field_type: string
   analytics_group: string | null
   school_year_count: number
+  document_types: string[]
 }
 
 export interface CanonicalKeysResponse {
