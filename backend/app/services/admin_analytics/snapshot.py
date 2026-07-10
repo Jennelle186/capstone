@@ -80,8 +80,15 @@ async def get_extraction_analytics(
 
     fields: list[dict] = []
 
+    schema_snapshots: dict[UUID, list | None] = {}
+    for syr in syrs:
+        sid = syr.extraction_schema_id
+        if sid and sid not in schema_snapshots:
+            schema_snapshots[sid] = syr.snapshot_fields_json
+
     for schema in schemas:
-        schema_fields = schema.fields_json or []
+        snap = schema_snapshots.get(schema.id)
+        schema_fields = snap if snap is not None else (schema.fields_json or [])
         for field in schema_fields:
             if not isinstance(field, dict):
                 continue

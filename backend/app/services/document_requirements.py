@@ -128,11 +128,17 @@ async def replace_school_year_requirements(
     )
 
     for document_type_id, extraction_schema_id in deduped_requirements:
+        snapshot = None
+        if extraction_schema_id:
+            schema = await db.get(ExtractionSchema, extraction_schema_id)
+            if schema:
+                snapshot = schema.fields_json
         db.add(
             SchoolYearRequirement(
                 school_year_id=school_year_id,
                 document_type_id=document_type_id,
                 extraction_schema_id=extraction_schema_id,
+                snapshot_fields_json=snapshot,
             )
         )
 

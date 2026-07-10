@@ -322,6 +322,7 @@ class SchoolYearRequirement(Base):
         nullable=True,
         index=True,
     )
+    snapshot_fields_json = Column(JSONB, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
