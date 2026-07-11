@@ -8,6 +8,7 @@ from uuid import UUID
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import SessionDep
@@ -129,12 +130,21 @@ async def generate_insights(
     db: SessionDep,
     school_year_id: UUID,
     department_id: UUID | None = None,
+    department_ids: list[UUID] | None = None,
 ) -> str:
-    snapshot = await get_extraction_analytics(db, school_year_id, department_id)
+    snapshot = await get_extraction_analytics(db, school_year_id, department_id, department_ids)
 
     school_year_name = snapshot.get("school_year_name", "")
     department_name = "All Departments"
-    if department_id:
+    if department_ids:
+        from ...models import Department
+        depts = await db.execute(
+            select(Department).where(Department.id.in_(department_ids))
+        )
+        dept_names = [d.name for d in depts.scalars().all()]
+        if dept_names:
+            department_name = ", ".join(dept_names)
+    elif department_id:
         from ...models import Department
         dept = await db.get(Department, department_id)
         if dept:

@@ -25,6 +25,7 @@ async def get_trends(
     from_year: int,
     to_year: int,
     department_id: UUID | None = None,
+    department_ids: list[UUID] | None = None,
 ) -> dict:
     all_schemas = (
         await db.execute(select(ExtractionSchema))
@@ -71,7 +72,11 @@ async def get_trends(
         for syr in syrs:
             schema_to_sy[str(syr.extraction_schema_id)].append(sy.id)
 
-    student_where_extra = [Student.program_id == department_id] if department_id else []
+    student_where_extra: list = []
+    if department_ids:
+        student_where_extra = [Student.program_id.in_(department_ids)]
+    elif department_id:
+        student_where_extra = [Student.program_id == department_id]
 
     canonical_keys_result: dict = {}
 

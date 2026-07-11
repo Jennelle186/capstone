@@ -64,3 +64,39 @@ async def get_department_ids_for_adviser(
     )
     departments = dept_result.scalars().all()
     return [d.id for d in departments]
+
+
+async def list_adviser_departments(
+    db: SessionDep,
+    adviser: Adviser,
+    target_school_year_id: uuid.UUID,
+) -> list[dict]:
+    assignment_stmt = (
+        select(ProgramAdviserAssignment)
+        .where(
+            ProgramAdviserAssignment.adviser_id == adviser.id,
+            ProgramAdviserAssignment.school_year_id == target_school_year_id,
+        )
+        .order_by(desc(ProgramAdviserAssignment.updated_at))
+    )
+    assignments = (await db.execute(assignment_stmt)).scalars().all()
+    if not assignments:
+        return []
+
+    program_id_to_code = await get_program_id_to_department_code_map(db)
+    dept_codes = [
+        program_id_to_code.get(a.program_id)
+        for a in assignments
+    ]
+    dept_codes = [c for c in dept_codes if c is not None]
+    if not dept_codes:
+        return []
+
+    dept_result = await db.execute(
+        select(Department).where(func.lower(Department.code).in_([c.lower() for c in dept_codes]))
+    )
+    departments = dept_result.scalars().all()
+    return [
+        {"id": str(d.id), "name": d.name, "code": d.code}
+        for d in departments
+    ]

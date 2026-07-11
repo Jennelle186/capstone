@@ -1,4 +1,4 @@
-import { BarChart3, History, LayoutDashboard, LogOut, UserCircle2, Users } from "lucide-react";
+import { BarChart3, FileSearch, History, LayoutDashboard, LogOut, UserCircle2, Users } from "lucide-react";
 import CommonAppSidebar from "@/components/common/AppSidebar";
 import LogoutConfirmDialog from "@/components/common/LogoutConfirmDialog";
 import type { SidebarGroupConfig } from "@/components/common/AppSidebar";
@@ -62,6 +62,7 @@ export default function AdviserSidebar() {
         items: [
           { title: "My Advisees", icon: Users, url: "/adviser/students" },
           { title: "Analytics", icon: BarChart3, url: "/adviser/analytics" },
+          { title: "Extraction Analytics", icon: FileSearch, url: "/adviser/extraction-analytics" },
           { title: "Archived Sessions", icon: History, url: "/adviser/archived" },
           { title: "Profile Settings", icon: UserCircle2, url: "/adviser/profile" },
 

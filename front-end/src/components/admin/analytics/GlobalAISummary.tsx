@@ -14,6 +14,8 @@ interface GlobalAISummaryProps {
   schoolYearName: string
   departmentName: string
   requestWithAdminAuth: (path: string, init?: RequestInit) => Promise<unknown>
+  insightsEndpoint?: string
+  userId?: string
 }
 
 interface ParsedSection {
@@ -65,8 +67,9 @@ function ParsedBriefing({ text, isStale }: { text: string; isStale: boolean }) {
   )
 }
 
-function cacheKey(syId: string, deptId: string) {
-  return `ai_briefing_${syId}_${deptId || "all"}`
+function cacheKey(syId: string, deptId: string, userId?: string) {
+  const prefix = userId ? `${userId}_` : ""
+  return `${prefix}ai_briefing_${syId}_${deptId || "all"}`
 }
 
 export default function GlobalAISummary({
@@ -75,13 +78,15 @@ export default function GlobalAISummary({
   schoolYearName,
   departmentName,
   requestWithAdminAuth,
+  insightsEndpoint = "/api/admin/analytics/insights",
+  userId = "",
 }: GlobalAISummaryProps) {
   const [summary, setSummary] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isStale, setIsStale] = useState(false)
-  const prevKeyRef = useRef(cacheKey(selectedSyId, selectedDeptId))
+  const prevKeyRef = useRef(cacheKey(selectedSyId, selectedDeptId, userId))
 
-  const currentKey = cacheKey(selectedSyId, selectedDeptId)
+  const currentKey = cacheKey(selectedSyId, selectedDeptId, userId)
   const filtersChanged = prevKeyRef.current !== currentKey
 
   useEffect(() => {
@@ -105,7 +110,7 @@ export default function GlobalAISummary({
     setIsStale(false)
     try {
       const query = `school_year_id=${selectedSyId}${selectedDeptId ? `&department_id=${selectedDeptId}` : ""}`
-      const result = await requestWithAdminAuth(`/api/admin/analytics/insights?${query}`, {
+      const result = await requestWithAdminAuth(`${insightsEndpoint}?${query}`, {
         method: "POST",
       }) as { summary: string }
       const text = result.summary

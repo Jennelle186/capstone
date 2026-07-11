@@ -12,11 +12,17 @@ async def get_enrolment_trends(
     from_year: int,
     to_year: int,
     department_id: UUID | None = None,
+    department_ids: list[UUID] | None = None,
 ) -> dict:
     params: dict = {"from_year": from_year, "to_year": to_year}
 
     dept_clause = ""
-    if department_id:
+    if department_ids:
+        placeholders = ", ".join([f":dept_{i}" for i in range(len(department_ids))])
+        dept_clause = f"AND s.program_id IN ({placeholders})"
+        for i, did in enumerate(department_ids):
+            params[f"dept_{i}"] = did
+    elif department_id:
         dept_clause = "AND s.program_id = :department_id"
         params["department_id"] = department_id
 

@@ -19,6 +19,7 @@ import AdviserProfilePage from "./pages/adviser/AdviserProfilePage";
 import AdviseesPage from "./pages/adviser/AdviseesPage";
 import StudentDetailPage from "./pages/adviser/StudentDetailPage";
 import ArchivedPage from "./pages/adviser/ArchivedPage";
+import ExtractionAnalyticsPage from "./pages/adviser/ExtractionAnalyticsPage";
 import AnalyticsPage from "./pages/adviser/AnalyticsPage";
 import DocumentReviewDesk from "./pages/adviser/DocumentReviewDesk";
 import AdminDashboardPage from "./pages/admin/dashboard/AdminDashboardPage";
@@ -98,6 +99,7 @@ const AppRoutes = createBrowserRouter([
                         ],
                     },
                     { path: "analytics", Component: AnalyticsPage },
+                    { path: "extraction-analytics", Component: ExtractionAnalyticsPage },
                     { path: "archived", Component: ArchivedPage },
                     { path: "profile/*", Component: AdviserProfilePage },
                 ],

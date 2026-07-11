@@ -23,6 +23,7 @@ async def get_extraction_analytics(
     db: SessionDep,
     school_year_id: UUID,
     department_id: UUID | None = None,
+    department_ids: list[UUID] | None = None,
 ) -> dict:
     school_year = await db.get(SchoolYear, school_year_id)
     if not school_year:
@@ -56,7 +57,9 @@ async def get_extraction_analytics(
     doc_type_ids = list({syr.document_type_id for syr in all_syrs})
 
     student_where = [Student.school_year_id == school_year_id]
-    if department_id:
+    if department_ids:
+        student_where.append(Student.program_id.in_(department_ids))
+    elif department_id:
         student_where.append(Student.program_id == department_id)
 
     students_result = await db.execute(
