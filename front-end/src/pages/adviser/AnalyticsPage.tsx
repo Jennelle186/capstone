@@ -198,9 +198,9 @@ export default function AnalyticsPage() {
           <motion.div variants={fadeInUp} initial="hidden" animate="visible">
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
-                <CardTitle className="text-sm">Status Distribution</CardTitle>
+                <CardTitle className="text-sm">Student Completion</CardTitle>
                 <CardDescription>
-                  Breakdown of all document verification statuses
+                  Per-student completion status based on all required documents
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -208,7 +208,7 @@ export default function AnalyticsPage() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={archived?.status_distribution ?? []}
+                        data={archived?.student_status_distribution ?? []}
                         cx="50%"
                         cy="50%"
                         innerRadius={50}
@@ -217,7 +217,7 @@ export default function AnalyticsPage() {
                         dataKey="count"
                         nameKey="status"
                       >
-                        {(archived?.status_distribution ?? []).map((_: unknown, idx: number) => (
+                        {(archived?.student_status_distribution ?? []).map((_: unknown, idx: number) => (
                           <Cell key={`cell-${idx}`} fill={COLORS_PIE[idx % COLORS_PIE.length]} />
                         ))}
                       </Pie>
@@ -226,15 +226,15 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                   <div className="absolute flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-xl font-extrabold text-slate-900 leading-none">
-                      {archived?.verification_rate ?? 0}%
+                      {archived?.student_completion_rate ?? 0}%
                     </span>
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-1">
-                      Verified
+                      Complete
                     </span>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-y-1.5 gap-x-2 pt-2 text-xs font-semibold text-slate-500">
-                  {(archived?.status_distribution ?? []).map((item, idx) => (
+                  {(archived?.student_status_distribution ?? []).map((item, idx) => (
                     <div key={idx} className="flex items-center gap-1.5 truncate">
                       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS_PIE[idx % COLORS_PIE.length] }} />
                       <span className="capitalize">

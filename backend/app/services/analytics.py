@@ -203,15 +203,34 @@ async def get_archived(
     )
     sub_counts = {r.student_id: r[1] for r in (await db.execute(sub_count_stmt)).all()}
 
+    verified_count_stmt = exclude_replaced_submissions(
+        select(DocumentSubmission.student_id, func.count(DocumentSubmission.id))
+        .where(
+            DocumentSubmission.student_id.in_([s.id for s in students]),
+            DocumentSubmission.status == SubmissionStatus.VERIFIED,
+        )
+        .group_by(DocumentSubmission.student_id)
+    )
+    verified_counts = {r.student_id: r[1] for r in (await db.execute(verified_count_stmt)).all()}
+
     req_counts = await get_required_doc_counts_by_class(db, sy_id)
 
+    student_statuses: dict[str, int] = defaultdict(int)
     student_responses: list[dict] = []
     for s in students:
         u = user_map.get(s.user_id)
         classification_val = s.classification.value if s.classification else None
         submitted = sub_counts.get(s.id, 0)
+        verified = verified_counts.get(s.id, 0)
         total = req_counts.get(classification_val, 0) or req_counts.get(None, 0)
         completion_pct = min(100, round(submitted / total * 100)) if total > 0 else 0
+
+        if total > 0 and verified >= total:
+            student_statuses["Complete"] += 1
+        elif submitted > 0:
+            student_statuses["In Progress"] += 1
+        else:
+            student_statuses["Not Started"] += 1
 
         student_responses.append({
             "id": str(s.id),
@@ -228,6 +247,13 @@ async def get_archived(
             "created_at": s.created_at.isoformat() if s.created_at else "",
         })
 
+    student_status_items = [
+        {"status": st, "count": ct}
+        for st, ct in sorted(student_statuses.items(), key=lambda x: -x[1])
+    ]
+    complete_count = student_statuses.get("Complete", 0)
+    student_completion_rate = min(100, round(complete_count / total_students * 100)) if total_students > 0 else 0
+
     return {
         "analytics": {
             "school_year": school_year.name,
@@ -237,6 +263,8 @@ async def get_archived(
             "avg_processing_days": avg_days,
             "status_distribution": status_dist_items,
             "monthly_submissions": monthly_submissions,
+            "student_status_distribution": student_status_items,
+            "student_completion_rate": student_completion_rate,
         },
         "students": student_responses,
     }

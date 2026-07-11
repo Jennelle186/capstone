@@ -157,6 +157,8 @@ class AdviserArchivedAnalytics(BaseModel):
     avg_processing_days: float | None
     status_distribution: list[ArchivedStatusDistribution]
     monthly_submissions: list[ArchivedMonthlySubmission]
+    student_status_distribution: list[ArchivedStatusDistribution]
+    student_completion_rate: int
 
 
 class AdviserArchivedResponse(BaseModel):

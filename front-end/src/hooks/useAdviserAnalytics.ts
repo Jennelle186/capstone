@@ -14,6 +14,8 @@ interface ArchivedAnalytics {
   avg_processing_days: number | null;
   status_distribution: { status: string; count: number }[];
   monthly_submissions: { month: string; count: number }[];
+  student_status_distribution: { status: string; count: number }[];
+  student_completion_rate: number;
 }
 
 export function useAdviserAnalytics() {
