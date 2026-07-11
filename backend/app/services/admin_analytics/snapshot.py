@@ -25,10 +25,23 @@ async def get_extraction_analytics(
     department_id: UUID | None = None,
     department_ids: list[UUID] | None = None,
 ) -> dict:
+    """Build a snapshot of extraction-field analytics for a given school year.
+
+    For each analytics-enabled field across all extraction schemas linked to
+    the school year, aggregate the extracted values from verified submissions
+    and compute distribution / numeric / boolean summaries.
+
+    When a *snapshot* (``snapshot_fields_json``) exists on a
+    |SchoolYearRequirement| it is used instead of the live schema definition.
+    This lets admins freeze the field set at the start of the year so that
+    mid-year schema changes don't retroactively alter historical analytics.
+    """
     school_year = await db.get(SchoolYear, school_year_id)
     if not school_year:
         raise ValueError(f"School year {school_year_id} not found")
 
+    # Load SYRs that have an extraction schema attached (these define which
+    # fields are collected for this school year).
     syrs = (
         await db.execute(
             select(SchoolYearRequirement).where(
@@ -38,6 +51,7 @@ async def get_extraction_analytics(
         )
     ).scalars().all()
 
+    # Also load SYRs without schema (document-type mappings for compliance).
     all_syrs = (
         await db.execute(
             select(SchoolYearRequirement).where(
@@ -56,6 +70,7 @@ async def get_extraction_analytics(
 
     doc_type_ids = list({syr.document_type_id for syr in all_syrs})
 
+    # Scope to department(s) when provided, otherwise all students in the SY.
     student_where = [Student.school_year_id == school_year_id]
     if department_ids:
         student_where.append(Student.program_id.in_(department_ids))
@@ -68,6 +83,8 @@ async def get_extraction_analytics(
     all_students = students_result.scalars().all()
     total_students = len(all_students)
 
+    # Load only verified submissions that have extracted_data — these are the
+    # records whose field values we aggregate.
     submissions = (
         await db.execute(
             select(DocumentSubmission).where(
@@ -83,6 +100,8 @@ async def get_extraction_analytics(
 
     fields: list[dict] = []
 
+    # Build a lookup: schema_id → snapshot_fields_json (or None if no snapshot).
+    # When a snapshot exists it takes priority over the live schema definition.
     schema_snapshots: dict[UUID, list | None] = {}
     for syr in syrs:
         sid = syr.extraction_schema_id
@@ -91,6 +110,8 @@ async def get_extraction_analytics(
 
     for schema in schemas:
         snap = schema_snapshots.get(schema.id)
+        # Use the frozen snapshot if available, otherwise fall back to the
+        # live schema.fields_json.
         schema_fields = snap if snap is not None else (schema.fields_json or [])
         for field in schema_fields:
             if not isinstance(field, dict):
@@ -103,6 +124,8 @@ async def get_extraction_analytics(
             field_type: str = field.get("type", "string")
             mode: str = field.get("analytics_mode") or infer_mode(field_type)
 
+            # Extract raw values for this field from all verified submissions,
+            # then delegate to the appropriate aggregator.
             values = extract_values(submissions, field_id, field_type, field_key)
             aggregator = AGGREGATORS.get(mode)
             if not aggregator:
@@ -141,9 +164,17 @@ async def get_extraction_analytics(
             entry.update(agg_result)
             fields.append(entry)
 
+    # Sort fields by group first, then by canonical key within groups.
     fields.sort(key=lambda f: (f.get("analytics_group") or "", f["canonical_key"]))
 
-    # --- Document Compliance ---
+    # ── Document Compliance ──
+    # For each document type required in this school year, determine how many
+    # eligible students have a verified submission vs. pending vs. missing.
+    #
+    # "Eligible" means the student's classification matches the document type's
+    # ``applicable_classifications`` (or any student if that list is empty).
+    # Only the *latest* submission per student+document-type is considered
+    # (using row_number() over updated_at DESC).
     doc_types_result = await db.execute(
         select(DocumentType).where(DocumentType.id.in_(doc_type_ids))
     )
@@ -168,6 +199,8 @@ async def get_extraction_analytics(
 
         eligible_ids = [s.id for s in eligible_students]
 
+        # Windowed subquery: for each (student, document_type) pair, rank
+        # submissions by updated_at DESC and keep only the most recent (rn=1).
         latest_sub = (
             select(
                 DocumentSubmission.student_id,

@@ -14,8 +14,18 @@ async def get_enrolment_trends(
     department_id: UUID | None = None,
     department_ids: list[UUID] | None = None,
 ) -> dict:
+    """Return enrolment counts and verified-student counts per school year.
+
+    Uses a raw SQL query with LEFT JOINs so that school years with *zero*
+    enrolled students still appear in the result set (the count is simply 0).
+
+    The ``verified_students`` column counts DISTINCT students who have **at
+    least one** submission with ``status = 'verified'`` in that school year.
+    """
+
     params: dict = {"from_year": from_year, "to_year": to_year}
 
+    # Build the department-filter clause safely with parameterised placeholders.
     dept_clause = ""
     if department_ids:
         placeholders = ", ".join([f":dept_{i}" for i in range(len(department_ids))])

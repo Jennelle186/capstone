@@ -8,6 +8,7 @@ from ...database import SessionDep
 from ...rbac import require_admin
 from ...services.admin_analytics import (
     get_canonical_keys as svc_get_canonical_keys,
+    get_dashboard_kpi as svc_get_dashboard_kpi,
     get_enrolment_trends as svc_get_enrolment_trends,
     get_extraction_analytics as svc_get_extraction_analytics,
     generate_insights as svc_generate_insights,
@@ -15,6 +16,7 @@ from ...services.admin_analytics import (
 )
 from ...services.admin_analytics.response import (
     CanonicalKeysResponse,
+    DashboardKPIResponse,
     EnrolmentResponse,
     SnapshotResponse,
     TrendResponse,
@@ -86,3 +88,13 @@ async def insights(
     del current_user
     summary = await svc_generate_insights(db, school_year_id, department_id)
     return {"summary": summary}
+
+
+@router.get("/dashboard", response_model=DashboardKPIResponse)
+async def dashboard_kpi(
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    del current_user
+    result = await svc_get_dashboard_kpi(db)
+    return DashboardKPIResponse(**result)

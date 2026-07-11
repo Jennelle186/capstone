@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -7,10 +8,12 @@ import pytest
 from app.services.admin_analytics.aggregators import (
     AGGREGATORS,
     BooleanAggregator,
+    BucketizedAggregator,
     DistributionAggregator,
     NumericAggregator,
     infer_mode,
 )
+from app.services.admin_analytics.field_values import extract_values
 
 
 class TestInferMode:
@@ -114,6 +117,116 @@ class TestAggregatorsRegistry:
         assert "distribution" in AGGREGATORS
         assert "numeric_summary" in AGGREGATORS
         assert "boolean_summary" in AGGREGATORS
+        assert "bucketized" in AGGREGATORS
         assert isinstance(AGGREGATORS["distribution"], DistributionAggregator)
         assert isinstance(AGGREGATORS["numeric_summary"], NumericAggregator)
         assert isinstance(AGGREGATORS["boolean_summary"], BooleanAggregator)
+        assert isinstance(AGGREGATORS["bucketized"], BucketizedAggregator)
+
+
+class TestBucketizedAggregator:
+    def test_basic_buckets(self):
+        values = [1, 2, 5, 8, 15, 25]
+        buckets = [
+            {"label": "Low", "min": 0, "max": 10},
+            {"label": "Medium", "min": 10, "max": 20},
+            {"label": "High", "min": 20, "max": 30},
+        ]
+        result = BucketizedAggregator().aggregate(values, buckets=buckets)
+        assert result["student_count"] == 6
+        labels = {d["label"]: d["count"] for d in result["distribution"]}
+        assert labels["Low"] == 4
+        assert labels["Medium"] == 1
+        assert labels["High"] == 1
+
+    def test_value_above_last_bucket_max(self):
+        values = [5, 50]
+        buckets = [
+            {"label": "Low", "min": 0, "max": 10},
+            {"label": "High", "min": 10, "max": 30},
+        ]
+        result = BucketizedAggregator().aggregate(values, buckets=buckets)
+        labels = {d["label"]: d["count"] for d in result["distribution"]}
+        # 50 is >= 30 so it lands in the last bucket
+        assert labels["High"] == 1
+
+    def test_non_numeric_values_skipped(self):
+        values = [1, "abc", None, 5]
+        buckets = [{"label": "Range", "min": 0, "max": 10}]
+        result = BucketizedAggregator().aggregate(values, buckets=buckets)
+        assert sum(d["count"] for d in result["distribution"]) == 2
+
+    def test_empty_values(self):
+        result = BucketizedAggregator().aggregate([], buckets=[{"label": "A", "min": 0, "max": 10}])
+        assert result["student_count"] == 0
+        assert all(d["count"] == 0 for d in result["distribution"])
+
+    def test_no_buckets_provided(self):
+        result = BucketizedAggregator().aggregate([1, 2, 3])
+        assert result["distribution"] == []
+        assert result["student_count"] == 0
+
+
+class TestExtractValues:
+    def _make_submission(self, extracted_data: dict | None):
+        sub = MagicMock()
+        sub.extracted_data = extracted_data
+        return sub
+
+    def test_extracts_by_field_id(self):
+        subs = [self._make_submission({"field_1": {"value": "hello"}})]
+        result = extract_values(subs, "field_1", "string")
+        assert result == ["hello"]
+
+    def test_falls_back_to_field_key(self):
+        subs = [self._make_submission({"key_1": {"value": "fallback"}})]
+        result = extract_values(subs, "field_1", "string", field_key="key_1")
+        assert result == ["fallback"]
+
+    def test_skips_missing_field(self):
+        subs = [self._make_submission({"other": {"value": "x"}})]
+        result = extract_values(subs, "field_1", "string")
+        assert result == []
+
+    def test_skips_null_entry(self):
+        subs = [self._make_submission({"field_1": None})]
+        result = extract_values(subs, "field_1", "string")
+        assert result == []
+
+    def test_skips_null_value(self):
+        subs = [self._make_submission({"field_1": {"value": None}})]
+        result = extract_values(subs, "field_1", "string")
+        assert result == []
+
+    def test_multi_select_preserves_list(self):
+        subs = [self._make_submission({"field_1": {"value": ["a", "b"]}})]
+        result = extract_values(subs, "field_1", "multi-select")
+        assert result == [["a", "b"]]
+
+    def test_number_coerces_to_float(self):
+        subs = [self._make_submission({"field_1": {"value": "42.5"}})]
+        result = extract_values(subs, "field_1", "number")
+        assert result == [42.5]
+
+    def test_number_skips_unparseable(self):
+        subs = [self._make_submission({"field_1": {"value": "not_a_number"}})]
+        result = extract_values(subs, "field_1", "number")
+        assert result == []
+
+    def test_multiple_submissions(self):
+        subs = [
+            self._make_submission({"f": {"value": "a"}}),
+            self._make_submission({"f": {"value": "b"}}),
+            self._make_submission({"f": {"value": "c"}}),
+        ]
+        result = extract_values(subs, "f", "string")
+        assert result == ["a", "b", "c"]
+
+    def test_raw_value_not_dict(self):
+        subs = [self._make_submission({"field_1": "raw_string"})]
+        result = extract_values(subs, "field_1", "string")
+        assert result == ["raw_string"]
+
+    def test_empty_submissions(self):
+        result = extract_values([], "field_1", "string")
+        assert result == []

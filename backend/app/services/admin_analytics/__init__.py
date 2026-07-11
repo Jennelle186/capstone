@@ -1,10 +1,11 @@
 from .aggregators import infer_mode, DistributionAggregator, NumericAggregator, BooleanAggregator, BucketizedAggregator, AGGREGATORS
-from .field_values import extract_values
+from .dashboard import get_dashboard_kpi
 from .discovery import get_canonical_keys
+from .enrolment import get_enrolment_trends
+from .field_values import extract_values
+from .insights import generate_insights
 from .snapshot import get_extraction_analytics
 from .trends import get_trends
-from .enrolment import get_enrolment_trends
-from .insights import generate_insights
 
 __all__ = [
     "infer_mode",
@@ -15,8 +16,9 @@ __all__ = [
     "AGGREGATORS",
     "extract_values",
     "get_canonical_keys",
+    "get_dashboard_kpi",
+    "get_enrolment_trends",
     "get_extraction_analytics",
     "get_trends",
-    "get_enrolment_trends",
     "generate_insights",
 ]

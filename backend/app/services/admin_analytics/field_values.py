@@ -9,6 +9,17 @@ def extract_values(
     field_type: str,
     field_key: str = "",
 ) -> list:
+    """Extract the raw values for a given field across a list of submissions.
+
+    Lookup strategy (in order):
+    1. ``extracted_data[field_id]`` — the most specific match
+    2. ``extracted_data[field_key]`` — fallback when canonical_key differs
+
+    The returned values are lightly coerced:
+    - ``"multi-select"`` fields → each value is kept as a list
+    - ``"number"`` / ``"integer"`` → coerced to ``float`` (skipped if not parseable)
+    - Everything else → kept as-is (string, bool, …)
+    """
     values: list = []
     for sub in submissions:
         extracted = sub.extracted_data or {}

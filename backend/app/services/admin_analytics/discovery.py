@@ -11,10 +11,25 @@ from ...models import DocumentType, ExtractionSchema, SchoolYearRequirement
 
 
 async def get_canonical_keys(db: SessionDep) -> list[dict]:
+    """Discover all analytics-enabled canonical keys in the system.
+
+    A canonical key is a stable identifier for a field that may appear in
+    multiple extraction schemas across different document types and school
+    years.  This function:
+
+    1. Walks every extraction schema for fields tagged ``is_analytics``.
+    2. Groups them by canonical key (or field key if no canonical key set).
+    3. Counts how many distinct school years each key appears in.
+    4. Lists which document types use each key.
+
+    Returns a list sorted alphabetically by canonical key.
+    """
+
     schemas = (
         await db.execute(select(ExtractionSchema))
     ).scalars().all()
 
+    # Phase 1: collect all analytics fields and index them by canonical key.
     canonical_info: dict[str, dict] = {}
     canonical_schema_ids: dict[str, set[UUID]] = defaultdict(set)
 
@@ -41,6 +56,8 @@ async def get_canonical_keys(db: SessionDep) -> list[dict]:
 
             canonical_schema_ids[ck].add(schema.id)
 
+    # Phase 2: load all SchoolYearRequirements to build the reverse mapping
+    # from schema → document_type and schema → school_year.
     all_syrs = (await db.execute(select(SchoolYearRequirement))).scalars().all()
 
     schema_to_doc_types: dict[str, set[UUID]] = defaultdict(set)
@@ -53,6 +70,7 @@ async def get_canonical_keys(db: SessionDep) -> list[dict]:
             if syr.school_year_id:
                 schema_to_sy_ids[sid].add(syr.school_year_id)
 
+    # Resolve document_type IDs to human-readable names.
     all_doc_type_ids = {
         dt_id
         for doc_sets in schema_to_doc_types.values()
@@ -68,6 +86,7 @@ async def get_canonical_keys(db: SessionDep) -> list[dict]:
         for dt in dt_result.scalars().all():
             doc_type_names[str(dt.id)] = dt.name
 
+    # Phase 3: compose the final response.
     result = []
     for ck, info in canonical_info.items():
         all_dt_names: set[str] = set()

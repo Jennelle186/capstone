@@ -8,6 +8,8 @@ from ...schemas.extraction_schemas import AnalyticsMode
 
 
 def infer_mode(field_type: str) -> AnalyticsMode:
+    """Map a raw field type (``"number"``, ``"select"``, …) to the analytics
+    mode that should be used to aggregate it."""
     mapping: dict[str, AnalyticsMode] = {
         "number": "numeric_summary",
         "integer": "numeric_summary",
@@ -20,15 +22,29 @@ def infer_mode(field_type: str) -> AnalyticsMode:
 
 
 def snake_to_title(s: str) -> str:
+    """Convert ``"some_field_name"`` → ``"Some Field Name"``."""
     return s.replace("_", " ").title()
 
 
 class Aggregator(ABC):
+    """Base class for all analytics aggregators.
+
+    Subclasses implement ``aggregate(values, **kwargs)`` which turns a list of
+    raw extracted values into a summary dict consumed by the front-end.
+    """
+
     @abstractmethod
     def aggregate(self, values: list, **kwargs) -> dict[str, Any]: ...
 
 
 class DistributionAggregator(Aggregator):
+    """Count occurrences of each distinct value and return a sorted
+    distribution list with counts and percentages.
+
+    Supports ``options`` — an optional list of ``{value, label}`` dicts that
+    map raw stored values to human-readable labels.
+    """
+
     def aggregate(self, values: list, options: list[dict] | None = None, **kwargs) -> dict[str, Any]:
         value_to_label: dict[str, str] = {}
         if options:
@@ -66,6 +82,13 @@ class DistributionAggregator(Aggregator):
 
 
 class BucketizedAggregator(Aggregator):
+    """Sort numeric values into pre-defined buckets and return a distribution.
+
+    Each bucket is defined by ``{label, min, max}``.  A value falls into the
+    first bucket where ``min <= value < max``.  Values greater than or equal to
+    the last bucket's ``max`` are still counted in the last bucket.
+    """
+
     def aggregate(self, values: list, buckets: list[dict] | None = None, **kwargs) -> dict[str, Any]:
         nums = [v for v in values if isinstance(v, (int, float))]
         total = len(nums)
@@ -94,6 +117,8 @@ class BucketizedAggregator(Aggregator):
                     assigned = True
                     break
 
+            # Values above the last bucket's explicit max are still tallied
+            # in the final bucket to avoid dropping data.
             if not assigned:
                 last_idx = len(sorted_buckets) - 1
                 above_last = sorted_buckets[last_idx].get("max") is not None and v >= sorted_buckets[last_idx]["max"]
@@ -117,6 +142,9 @@ class BucketizedAggregator(Aggregator):
 
 
 class NumericAggregator(Aggregator):
+    """Compute descriptive statistics (mean, median, min, max, std, sum) over
+    a list of numeric values."""
+
     def aggregate(self, values: list, **kwargs) -> dict[str, Any]:
         nums = [v for v in values if isinstance(v, (int, float))]
         if not nums:
@@ -149,6 +177,8 @@ class NumericAggregator(Aggregator):
 
 
 class BooleanAggregator(Aggregator):
+    """Count true/false occurrences and return counts with percentages."""
+
     def aggregate(self, values: list, **kwargs) -> dict[str, Any]:
         trues = sum(1 for v in values if v is True)
         falses = sum(1 for v in values if v is False)

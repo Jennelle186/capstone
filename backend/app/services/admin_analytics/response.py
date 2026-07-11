@@ -94,3 +94,22 @@ class EnrolmentSeriesItem(BaseModel):
 
 class EnrolmentResponse(BaseModel):
     series: list[EnrolmentSeriesItem]
+
+
+class DepartmentClearanceItem(BaseModel):
+    department_id: str
+    department_name: str
+    total_students: int
+    cleared_students: int
+    clearance_rate: float
+    adviser_count: int = 0
+    adviser_names: list[str] = []
+
+
+class DashboardKPIResponse(BaseModel):
+    school_year: str
+    total_submissions: int
+    weekly_new_submissions: int
+    pending_queue: int
+    pending_queue_weekly_delta: int
+    department_clearance: list[DepartmentClearanceItem]

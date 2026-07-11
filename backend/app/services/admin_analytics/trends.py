@@ -27,6 +27,21 @@ async def get_trends(
     department_id: UUID | None = None,
     department_ids: list[UUID] | None = None,
 ) -> dict:
+    """Compute multi-year trend series for one or more canonical keys.
+
+    For each canonical key, this function finds every extraction-schema field
+    that is tagged with that key, then, for each school year in
+    ``[from_year, to_year]``, loads verified submissions and delegates to the
+    appropriate aggregator to produce a per-year summary.
+
+    A single canonical key may appear in multiple schemas (e.g. across
+    different document types).  Values from all matching fields within a
+    school year are combined before aggregation.
+    """
+
+    # ── Step 1: Index all analytics fields by canonical key ──
+    # Walk every extraction schema and collect fields whose ``canonical_key``
+    # (or ``key``) matches one of the requested keys.
     all_schemas = (
         await db.execute(select(ExtractionSchema))
     ).scalars().all()
@@ -44,6 +59,7 @@ async def get_trends(
                 continue
             key_fields[ck].append({**field, "schema_id": schema.id})
 
+    # ── Step 2: Load the school years in range ──
     school_years = (
         await db.execute(
             select(SchoolYear)
@@ -59,6 +75,8 @@ async def get_trends(
         for sy in school_years
     ]
 
+    # ── Step 3: Map each schema to the school years it is active in ──
+    # A schema is linked to a school year via SchoolYearRequirement.
     schema_to_sy: dict[str, list[UUID]] = defaultdict(list)
     for sy in school_years:
         syrs = (
@@ -72,6 +90,7 @@ async def get_trends(
         for syr in syrs:
             schema_to_sy[str(syr.extraction_schema_id)].append(sy.id)
 
+    # Optional department-scope filter.
     student_where_extra: list = []
     if department_ids:
         student_where_extra = [Student.program_id.in_(department_ids)]
@@ -80,7 +99,9 @@ async def get_trends(
 
     canonical_keys_result: dict = {}
 
+    # ── Step 4: For each canonical key, build a per-school-year series ──
     for ck in keys:
+        # If no field matched this key, return a placeholder series of Nones.
         if ck not in key_fields:
             canonical_keys_result[ck] = {
                 "label": ck,
@@ -99,6 +120,8 @@ async def get_trends(
         series: list = []
 
         for sy in school_years:
+            # Collect all verified submissions for this school year from
+            # every schema that contains this canonical key.
             sy_submissions: list = []
             for fe in field_entries:
                 schema_id = fe["schema_id"]
@@ -126,6 +149,7 @@ async def get_trends(
                 series.append(None)
                 continue
 
+            # Extract values from all matching fields and run the aggregator.
             values: list = []
             for fe in field_entries:
                 field_id = fe.get("id") or fe.get("key", "")

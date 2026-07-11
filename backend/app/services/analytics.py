@@ -25,6 +25,15 @@ async def get_analytics(
     db: SessionDep,
     adviser: Adviser,
 ) -> dict:
+    """Return live dashboard stats for an adviser's assigned departments.
+
+    Metrics are scoped to the **active** school year and filtered through
+    the adviser's ``ProgramAdviserAssignment`` records.
+
+    Returns counts for: total students, pending reviews (submitted/in-review
+    status), submissions uploaded today, verified documents, and an overall
+    progress percentage (verified / total non-pending submissions).
+    """
     target_sy_id = await get_active_school_year_id(db)
     if target_sy_id is None:
         return {
@@ -92,6 +101,17 @@ async def get_archived(
     adviser: Adviser,
     school_year_id_str: str,
 ) -> dict | None:
+    """Return detailed archived analytics for a specific school year.
+
+    Unlike ``get_analytics`` (which only returns live aggregates), this
+    function returns per-student breakdowns, monthly submission timelines,
+    status distributions, and per-student completion status derived from
+    verified-doc counts vs. required-doc counts by classification.
+
+    Returns ``None`` if the school year ID is not a valid UUID or does not
+    exist.  Returns zeroed data if the adviser has no assigned departments
+    for the given school year.
+    """
     try:
         sy_id = uuid.UUID(school_year_id_str)
     except ValueError:

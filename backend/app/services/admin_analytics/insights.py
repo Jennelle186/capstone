@@ -132,6 +132,15 @@ async def generate_insights(
     department_id: UUID | None = None,
     department_ids: list[UUID] | None = None,
 ) -> str:
+    """Generate AI-powered insight text for a department's extraction analytics.
+
+    Fetches the current extraction-analytics snapshot for the given school year
+    and department(s), compresses the field data to fit the model's context
+    window, builds a structured prompt, and calls Vertex AI Gemini.
+
+    Returns either the generated text or a user-facing error message if the
+    API call fails or the model is not configured.
+    """
     snapshot = await get_extraction_analytics(db, school_year_id, department_id, department_ids)
 
     school_year_name = snapshot.get("school_year_name", "")
