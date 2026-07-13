@@ -1,11 +1,15 @@
 "use client"
 
-import { BarChart3 } from "lucide-react"
+import { useCallback, useState } from "react"
+import { useAuth } from "@clerk/clerk-react"
+import { toast } from "sonner"
+import { BarChart3, Download, Loader2 } from "lucide-react"
 
 import AdminEmptyState from "@/components/admin/AdminEmptyState"
 import AdminPageHeader from "@/components/admin/AdminPageHeader"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAdminAnalyticsPage } from "@/hooks/useAdminAnalyticsPage"
+import { fetchWithClerkAuth } from "@/lib/api"
 import FieldsTab from "@/components/admin/analytics/FieldsTab"
 import GlobalAISummary from "@/components/admin/analytics/GlobalAISummary"
 import SnapshotTab from "@/components/admin/analytics/SnapshotTab"
@@ -39,8 +43,48 @@ export default function AnalyticsPage() {
     isLoadingTrends,
   } = useAdminAnalyticsPage()
 
+  const { getToken, isLoaded } = useAuth()
+  const [exportingAnalytics, setExportingAnalytics] = useState(false)
+
   const selectedSyName = schoolYearOptions.find((o) => o.value === selectedSyId)?.label ?? ""
   const selectedDeptName = departmentOptions.find((o) => o.value === selectedDeptId)?.label ?? "All Departments"
+
+  const handleDownloadAnalytics = useCallback(async () => {
+    if (!isLoaded || !selectedSyId) return
+    const token = await getToken()
+    if (!token) {
+      toast.error("Authentication required. Please sign in again.")
+      return
+    }
+    setExportingAnalytics(true)
+    try {
+      const params = new URLSearchParams({ school_year_ids: selectedSyId })
+      if (selectedDeptId) params.set("department_id", selectedDeptId)
+      const response = await fetchWithClerkAuth(
+        `/api/admin/reports/analytics.xlsx?${params.toString()}`,
+        token,
+      )
+      if (!response.ok) {
+        const err = await response.json().catch(() => null)
+        toast.error(err?.detail ?? "Failed to export analytics report.")
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = `${selectedSyName.replace(/\s+/g, "-").toLowerCase()}-analytics-report.xlsx`
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      URL.revokeObjectURL(url)
+      toast.success("Analytics report downloaded.")
+    } catch {
+      toast.error("Something went wrong. Please try again.")
+    } finally {
+      setExportingAnalytics(false)
+    }
+  }, [isLoaded, selectedSyId, selectedDeptId, selectedSyName, getToken])
 
   return (
     <div className="space-y-6">
@@ -96,6 +140,19 @@ export default function AnalyticsPage() {
                 ))}
               </select>
             )}
+
+            <button
+              onClick={handleDownloadAnalytics}
+              disabled={exportingAnalytics || !isLoaded || !selectedSyId || tab !== "snapshot"}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {exportingAnalytics ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Export XLSX
+            </button>
           </div>
         </div>
 
