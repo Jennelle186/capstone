@@ -143,6 +143,14 @@ class TestReplaceRequirementsSnapshot:
         for p in patchers:
             p.stop()
 
+    def _empty_db_result(self):
+        scalars_result = MagicMock()
+        scalars_result.all = MagicMock(return_value=[])
+        db_result = MagicMock()
+        db_result.scalars = MagicMock(return_value=scalars_result)
+        db_result.all = MagicMock(return_value=[])
+        return db_result
+
     async def test_snapshot_captured_from_schema(self):
         """When a schema is linked, its fields_json is copied to snapshot_fields_json."""
         schema_id = uuid4()
@@ -153,6 +161,7 @@ class TestReplaceRequirementsSnapshot:
         mock_schema.fields_json = fields
 
         mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=self._empty_db_result())
         mock_db.get = AsyncMock(return_value=mock_schema)
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()
@@ -172,6 +181,7 @@ class TestReplaceRequirementsSnapshot:
         doc_type_id = uuid4()
 
         mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=self._empty_db_result())
         mock_db.get = AsyncMock()
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()
@@ -191,6 +201,7 @@ class TestReplaceRequirementsSnapshot:
         doc_type_id = uuid4()
 
         mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=self._empty_db_result())
         mock_db.get = AsyncMock(return_value=None)
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()

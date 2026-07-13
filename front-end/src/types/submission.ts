@@ -40,6 +40,7 @@ export interface SubmissionDetail {
   classification_result: Record<string, unknown> | null;
   extracted_data: Record<string, unknown> | null;
   rejection_reason: string | null;
+  parent_submission_id: string | null;
   llama_job_id: string | null;
   created_at: string;
 }

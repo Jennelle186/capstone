@@ -11,8 +11,12 @@ import {
   FileBadge2,
   FileCheck2,
   GraduationCap,
+  ChevronDown,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import { useState } from "react";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { ClassificationItem } from "@/types/classification";
@@ -66,9 +70,9 @@ const STATUS_PRIORITY: Record<RowStatus, number> = {
 
 function deriveRowStatus(item: ClassificationItem): RowStatus {
   if (item.status === "verified") return "verified";
-  if (item.originalStatus === "submitted" || item.originalStatus === "in-review") return "submitted";
   if (item.status === "overridden") return "accepted";
   if (item.status === "classified" && !item.needsReview) return "classified";
+  if (item.originalStatus === "submitted" || item.originalStatus === "in-review") return "submitted";
   if (item.status === "needs-review" || item.status === "flagged") return "needs-review";
   if (item.status === "processing") return "processing";
   if (item.status === "pending") return "pending";
@@ -169,78 +173,104 @@ function StatusLabel({ status, confidence, fileName }: { status: RowStatus; conf
 
 export default function SubmissionChecklist({ requiredDocuments, items }: SubmissionChecklistProps) {
   const rows = buildRows(requiredDocuments, items);
-  const acceptedCount = rows.filter((r) => r.status === "verified" || r.status === "accepted" || r.status === "classified" || r.status === "submitted").length;
+  const acceptedCount = rows.filter((r) => r.status === "verified" || r.status === "accepted" || r.status === "classified").length;
   const total = rows.length;
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const [isOpen, setIsOpen] = useState(true);
 
   return (
     <Card className="rounded-2xl border border-slate-200 shadow-sm">
-      <CardHeader className="px-4 pt-4 pb-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900">Required Documents</h3>
-          <span className="text-xs text-slate-500">{acceptedCount} of {total} accepted</span>
-        </div>
-      </CardHeader>
-      <CardContent className="px-0 py-0">
-        <ul className="divide-y divide-slate-100">
-          {rows.map((row) => {
-            const DocIcon = getDocIcon(row.doc.code);
-            const isDone = row.status === "verified" || row.status === "accepted" || row.status === "classified";
-            const isMissing = row.status === "not-uploaded";
-
-            return (
-              <li key={row.doc.id} className="flex items-center gap-3 px-4 py-3">
-                <div
-                  className={cn(
-                    "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg",
-                    (isDone || row.status === "verified") && "bg-emerald-50",
-                    row.status === "submitted" && "bg-slate-100",
-                    row.status === "needs-review" && "bg-amber-50",
-                    row.status === "processing" && "bg-blue-50",
-                    row.status === "pending" && "bg-amber-50",
-                    isMissing && "bg-slate-50",
-                  )}
-                >
-                  <DocIcon
+      <Collapsible open={!isMobile || isOpen} onOpenChange={setIsOpen}>
+        <CardHeader className="px-4 pt-4 pb-2">
+          {isMobile ? (
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 text-left cursor-pointer"
+              >
+                <h3 className="text-sm font-semibold text-slate-900">Required Documents</h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">{acceptedCount} of {total} accepted</span>
+                  <ChevronDown
                     className={cn(
-                      "h-4 w-4",
-                      (isDone || row.status === "verified") && "text-emerald-600",
-                      row.status === "submitted" && "text-slate-500",
-                      row.status === "needs-review" && "text-amber-600",
-                      row.status === "processing" && "text-blue-600",
-                      row.status === "pending" && "text-amber-500",
-                      isMissing && "text-slate-300",
+                      "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                      isOpen && "rotate-180",
                     )}
                   />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      "text-sm font-medium leading-tight",
-                      isMissing ? "text-slate-400" : "text-slate-900",
-                    )}
-                  >
-                    {row.doc.name}
-                  </p>
-                  <StatusLabel status={row.status} confidence={row.confidence} fileName={row.fileName} />
-                </div>
-                <StatusIcon status={row.status} />
-              </li>
-            );
-          })}
-        </ul>
-      </CardContent>
-      <CardFooter className="border-t px-4 py-3">
-        <p
-          className={cn(
-            "text-sm font-medium",
-            acceptedCount === total && total > 0 ? "text-emerald-600" : "text-slate-500",
+              </button>
+            </CollapsibleTrigger>
+          ) : (
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">Required Documents</h3>
+              <span className="text-xs text-slate-500">{acceptedCount} of {total} accepted</span>
+            </div>
           )}
-        >
-          {acceptedCount === total && total > 0
-            ? `✓ All ${total} documents accepted`
-            : `✓ ${acceptedCount} of ${total} documents accepted`}
-        </p>
-      </CardFooter>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className="px-0 py-0">
+            <ul className="divide-y divide-slate-100">
+              {rows.map((row) => {
+                const DocIcon = getDocIcon(row.doc.code);
+                const isDone = row.status === "verified" || row.status === "accepted" || row.status === "classified";
+                const isMissing = row.status === "not-uploaded";
+
+                return (
+                  <li key={row.doc.id} className="flex items-center gap-3 px-4 py-3">
+                    <div
+                      className={cn(
+                        "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg",
+                        (isDone || row.status === "verified") && "bg-emerald-50",
+                        row.status === "submitted" && "bg-slate-100",
+                        row.status === "needs-review" && "bg-amber-50",
+                        row.status === "processing" && "bg-blue-50",
+                        row.status === "pending" && "bg-amber-50",
+                        isMissing && "bg-slate-50",
+                      )}
+                    >
+                      <DocIcon
+                        className={cn(
+                          "h-4 w-4",
+                          (isDone || row.status === "verified") && "text-emerald-600",
+                          row.status === "submitted" && "text-slate-500",
+                          row.status === "needs-review" && "text-amber-600",
+                          row.status === "processing" && "text-blue-600",
+                          row.status === "pending" && "text-amber-500",
+                          isMissing && "text-slate-300",
+                        )}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={cn(
+                          "text-sm font-medium leading-tight",
+                          isMissing ? "text-slate-400" : "text-slate-900",
+                        )}
+                      >
+                        {row.doc.name}
+                      </p>
+                      <StatusLabel status={row.status} confidence={row.confidence} fileName={row.fileName} />
+                    </div>
+                    <StatusIcon status={row.status} />
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+          <CardFooter className="border-t px-4 py-3">
+            <p
+              className={cn(
+                "text-sm font-medium",
+                acceptedCount === total && total > 0 ? "text-emerald-600" : "text-slate-500",
+              )}
+            >
+              {acceptedCount === total && total > 0
+                ? `✓ All ${total} documents accepted`
+                : `✓ ${acceptedCount} of ${total} documents accepted`}
+            </p>
+          </CardFooter>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 }

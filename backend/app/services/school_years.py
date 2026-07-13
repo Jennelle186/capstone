@@ -14,7 +14,6 @@ from ..models import (
     Adviser,
     Department,
     DocumentType,
-    DocumentTypeStatus,
     ProgramAdviserAssignment,
     SchoolYear,
     SchoolYearAuditLog,
@@ -160,7 +159,6 @@ async def _summary_for_school_year(db: SessionDep, school_year: SchoolYear) -> d
         .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
         .where(
             SchoolYearRequirement.school_year_id == school_year.id,
-            DocumentType.status == DocumentTypeStatus.ACTIVE,
         )
     )
     requirement_count_result = await db.execute(requirement_count_stmt)
@@ -174,7 +172,6 @@ async def _summary_for_school_year(db: SessionDep, school_year: SchoolYear) -> d
             .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
             .where(
                 SchoolYearRequirement.school_year_id == school_year.id,
-                DocumentType.status == DocumentTypeStatus.ACTIVE,
             )
         )
         req_result = await db.execute(req_stmt)

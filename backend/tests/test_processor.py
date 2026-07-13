@@ -85,12 +85,8 @@ async def test_process_submission_classifies_high_confidence_match() -> None:
         source="gemini",
     )
 
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
-            await process_submission(submission.id)
+    with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
+        await process_submission(session, submission.id)
 
     assert submission.status == SubmissionStatus.CLASSIFIED
     assert submission.document_type_id == doc_type.id
@@ -112,35 +108,27 @@ async def test_process_submission_flags_low_confidence_match() -> None:
         reasoning="Matched 1/1 keywords",
     )
 
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
-            await process_submission(submission.id)
+    with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
+        await process_submission(session, submission.id)
 
     assert submission.status == SubmissionStatus.FLAGGED
     assert submission.classification_result["flag"] == "low_confidence"
 
 
 @pytest.mark.asyncio
-async def test_process_submission_flags_when_no_match() -> None:
+async def test_process_submission_deletes_non_required_document() -> None:
     submission = _submission(status=SubmissionStatus.UPLOADED)
     doc_type = _doc_type(code="ADMISSION_FORM", classifier_description="Admission form.")
 
     session = _mock_session(submission, document_types=[doc_type])
+    session.delete = AsyncMock()
 
     pipeline_result = _make_pipeline_result()
 
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+    with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
+        await process_submission(session, submission.id)
 
-        with patch("app.services.processor.asyncio.to_thread", return_value=pipeline_result):
-            await process_submission(submission.id)
-
-    assert submission.status == SubmissionStatus.FLAGGED
-    assert submission.classification_result["flag"] == "not_a_required_document"
+    session.delete.assert_awaited_once_with(submission)
 
 
 @pytest.mark.asyncio
@@ -148,11 +136,7 @@ async def test_process_submission_classified_when_no_rules() -> None:
     submission = _submission(status=SubmissionStatus.UPLOADED)
     session = _mock_session(submission, document_types=[])
 
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        await process_submission(submission.id)
+    await process_submission(session, submission.id)
 
     assert submission.status == SubmissionStatus.CLASSIFIED
     assert submission.classification_result["note"] == "no_classification_rules_configured"
@@ -163,11 +147,7 @@ async def test_process_submission_flags_compiled_documents() -> None:
     submission = _submission(status=SubmissionStatus.UPLOADED, is_compiled=True)
     session = _mock_session(submission, document_types=[])
 
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        await process_submission(submission.id)
+    await process_submission(session, submission.id)
 
     assert submission.status == SubmissionStatus.FLAGGED
     assert submission.classification_result["flag"] == "compiled_document_not_supported"
@@ -178,11 +158,7 @@ async def test_process_submission_skips_when_not_uploaded() -> None:
     submission = _submission(status=SubmissionStatus.FLAGGED)
     session = _mock_session(submission, document_types=[])
 
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        await process_submission(submission.id)
+    await process_submission(session, submission.id)
 
     assert submission.status == SubmissionStatus.FLAGGED
 
@@ -193,12 +169,8 @@ async def test_process_submission_flags_on_pipeline_error() -> None:
     doc_type = _doc_type(code="ADMISSION_FORM", classifier_description="Admission form.")
     session = _mock_session(submission, document_types=[doc_type])
 
-    with patch("app.services.processor.AsyncSessionLocal") as mock_session_factory:
-        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.processor.asyncio.to_thread", side_effect=GcpPipelineError("Gemini classification failed")):
-            await process_submission(submission.id)
+    with patch("app.services.processor.asyncio.to_thread", side_effect=GcpPipelineError("Gemini classification failed")):
+        await process_submission(session, submission.id)
 
     assert submission.status == SubmissionStatus.FLAGGED
     assert submission.classification_result["error"] == "pipeline_error"

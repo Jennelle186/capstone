@@ -1,15 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle } from "lucide-react";
+import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { fetchWithClerkAuth } from "@/lib/api";
+import { createJob, getActiveJobs, getJob, type JobResponse } from "@/lib/jobs";
+import { isClassificationComplete } from "@/lib/constants";
 import ClassificationCard from "@/components/student/UploadDocuments/classify/ClassificationCard";
 import SubmissionChecklist from "@/components/student/UploadDocuments/classify/SubmissionChecklist";
+import JobProgress from "@/components/student/UploadDocuments/JobProgress";
 import type { ClassificationItem, ClassificationStatus } from "@/types/classification";
 import type { RequiredDocument } from "@/types/student";
 import type { SubmissionDetail } from "@/types/submission";
@@ -17,13 +20,12 @@ import type { SubmissionDetail } from "@/types/submission";
 type FilterTab = "all" | "needs-review" | "ready";
 
 interface StepClassifyProps {
+  allVerified?: boolean;
   requiredDocuments: RequiredDocument[];
   submissions: SubmissionDetail[];
   onClassificationChange?: (complete: boolean) => void;
   onSubmissionsUpdate?: (submissions: SubmissionDetail[]) => void;
   getToken: () => Promise<string | null>;
-  isClassifyingAll?: boolean;
-  classifyAllError?: string | null;
 }
 
 function submissionToItem(s: SubmissionDetail): ClassificationItem {
@@ -92,30 +94,29 @@ const TABS: { key: FilterTab; label: string }[] = [
 ];
 
 export default function StepClassify({
+  allVerified,
   requiredDocuments,
   submissions,
   onClassificationChange,
   onSubmissionsUpdate,
   getToken,
-  isClassifyingAll = false,
-  classifyAllError = null,
 }: StepClassifyProps) {
-  const [classifyingIds, setClassifyingIds] = React.useState<Set<string>>(new Set());
-  const [classifyingAll, setClassifyingAll] = React.useState(false);
-  const [conflictError, setConflictError] = React.useState<string | null>(null);
   const [items, setItems] = React.useState<ClassificationItem[]>(() =>
     submissions.map(submissionToItem),
   );
+  const [trackedJob, setTrackedJob] = React.useState<JobResponse | null>(null);
+  const [autoDeletedCount, setAutoDeletedCount] = React.useState(0);
+  const [conflictError, setConflictError] = React.useState<string | null>(null);
 
   const getTokenRef = React.useRef(getToken);
   React.useEffect(() => {
     getTokenRef.current = getToken;
   }, [getToken]);
 
-  const itemsRef = React.useRef(items);
-  React.useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
+  const MAX_CONSECUTIVE_FAILURES = 5;
+  const MAX_POLL_ATTEMPTS = 150;
+  const failedPollCountRef = React.useRef(0);
+  const pollAttemptCountRef = React.useRef(0);
 
   const visibleItems = React.useMemo(
     () => items.filter((i) => i.status !== "verified"),
@@ -126,34 +127,97 @@ export default function StepClassify({
     setItems(submissions.map(submissionToItem));
   }, [submissions]);
 
-  const classifyAllInProgress = classifyingAll || classifyingIds.size > 0;
-  const isProcessing = visibleItems.some((i) => i.status === "processing");
+  const isProcessing = trackedJob?.status === "queued" || trackedJob?.status === "running";
+  const hasActiveJob = trackedJob !== null;
 
   React.useEffect(() => {
-    const uploaded = visibleItems.filter((i) => i.status === "pending" || i.status === "processing");
-    const allDone = visibleItems.length > 0 && uploaded.length === 0;
-    const allReviewed = allDone && visibleItems.every((i) => !i.needsReview);
-    onClassificationChange?.(allReviewed);
+    const complete = isClassificationComplete(visibleItems);
+    onClassificationChange?.(complete);
   }, [items, onClassificationChange, visibleItems]);
 
-  // ── Poll backend when any item is still processing ────────────────────
+  // ── Mount: check for existing active job (page reload) ─────────
   React.useEffect(() => {
-    if (!isProcessing) return;
-
-    const poll = async () => {
+    let cancelled = false;
+    (async () => {
       const token = await getTokenRef.current();
-      if (!token) return;
-      const res = await fetchWithClerkAuth("/api/me/documents", token);
-      if (res.ok) {
-        const data = (await res.json()) as SubmissionDetail[];
-        setItems(data.map(submissionToItem));
-        onSubmissionsUpdate?.(data);
+      if (!token || cancelled) return;
+      const jobsData = await getActiveJobs(token);
+      if (cancelled) return;
+      const existing = jobsData.jobs.find(
+        (j) => j.operation === "classify" &&
+          (j.status === "queued" || j.status === "running"),
+      );
+      if (existing) setTrackedJob(existing);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Poll tracked job ────────────────────────────────────────────
+  React.useEffect(() => {
+    const jobId = trackedJob?.id;
+    if (!jobId) return;
+
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const poll = async (): Promise<boolean> => {
+      const token = await getTokenRef.current();
+      if (!token || cancelled) return false;
+
+      const latest = await getJob(token, jobId);
+      if (cancelled) return false;
+
+      if (!latest) {
+        failedPollCountRef.current++;
+        if (failedPollCountRef.current >= MAX_CONSECUTIVE_FAILURES) {
+          setTrackedJob(null);
+          toast.error("Lost connection while waiting for results. Please try again.");
+          return false;
+        }
+        return true;
       }
+
+      failedPollCountRef.current = 0;
+      pollAttemptCountRef.current++;
+
+      if (pollAttemptCountRef.current >= MAX_POLL_ATTEMPTS) {
+        setTrackedJob(null);
+        toast.error("Request is taking too long. Please try again.");
+        return false;
+      }
+
+      if (latest.status === "finished" || latest.status === "cancelled") {
+        setTrackedJob(null);
+        const t2 = await getTokenRef.current();
+        if (!t2) return false;
+
+        const docsRes = await fetchWithClerkAuth("/api/me/documents", t2);
+        if (docsRes.ok) {
+          const freshData = (await docsRes.json()) as SubmissionDetail[];
+          onSubmissionsUpdate?.(freshData);
+          const oldCount = items.length;
+          const deletedCount = oldCount - freshData.length;
+          if (deletedCount > 0) {
+            setAutoDeletedCount((prev) => prev + deletedCount);
+          }
+        }
+        return false;
+      }
+
+      // Still queued/running — update state for progress bar
+      setTrackedJob(latest);
+      return true;
     };
 
-    const interval = setInterval(poll, 2000);
-    return () => clearInterval(interval);
-  }, [isProcessing, onSubmissionsUpdate]);
+    (async () => {
+      if (await poll()) intervalId = setInterval(poll, 2000);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [trackedJob?.id, onSubmissionsUpdate, items.length]);
 
   const counts = React.useMemo(() => {
     const total = visibleItems.length;
@@ -179,22 +243,17 @@ export default function StepClassify({
     const token = await getTokenRef.current();
     if (!token) return;
 
-    const pending = visibleItems.filter((i) => i.status === "pending" || i.status === "needs-review");
+    const pending = visibleItems.filter(
+      (i) => i.status === "pending",
+    );
     if (pending.length === 0) return;
 
-    const pendingIds = new Set(pending.map((p) => p.id));
+    const pendingIds = pending.map((p) => p.id);
 
-    setClassifyingAll(true);
-    setConflictError(null);
-    setClassifyingIds((prev) => {
-      const next = new Set(prev);
-      for (const id of pendingIds) next.add(id);
-      return next;
-    });
-
+    // Optimistically mark items as processing
     setItems((prev) =>
       prev.map((item) => {
-        if (pendingIds.has(item.id)) {
+        if (pendingIds.includes(item.id)) {
           return { ...item, status: "processing" as ClassificationStatus, needsReview: false };
         }
         return item;
@@ -202,109 +261,55 @@ export default function StepClassify({
     );
 
     try {
-      const res = await fetchWithClerkAuth("/api/me/documents/classify-all", token, {
-        method: "POST",
-        body: JSON.stringify({ submission_ids: Array.from(pendingIds) }),
-      });
-
-      if (res.ok) {
-        const updated: SubmissionDetail[] = await res.json();
-        const responseIds = new Set(updated.map((u) => u.id));
-        const removedCount = itemsRef.current.length - updated.length;
-        if (removedCount > 0) {
-          toast.warning(`${removedCount} document(s) skipped — already verified.`);
-        }
-        setItems((prev) =>
-          prev
-            .filter((item) => responseIds.has(item.id))
-            .map((item) => {
-              const match = updated.find((u) => u.id === item.id);
-              return match ? submissionToItem(match) : item;
-            }),
-        );
-        onSubmissionsUpdate?.(updated);
+      const job = await createJob(token, "classify", pendingIds);
+      setTrackedJob(job);
+    } catch (err: unknown) {
+      const error = err as { status?: number; detail?: string };
+      if (error.status === 409) {
+        const jobsData = await getActiveJobs(token);
+        const existing = jobsData.jobs.find((j) => j.operation === "classify");
+        if (existing) setTrackedJob(existing);
+        toast.info("A classification job is already in progress.");
       } else {
-        const err = await res.json().catch(() => null);
-        console.error("Classify all failed:", err);
-        if (res.status === 409) {
-          setConflictError(err?.detail ?? "A document for this requirement has already been submitted and is locked for advisor review.");
-        } else {
-          setConflictError(err?.detail ?? "Classification failed for some documents.");
-        }
+        toast.error(error.detail ?? "Failed to start classification.");
         setItems((prev) =>
           prev.map((item) =>
-            pendingIds.has(item.id)
+            pendingIds.includes(item.id)
               ? { ...item, status: "needs-review" as ClassificationStatus, needsReview: true }
               : item,
           ),
         );
       }
-    } catch (err) {
-      console.error("Classify all error:", err);
-      setConflictError("Classification request failed. Please try again.");
-      setItems((prev) =>
-        prev.map((item) =>
-          pendingIds.has(item.id)
-            ? { ...item, status: "needs-review" as ClassificationStatus, needsReview: true }
-            : item,
-        ),
-      );
     }
+  }, [visibleItems]);
 
-    setClassifyingIds(new Set());
-    setClassifyingAll(false);
-  }, [onSubmissionsUpdate, visibleItems]);
+  const handleClassifyOne = React.useCallback(async (id: string) => {
+    const currentItems = items;
+    const item = currentItems.find((i) => i.id === id);
+    if (!item || item.originalStatus === "submitted") return;
 
-  const handleClassifyOne = React.useCallback(
-    async (id: string) => {
-      const currentItems = itemsRef.current;
-      const item = currentItems.find((i) => i.id === id);
-      if (!item || item.originalStatus === "submitted") return;
+    const token = await getTokenRef.current();
+    if (!token) return;
 
-      const token = await getTokenRef.current();
-      if (!token) return;
+    setItems((prev) =>
+      prev.map((i) => {
+        if (i.id !== id) return i;
+        return { ...i, status: "processing" as ClassificationStatus };
+      }),
+    );
 
-      setClassifyingIds((prev) => new Set(prev).add(id));
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.id !== id) return item;
-          return { ...item, status: "processing" as ClassificationStatus };
-        }),
-      );
-
-      try {
-        const res = await fetchWithClerkAuth(`/api/me/documents/${id}/classify`, token, {
-          method: "POST",
-        });
-        if (res.ok) {
-          const updated = await res.json();
-          setItems((prev) =>
-            prev.map((i) => (i.id !== id ? i : submissionToItem(updated))),
-          );
-        } else {
-          const err = await res.json().catch(() => null);
-          if (res.status === 409) {
-            toast.warning(err?.detail ?? "Document removed — already verified.");
-            setItems((prev) => prev.filter((i) => i.id !== id));
-            const refreshToken = await getTokenRef.current();
-            if (refreshToken) {
-              const freshRes = await fetchWithClerkAuth("/api/me/documents", refreshToken);
-              if (freshRes.ok) {
-                const data = await freshRes.json() as SubmissionDetail[];
-                onSubmissionsUpdate?.(data);
-              }
-            }
-          } else {
-            toast.error(err?.detail ?? "Classification failed.");
-            setItems((prev) =>
-              prev.map((i) => {
-                if (i.id !== id) return i;
-                return { ...i, status: "needs-review" as ClassificationStatus, needsReview: true };
-              }),
-            );
-          }
-        }
-      } catch {
+    try {
+      const job = await createJob(token, "classify", [id]);
+      setTrackedJob(job);
+    } catch (err: unknown) {
+      const error = err as { status?: number; detail?: string };
+      if (error.status === 409) {
+        const jobsData = await getActiveJobs(token);
+        const existing = jobsData.jobs.find((j) => j.operation === "classify");
+        if (existing) setTrackedJob(existing);
+        toast.info("A classification job is already in progress.");
+      } else {
+        toast.error(error.detail ?? "Failed to start classification.");
         setItems((prev) =>
           prev.map((i) => {
             if (i.id !== id) return i;
@@ -312,15 +317,8 @@ export default function StepClassify({
           }),
         );
       }
-
-      setClassifyingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    },
-    [onSubmissionsUpdate],
-  );
+    }
+  }, [items]);
 
   const handleOverride = React.useCallback(
     (fileId: string, documentTypeId: string) => {
@@ -435,6 +433,21 @@ export default function StepClassify({
   const processingItems = visibleItems.filter((i) => i.status === "processing");
   const interactiveItems = visibleItems.filter((i) => i.status !== "processing");
 
+  if (allVerified) {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+        <Lock className="mx-auto h-8 w-8 text-emerald-500" />
+        <h3 className="mt-4 text-lg font-semibold text-emerald-800">
+          All Required Documents Verified
+        </h3>
+        <p className="mx-auto mt-2 max-w-md text-sm text-emerald-600">
+          Every required document has been reviewed and verified. Classification
+          is complete.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Left: Required Documents Checklist */}
@@ -464,62 +477,58 @@ export default function StepClassify({
           {hasItems && !allClassified && !isProcessing && (
             <button
               type="button"
-              disabled={!hasPending || classifyAllInProgress}
+              disabled={!hasPending || hasActiveJob}
               onClick={handleClassifyAll}
               className={cn(
                 "inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap",
-                hasPending && !classifyingAll
+                hasPending && !hasActiveJob
                   ? "bg-primary text-white hover:bg-primary/90 shadow-md"
                   : "bg-slate-100 text-slate-400 cursor-not-allowed",
               )}
             >
-              {classifyingAll ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <SearchCheck className="h-4 w-4" />
-              )}
-              {classifyingAll ? "Classifying…" : "Classify All"}
+              <SearchCheck className="h-4 w-4" />
+              Classify All
             </button>
           )}
         </div>
 
-        {/* Classifying / Processing Banner */}
-        {(isProcessing || isClassifyingAll) && (
-          <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
-            <Loader2 className="h-5 w-5 animate-spin flex-shrink-0 text-blue-600" />
-            <div>
-              <p className="text-sm font-semibold">Classifying your documents…</p>
-              <p className="text-xs text-blue-700 mt-0.5">
-                This may take a moment for each file.
-              </p>
-            </div>
-          </div>
+        {/* Job Progress Banner */}
+        {trackedJob?.status === "running" && (
+          <JobProgress
+            operation={trackedJob.operation}
+            progress={trackedJob.progress}
+            total={trackedJob.total}
+            status={trackedJob.status}
+            result={trackedJob.result}
+            errorMessage={trackedJob.error_message}
+          />
         )}
 
-        {/* Classify Error Banner */}
-        {classifyAllError && !isClassifyingAll && !isProcessing && (
-          <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
-            <FileSearch className="h-5 w-5 flex-shrink-0 text-red-600" />
-            <div>
-              <p className="text-sm font-semibold">Some documents could not be classified</p>
-              <p className="text-xs text-red-700 mt-0.5">{classifyAllError}</p>
-              <p className="text-xs text-red-700 mt-0.5">
-                You can retry individual documents below.
-              </p>
-            </div>
+        {/* Auto-deleted documents banner */}
+        {autoDeletedCount > 0 && (
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-800">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0 text-slate-500" />
+            <p className="text-sm">
+              {autoDeletedCount} document{autoDeletedCount > 1 ? "s were" : " was"} not part of the listed requirements and{" "}
+              {autoDeletedCount > 1 ? "were" : "was"} automatically deleted.
+            </p>
+            <button
+              type="button"
+              onClick={() => setAutoDeletedCount(0)}
+              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 transition-colors shrink-0 ml-auto"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
 
         {/* Conflict Error Banner */}
-        {conflictError && !isClassifyingAll && !isProcessing && (
+        {conflictError && !isProcessing && (
           <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
             <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-600" />
             <div>
               <p className="text-sm font-semibold">Document already submitted</p>
               <p className="text-xs text-amber-700 mt-0.5">{conflictError}</p>
-              <p className="text-xs text-amber-700 mt-0.5">
-                This document cannot be reclassified. The new file has been removed.
-              </p>
             </div>
             <button
               type="button"
@@ -532,7 +541,7 @@ export default function StepClassify({
         )}
 
         {/* Tips Banner (only when not all classified and nothing processing) */}
-        {hasItems && !isProcessing && !isClassifyingAll && !allClassified && (
+        {hasItems && !isProcessing && !allClassified && (
           <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
             <SearchCheck className="h-5 w-5 flex-shrink-0 text-amber-600" />
             <p className="text-sm">
@@ -610,7 +619,7 @@ export default function StepClassify({
           </div>
         )}
 
-        {/* Interactive UI (not all classified yet) — only for non-processing items */}
+        {/* Interactive UI (not all classified yet) */}
         {!allClassified && hasItems && interactiveItems.length > 0 && (
           <>
             {/* Filter Tabs */}
@@ -675,7 +684,7 @@ export default function StepClassify({
                     onClassify={handleClassifyOne}
                     onConfirm={handleConfirm}
                     onDelete={handleDelete}
-                    isClassifying={classifyingIds.has(item.id)}
+                    isClassifying={item.status === "processing"}
                     getToken={getToken}
                   />
                 ))}
@@ -693,7 +702,7 @@ export default function StepClassify({
         )}
       </div>
 
-      {/* Preview Dialog */}
+      {/* Preview Dialog (unchanged) */}
       <Dialog open={previewIndex !== null} onOpenChange={(open) => { if (!open) setPreviewIndex(null); }}>
         <DialogContent className="w-[95vw] !max-w-[95vw] h-[95vh] !max-h-[95vh] flex flex-col p-0 overflow-hidden rounded-2xl gap-0 border border-slate-200">
 

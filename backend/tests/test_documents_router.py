@@ -153,6 +153,7 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
         document_type_id=None,
         document_type=doc_type,
         classification_result={"type": "ADMISSION_FORM", "confidence": 0.95},
+        parent_submission_id=None,
         extracted_data=None,
         llama_job_id="llama-file-id",
         rejection_reason=None,
@@ -233,6 +234,179 @@ def test_delete_document_removes_submission_and_s3_object(client, mock_user, moc
     assert response.status_code == 200
     assert response.json()["ok"] is True
     mock_s3_delete.assert_called_once_with("staging/student/file.pdf")
+
+
+def test_get_download_url_allows_verified(client, mock_user, mock_student):
+    submission_id = uuid4()
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.VERIFIED,
+        file_key="staging/student/file.pdf",
+    )
+
+    async def override_get_db_session_download():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        session.get = AsyncMock(return_value=submission)
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_download
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_generate_presigned_url", return_value="https://storage.googleapis.com/bucket/view"):
+            response = client.get(f"/api/me/documents/{submission_id}/download-url")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["url"] == "https://storage.googleapis.com/bucket/view"
+
+
+def test_list_extractions_includes_verified_submission(client, mock_user, mock_student):
+    submission_id = uuid4()
+    doc_type = SimpleNamespace(id=uuid4(), name="Admission Form", code="ADMISSION_FORM")
+    schema_id = uuid4()
+
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        status=SubmissionStatus.VERIFIED,
+        original_filename="file.pdf",
+        extracted_data={},
+    )
+
+    schema_req = SimpleNamespace(
+        document_type_id=doc_type.id,
+        extraction_schema_id=schema_id,
+    )
+    schema_obj = SimpleNamespace(
+        id=schema_id,
+        status="active",
+        fields_json=[
+            {"id": "f1", "key": "name", "type": "string", "description": "Full Name"},
+        ],
+    )
+
+    submissions_result = MagicMock()
+    submissions_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[submission]))
+    )
+
+    verified_ids_result = MagicMock()
+    verified_ids_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[doc_type.id]))
+    )
+
+    requirements_result = MagicMock()
+    requirements_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[schema_req]))
+    )
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(side_effect=[
+            _student_execute_result(mock_student),
+            submissions_result,
+            verified_ids_result,
+            requirements_result,
+        ])
+        session.get = AsyncMock(return_value=schema_obj)
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.extractions.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.get(
+            "/api/me/documents/extractions?status=classified,flagged,processing,submitted,in-review,verified"
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["submission_id"] == str(submission_id)
+    assert data[0]["status"] == "verified"
+
+
+def test_list_extractions_excludes_nonverified_of_verified_type(client, mock_user, mock_student):
+    verified_id = uuid4()
+    pending_id = uuid4()
+    doc_type = SimpleNamespace(id=uuid4(), name="Transcript", code="REPORT_CARD")
+    schema_id = uuid4()
+
+    verified_sub = SimpleNamespace(
+        id=verified_id,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        status=SubmissionStatus.VERIFIED,
+        original_filename="verified.pdf",
+        extracted_data={},
+    )
+    pending_sub = SimpleNamespace(
+        id=pending_id,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        status=SubmissionStatus.CLASSIFIED,
+        original_filename="pending.pdf",
+        extracted_data={},
+    )
+
+    schema_req = SimpleNamespace(
+        document_type_id=doc_type.id,
+        extraction_schema_id=schema_id,
+    )
+    schema_obj = SimpleNamespace(
+        id=schema_id,
+        status="active",
+        fields_json=[{"id": "f1", "key": "gpa", "type": "string"}],
+    )
+
+    submissions_result = MagicMock()
+    submissions_result.scalars = MagicMock(
+        return_value=MagicMock(
+            all=MagicMock(return_value=[verified_sub, pending_sub])
+        )
+    )
+
+    verified_ids_result = MagicMock()
+    verified_ids_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[doc_type.id]))
+    )
+
+    requirements_result = MagicMock()
+    requirements_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[schema_req]))
+    )
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(side_effect=[
+            _student_execute_result(mock_student),
+            submissions_result,
+            verified_ids_result,
+            requirements_result,
+        ])
+        session.get = AsyncMock(return_value=schema_obj)
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.extractions.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.get(
+            "/api/me/documents/extractions?status=classified,flagged,processing,submitted,in-review,verified"
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    response_ids = [item["submission_id"] for item in data]
+    assert str(verified_id) in response_ids
+    assert str(pending_id) not in response_ids
 
 
 def test_retry_upload_rejects_non_pending_status(client, mock_user, mock_student):

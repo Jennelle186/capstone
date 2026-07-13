@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,6 +14,8 @@ from google.cloud.storage.retry import DEFAULT_RETRY
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(ENV_PATH)
+
+logger = logging.getLogger(__name__)
 
 
 def _require_env(name: str) -> str:
@@ -161,7 +164,7 @@ def delete_file(key: str) -> None:
     try:
         blob.delete()
     except Exception:
-        return
+        logger.exception("Failed to delete GCS file: %s", key)
 
 
 def ensure_bucket_cors() -> None:

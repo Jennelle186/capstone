@@ -1,7 +1,7 @@
 import uuid
 import enum
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -521,3 +521,125 @@ class Notification(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     recipient = relationship("User", foreign_keys=[recipient_id])
+
+# Job/task models for asynchronous AI processing pipeline.
+class JobStatus(str, enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    FINISHED = "finished"
+    CANCELLED = "cancelled"
+
+
+class JobResult(str, enum.Enum):
+    SUCCESS = "success"
+    PARTIAL_SUCCESS = "partial_success"
+    FAILED = "failed"
+
+
+class JobSubmissionItemStatus(str, enum.Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation = Column(String(32), nullable=False)  # "classify" | "extract"
+    status = Column(
+        Enum(
+            JobStatus,
+            name="job_status",
+            values_callable=lambda ec: [m.value for m in ec],
+        ),
+        nullable=False,
+        default=JobStatus.QUEUED,
+        server_default=JobStatus.QUEUED.value,
+        index=True,
+    )
+    result = Column(
+        Enum(
+            JobResult,
+            name="job_result",
+            values_callable=lambda ec: [m.value for m in ec],
+        ),
+        nullable=True,
+    )
+    progress = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    total = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    error_message = Column(Text, nullable=True)
+    attempt_number = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    parent_job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    requested_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    last_updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    student = relationship("Student", backref="jobs")
+    parent_job = relationship("Job", remote_side="Job.id", post_update=True)
+    submissions = relationship(
+        "JobSubmission",
+        back_populates="job",
+        cascade="all, delete-orphan",
+    )
+
+
+class JobSubmission(Base):
+    __tablename__ = "job_submissions"
+
+    job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True,
+        index=True,
+    )
+    submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True,
+        index=True,
+    )
+    status = Column(
+        Enum(
+            JobSubmissionItemStatus,
+            name="job_submission_item_status",
+            values_callable=lambda ec: [m.value for m in ec],
+        ),
+        nullable=True,
+        default=JobSubmissionItemStatus.PENDING,
+        server_default=JobSubmissionItemStatus.PENDING.value,
+        index=True,
+    )
+    error_message = Column(Text, nullable=True)
+
+    job = relationship("Job", back_populates="submissions")
+    submission = relationship("DocumentSubmission")

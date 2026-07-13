@@ -18,6 +18,7 @@ import type { FileItem } from "./types";
 const MAX_FILE_SIZE = 315 * 1024 * 1024;
 
 interface StepUploadProps {
+  allVerified?: boolean;
   requiredDocuments?: RequiredDocument[];
   getToken: () => Promise<string | null>;
   onUploadComplete?: (result: ConfirmUploadResponse) => void;
@@ -29,6 +30,7 @@ interface StepUploadProps {
 
 // This is the upload workflow: drop zone, new file list, previously uploaded section, preview dialog, and sidebar.
 export default function StepUpload({
+  allVerified,
   requiredDocuments,
   getToken,
   onUploadComplete,
@@ -287,6 +289,21 @@ export default function StepUpload({
     );
     return requiredDocuments.filter((doc) => verifiedDocIds.has(doc.id));
   }, [existingSubmissions, requiredDocuments]);
+
+  if (allVerified) {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+        <Lock className="mx-auto h-8 w-8 text-emerald-500" />
+        <h3 className="mt-4 text-lg font-semibold text-emerald-800">
+          All Required Documents Verified
+        </h3>
+        <p className="mx-auto mt-2 max-w-md text-sm text-emerald-600">
+          Every required document has been reviewed and verified by your
+          adviser. No further uploads are needed at this time.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-12 gap-4">

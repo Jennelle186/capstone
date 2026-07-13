@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useAuth } from "@clerk/clerk-react";
 import UploadWizard from "@/components/student/UploadDocuments/UploadWizard";
@@ -21,14 +21,21 @@ export default function UploadDocuments() {
   const [classificationComplete, setClassificationComplete] = useState(false);
   const [extractionComplete, setExtractionComplete] = useState(false);
   const [existingSubmissions, setExistingSubmissions] = useState<SubmissionDetail[]>([]);
-  const [isClassifyingAll, setIsClassifyingAll] = useState(false);
-  const [classifyAllError, setClassifyAllError] = useState<string | null>(null);
-  const [isExtractingAll, setIsExtractingAll] = useState(false);
-  const [extractAllError, setExtractAllError] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
-  const newlyUploadedIdsRef = useRef<Set<string>>(new Set());
+  const [sessionUploadIds, setSessionUploadIds] = useState<Set<string>>(new Set());
 
   const replaceSubmissionId = searchParams.get("replace");
+
+  const allVerified = useMemo(() => {
+    if (requiredDocs.length === 0) return false;
+    const verifiedTypeIds = new Set(
+      existingSubmissions
+        .filter((s) => s.status === "verified")
+        .map((s) => s.document_type_id)
+        .filter(Boolean),
+    );
+    return requiredDocs.every((doc) => verifiedTypeIds.has(doc.id));
+  }, [requiredDocs, existingSubmissions]);
 
   const getExtractedData = (submission: SubmissionDetail) =>
     (submission as unknown as { extracted_data?: unknown; extractedData?: unknown }).extracted_data ??
@@ -51,135 +58,34 @@ export default function UploadDocuments() {
     if (initialLoading) return;
     const clamped = Math.min(rawStep, maxAccessibleStep);
     if (clamped !== rawStep) {
-      setSearchParams({ step: String(clamped) }, { replace: true });
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("step", String(clamped));
+        return next;
+      }, { replace: true });
     }
   }, [rawStep, maxAccessibleStep, setSearchParams, initialLoading]);
 
   const goToStep = useCallback(
     async (n: number) => {
-      if (step === 1 && n === 2) {
-        setIsClassifyingAll(true);
-        setClassifyAllError(null);
-
-        setSearchParams({ step: "2" });
-
-        const token = await getToken();
-        if (!token) { setIsClassifyingAll(false); return; }
-
-        const targetIds = newlyUploadedIdsRef.current.size > 0
-          ? Array.from(newlyUploadedIdsRef.current)
-          : existingSubmissions
-              .filter((s) => s.status === "uploaded" || s.status === "flagged")
-              .map((s) => s.id);
-
-        if (targetIds.length > 0) {
-          try {
-            const res = await fetchWithClerkAuth("/api/me/documents/classify-all", token, {
-              method: "POST",
-              body: JSON.stringify({ submission_ids: targetIds }),
-            });
-            if (!res.ok) {
-              const err = await res.json().catch(() => null);
-              setClassifyAllError(err?.detail ?? "Classification failed for some documents.");
-            }
-          } catch (err) {
-            setClassifyAllError(err instanceof Error ? err.message : "Classification request failed.");
-          }
-
-          const token2 = await getToken();
-          if (token2) {
-            const freshRes = await fetchWithClerkAuth("/api/me/documents", token2);
-            if (freshRes.ok) {
-              const data = await freshRes.json();
-              setExistingSubmissions(data);
-            }
-          }
-        }
-
-        newlyUploadedIdsRef.current = new Set();
-        setIsClassifyingAll(false);
-        return;
-      }
-
-      if (step === 2 && n === 3) {
-        const targetSubs = existingSubmissions.filter(
-          (s) => s.document_type_id && (s.status === "classified" || s.status === "flagged")
-        );
-        const targetIds = targetSubs.map((s) => s.id);
-
-        if (targetIds.length === 0) {
-          // Only skip to step 4 if there are classified/submitted docs
-          // (not an empty batch or unclassified docs).
-          const hasProcessedDocs = existingSubmissions.some(
-            (s) => s.document_type_id,
-          );
-          if (hasProcessedDocs) {
-            setExtractionComplete(true);
-            setSearchParams({ step: "4" }, { replace: true });
-          } else {
-            setSearchParams({ step: "3" }, { replace: true });
-          }
-          return;
-        }
-
-        // Skip POST if all submissions already have extracted data (page reload).
-        const allExtracted = targetSubs.every((s) => getExtractedData(s) != null);
-        if (allExtracted) {
-          setIsExtractingAll(false);
-          setExtractionComplete(true);
-          setSearchParams({ step: "4" }, { replace: true });
-          return;
-        }
-
-        setIsExtractingAll(true);
-        setExtractAllError(null);
-
-        setSearchParams({ step: "3" }, { replace: true });
-
-        const token = await getToken();
-        if (!token) { setIsExtractingAll(false); return; }
-
-        try {
-          const res = await fetchWithClerkAuth("/api/me/documents/extract-all", token, {
-            method: "POST",
-            body: JSON.stringify({ submission_ids: targetIds }),
-          });
-          if (!res.ok) {
-            const err = await res.json().catch(() => null);
-            setExtractAllError(err?.detail ?? "Extraction failed for some documents.");
-            setIsExtractingAll(false);
-            return;
-          }
-          // On success: check if any docs were actually queued for extraction.
-          const resultData = await res.json() as Array<{ status?: string }>;
-          const anyProcessing = resultData.some((s) => s.status === "processing");
-          if (!anyProcessing) {
-            setIsExtractingAll(false);
-            setExtractionComplete(true);
-            setSearchParams({ step: "4" }, { replace: true });
-            return;
-          }
-          // Otherwise: keep isExtractingAll=true so StepExtract polls.
-          // onExtractionReady will set it to false when data arrives.
-        } catch (err) {
-          setExtractAllError(err instanceof Error ? err.message : "Extraction request failed.");
-          setIsExtractingAll(false);
-        }
-        return;
-      }
-
-      setSearchParams({ step: String(Math.min(CLAMP(n), maxAccessibleStep)) });
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("step", String(Math.min(CLAMP(n), maxAccessibleStep)));
+        return next;
+      });
     },
-    [step, maxAccessibleStep, setSearchParams, existingSubmissions, getToken],
+    [maxAccessibleStep, setSearchParams],
   );
-
-  const handleExtractionReady = useCallback(() => {
-    setIsExtractingAll(false);
-  }, []);
 
   const nextDisabled =
     (step === 3 && !extractionComplete) ||
     step === 4;
+
+  const sessionSubmissions = useMemo(() => {
+    if (!replaceSubmissionId) return existingSubmissions;
+    if (sessionUploadIds.size === 0) return [];
+    return existingSubmissions.filter((s) => sessionUploadIds.has(s.id));
+  }, [existingSubmissions, replaceSubmissionId, sessionUploadIds]);
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
@@ -220,6 +126,7 @@ export default function UploadDocuments() {
   }, [getToken, isLoaded, isSignedIn]);
 
   const handleUploadComplete = useCallback(async (result: ConfirmUploadResponse) => {
+    setSessionUploadIds((prev) => new Set(prev).add(result.id));
     if (replaceSubmissionId) {
       const token = await getToken();
       if (token) {
@@ -240,7 +147,14 @@ export default function UploadDocuments() {
       }
       return;
     }
-    newlyUploadedIdsRef.current = new Set(newlyUploadedIdsRef.current).add(result.id);
+    const token = await getToken();
+    if (token) {
+      const freshRes = await fetchWithClerkAuth("/api/me/documents", token);
+      if (freshRes.ok) {
+        const data = (await freshRes.json()) as SubmissionDetail[];
+        setExistingSubmissions(data);
+      }
+    }
   }, [getToken, replaceSubmissionId]);
 
   const handleDeleted = useCallback(async () => {
@@ -277,6 +191,7 @@ export default function UploadDocuments() {
       )}
       {step === 1 && (
         <StepUpload
+          allVerified={allVerified}
           requiredDocuments={requiredDocs}
           getToken={getToken}
           onUploadComplete={handleUploadComplete}
@@ -290,25 +205,22 @@ export default function UploadDocuments() {
       )}
       {step === 2 && (
         <StepClassify
+          allVerified={allVerified}
           requiredDocuments={requiredDocs}
-          submissions={existingSubmissions}
+          submissions={sessionSubmissions}
           onClassificationChange={setClassificationComplete}
           onSubmissionsUpdate={setExistingSubmissions}
           getToken={getToken}
-          isClassifyingAll={isClassifyingAll}
-          classifyAllError={classifyAllError}
         />
       )}
       {step === 3 && (
         <StepExtract
+          allVerified={allVerified}
           onExtractionChange={setExtractionComplete}
           getToken={getToken}
-          isExtractingAll={isExtractingAll}
-          extractAllError={extractAllError}
-          onExtractionReady={handleExtractionReady}
         />
       )}
-      {step === 4 && <StepSubmit submissions={existingSubmissions} getToken={getToken} onSubmitted={refetchSubmissions} />}
+      {step === 4 && <StepSubmit allVerified={allVerified} submissions={sessionSubmissions} getToken={getToken} onSubmitted={refetchSubmissions} />}
     </UploadWizard>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -102,6 +102,10 @@ export default function ExtractionCard({ item, onAutoSave }: ExtractionCardProps
     defaultValues,
     mode: "onBlur",
   });
+
+  useEffect(() => {
+    form.reset(defaultValues);
+  }, [defaultValues, form]);
 
   const needsReview = item.needsReview;
 

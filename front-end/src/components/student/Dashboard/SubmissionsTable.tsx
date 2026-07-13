@@ -83,7 +83,7 @@ export default function SubmissionsTable({ data, onView }: Props) {
       ),
       cell: ({ row }) => {
         const status = row.getValue("status") as Submission["status"];
-        const config = statusConfig[status];
+        const config = statusConfig[status] ?? statusConfig.pending;
         return (
           <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${config.badge}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
@@ -126,7 +126,7 @@ export default function SubmissionsTable({ data, onView }: Props) {
         { label: "Uploaded", value: "uploaded" },
       ]}
       mobileCard={(submission) => {
-        const config = statusConfig[submission.status];
+        const config = statusConfig[submission.status] ?? statusConfig.pending;
         return (
           <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 transition-all hover:shadow-sm active:scale-[0.99]">
             <div className="flex items-start gap-3">

@@ -9,6 +9,7 @@ import StudentDashboard from "./pages/students/StudentDashboard";
 import UploadDocuments from "./pages/students/UploadDocuments";
 import ProfileSettings from "./pages/students/ProfileSettings";
 import ExtractionDetailPage from "./pages/students/ExtractionDetailPage";
+import ResolveFlaggedPage from "./pages/students/ResolveFlaggedPage";
 import NotificationsPage from "./pages/students/NotificationsPage";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
@@ -75,6 +76,7 @@ const AppRoutes = createBrowserRouter([
                   { path: "notifications", Component: NotificationsPage },
                   { path: "upload", Component: UploadDocuments },
                   { path: "extraction/:submissionId", Component: ExtractionDetailPage },
+                  { path: "resolve-flagged/:documentId", Component: ResolveFlaggedPage },
                   // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).
                     { path: "profile/*", Component: ProfileSettings },
                 ],

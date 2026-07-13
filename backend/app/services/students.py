@@ -16,7 +16,6 @@ from ..models import (
     Department,
     DocumentSubmission,
     DocumentType,
-    DocumentTypeStatus,
     ExtractionSchema,
     SchoolYear,
     SchoolYearRequirement,
@@ -76,12 +75,19 @@ async def get_required_doc_counts_by_class(
     db: SessionDep,
     school_year_id: uuid.UUID,
 ) -> dict[str | None, int]:
+    """
+    Count required document types per classification for a given school year.
+
+    The SchoolYearRequirement join defines what was required for that year.
+    We deliberately do NOT filter by DocumentType.status here — archiving a
+    type globally should not retroactively change the required-doc count
+    for students who were in a school year that included it.
+    """
     stmt = (
         select(DocumentType.id, DocumentType.applicable_classifications)
         .join(SchoolYearRequirement, SchoolYearRequirement.document_type_id == DocumentType.id)
         .where(
             SchoolYearRequirement.school_year_id == school_year_id,
-            DocumentType.status == DocumentTypeStatus.ACTIVE,
         )
     )
     rows = (await db.execute(stmt)).all()

@@ -131,6 +131,8 @@ export default function RequirementsChecklistCard({
                                         (s) => (s.document_type_id === item.id || s.document_type_id === null) && s.status !== "archived",
                                     );
                                     if (docSchemas.length === 0) return null;
+                                    const isSelected = draftSelectedRequirementIds.has(item.id);
+                                    const needsSchema = isSelected && !draftSchemaIds[item.id];
                                     return (
                                         <div className="pt-2" onClick={(e) => e.stopPropagation()}>
                                             <Select
@@ -152,6 +154,12 @@ export default function RequirementsChecklistCard({
                                                     ))}
                                                 </SelectContent>
                                             </Select>
+                                            {needsSchema && (
+                                                <p className="mt-1 flex items-center gap-1 text-xs text-amber-600">
+                                                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                                                    No schema selected
+                                                </p>
+                                            )}
                                         </div>
                                     );
                                 }}

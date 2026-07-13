@@ -13,12 +13,13 @@ import type { SubmissionCardStatus, SubmissionDetail } from "@/types/submission"
 import type { ExtractionItemResponse } from "@/types/extraction";
 
 interface StepSubmitProps {
+  allVerified?: boolean;
   submissions: SubmissionDetail[];
   getToken: () => Promise<string | null>;
   onSubmitted?: () => void;
 }
 
-export default function StepSubmit({ submissions, getToken, onSubmitted }: StepSubmitProps) {
+export default function StepSubmit({ allVerified, submissions, getToken, onSubmitted }: StepSubmitProps) {
   const navigate = useNavigate();
   const [showConfirm, setShowConfirm] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
@@ -90,8 +91,11 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
     try {
       const token = await getTokenRef.current();
       if (!token) { setIsSubmitting(false); return; }
+      const ids = items.map((i) => i.id);
       const res = await fetchWithClerkAuth("/api/me/documents/submit-batch", token, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submission_ids: ids }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
@@ -143,6 +147,21 @@ export default function StepSubmit({ submissions, getToken, onSubmitted }: StepS
   const handleBackToConfirmation = () => {
     setReadOnly(false);
   };
+
+  if (allVerified) {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+        <Lock className="mx-auto h-8 w-8 text-emerald-500" />
+        <h3 className="mt-4 text-lg font-semibold text-emerald-800">
+          All Required Documents Verified
+        </h3>
+        <p className="mx-auto mt-2 max-w-md text-sm text-emerald-600">
+          Every required document has been reviewed and verified by your
+          adviser. No further action is needed.
+        </p>
+      </div>
+    );
+  }
 
   // Celebration screen — shown immediately after successful submit
   if (submitted && !readOnly) {

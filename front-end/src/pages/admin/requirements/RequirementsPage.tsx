@@ -57,7 +57,7 @@ export default function RequirementsPage() {
         setIsPageLoading(true);
         try {
             const [documentTypePayload, schoolYearPayload, extractionSchemaPayload] = await Promise.all([
-                requestWithAdminAuth("/api/admin/document-types?status=active"),
+                requestWithAdminAuth("/api/admin/document-types?status=all"),
                 requestWithAdminAuth("/api/admin/school-years"),
                 requestWithAdminAuth("/api/admin/extraction-schemas?status=all"),
             ]);
@@ -142,11 +142,15 @@ export default function RequirementsPage() {
 
     const availableDocumentTypes = useMemo(
         () => documentTypes.filter((item) => {
-            if (!item.isActive || item.isArchived) return false;
             const classifications = item.applicableClassifications ?? [];
-            return classifications.length > 0;
+            if (classifications.length === 0) return false;
+            // Include archived types only if they're already assigned to the
+            // current school year — otherwise they'd silently vanish from the
+            // checklist when viewed on older years that still require them.
+            if (item.isArchived && !draftSelectedRequirementIds.has(item.id)) return false;
+            return true;
         }),
-        [documentTypes],
+        [documentTypes, draftSelectedRequirementIds],
     );
 
     const selectedSchoolYear = useMemo(
@@ -180,7 +184,13 @@ export default function RequirementsPage() {
 
     const handleSelectAllRequirements = () => {
         if (isSelectedSchoolYearClosed) return;
-        setDraftSelectedRequirementIds(new Set(availableDocumentTypes.map((item) => item.id)));
+        setDraftSelectedRequirementIds(
+            new Set(
+                availableDocumentTypes
+                    .filter((item) => !item.isArchived)
+                    .map((item) => item.id),
+            ),
+        );
     };
 
     const handleClearRequirements = () => {

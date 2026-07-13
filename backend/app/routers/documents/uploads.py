@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["documents"])
 
 
+class SubmitBatchRequest(BaseModel):
+    submission_ids: list[str] | None = None
+
+
 class InitiateUploadRequest(BaseModel):
     name: str
     type: str
@@ -299,6 +303,7 @@ async def list_my_documents(
             extracted_data=s.extracted_data,
             rejection_reason=s.rejection_reason,
             document_type_code=s.document_type.code if s.document_type else None,
+            parent_submission_id=str(s.parent_submission_id) if s.parent_submission_id else None,
             created_at=s.created_at.isoformat() if s.created_at else "",
         )
         for s in submissions
@@ -309,6 +314,7 @@ async def list_my_documents(
 async def submit_batch(
     current_user: StudentClaims,
     db: SessionDep,
+    body: SubmitBatchRequest | None = None,
 ) -> dict:
     """Advance all classified/flagged submissions to SUBMITTED status.
 
@@ -326,19 +332,26 @@ async def submit_batch(
     if student is None:
         raise HTTPException(status_code=400, detail="Student profile not found.")
 
-    result = await db.execute(
-        exclude_replaced_submissions(
-            select(DocumentSubmission)
-            .options(selectinload(DocumentSubmission.document_type))
-            .where(
-                DocumentSubmission.student_id == student.id,
-                DocumentSubmission.status.in_([
-                    SubmissionStatus.CLASSIFIED,
-                    SubmissionStatus.FLAGGED,
-                ]),
-            )
+    stmt = exclude_replaced_submissions(
+        select(DocumentSubmission)
+        .options(selectinload(DocumentSubmission.document_type))
+        .where(
+            DocumentSubmission.student_id == student.id,
+            DocumentSubmission.status.in_([
+                SubmissionStatus.CLASSIFIED,
+                SubmissionStatus.FLAGGED,
+            ]),
         )
     )
+
+    if body and body.submission_ids:
+        try:
+            ids = [UUID(rid) for rid in body.submission_ids]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid submission id in body.")
+        stmt = stmt.where(DocumentSubmission.id.in_(ids))
+
+    result = await db.execute(stmt)
     submissions = list(result.scalars().all())
 
     # Deduplicate by document_type_id — keep only the newest per type.
@@ -561,6 +574,7 @@ async def get_download_url(
         SubmissionStatus.PROCESSING,
         SubmissionStatus.SUBMITTED,
         SubmissionStatus.IN_REVIEW,
+        SubmissionStatus.VERIFIED,
     ):
         raise HTTPException(
             status_code=409,

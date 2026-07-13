@@ -194,9 +194,7 @@ export default function ExtractionDetailPage() {
                   size="sm"
                   className="gap-1.5 text-xs bg-amber-500 hover:bg-amber-600 text-white"
                   onClick={() =>
-                    navigate(
-                      `/student/upload?replace=${submissionId}&type=${docInfo.docType}`,
-                    )
+                    navigate(`/student/resolve-flagged/${submissionId}`)
                   }
                 >
                   <Upload className="h-3.5 w-3.5" />

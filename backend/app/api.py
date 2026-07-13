@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import sys
@@ -11,17 +12,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .auth import get_current_user
-from .database import init_db
+from .database import AsyncSessionLocal, init_db
 from .database import SessionDep
 from .models import UserRole
+from .services.job_queue import dispatcher, recover_stuck_jobs
 from .routers.debug import router as debug_router
 from .routers.documents import router as documents_router
 from .routers.users import router as users_router
-from .routers.debug import router as debug_router
 from .routers.adviser import router as adviser_router
 from .routers.adviser_extraction_analytics import router as adviser_extraction_analytics_router
 from .routers.notifications import router as notifications_router
-from .routers.notifications import router as notifications_router
+from .routers.jobs import router as jobs_router
 from .routers import admin
 from .services.user_sync import ensure_user_row
 from .services.clerk import update_user_personal_names, update_user_public_metadata
@@ -30,8 +31,13 @@ from .services.gcp_storage import ensure_bucket_cors
 logger = logging.getLogger(__name__)
 
 
+worker_task: asyncio.Task | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global worker_task
+
     # Ensure app-level loggers emit at INFO so background task logs are visible.
     # Uvicorn configures its own handlers on the `uvicorn.*` loggers with
     # propagate=False, so this does not interfere with access/error formatting.
@@ -50,7 +56,30 @@ async def lifespan(app: FastAPI):
         ensure_bucket_cors()
     except Exception as exc:
         logger.warning("Failed to configure GCS bucket CORS: %s", exc)
+
+    # ── Job queue startup ────────────────────────────────────────────────
+    # Recover any jobs stuck in "running" from a previous crash.
+    try:
+        async with AsyncSessionLocal() as session:
+            await recover_stuck_jobs(session)
+            logger.info("Crash recovery complete — stuck jobs re-queued.")
+    except Exception as exc:
+        logger.warning("Crash recovery failed: %s", exc)
+
+    # Start the background dispatcher that claims and processes queued jobs.
+    worker_task = asyncio.create_task(dispatcher())
+    logger.info("Job dispatcher started.")
+
     yield
+
+    # Shutdown: cancel the worker on app teardown.
+    if worker_task is not None:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Job dispatcher stopped.")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -60,6 +89,7 @@ app.include_router(adviser_router)
 app.include_router(adviser_extraction_analytics_router)
 app.include_router(notifications_router)
 app.include_router(debug_router)
+app.include_router(jobs_router)
 app.include_router(admin.router)
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]

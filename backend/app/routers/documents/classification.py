@@ -8,8 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import attributes, selectinload
 
 from ...database import SessionDep
-from ...models import DocumentSubmission, Student, SubmissionStatus
+from ...models import DocumentSubmission, SchoolYearRequirement, Student, SubmissionStatus
 from ...services.gcp_storage import delete_file as gcs_delete_file
+from ...services.job_queue import create_job, duplicate_check
 from ...services.processor import process_submission
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims, SubmissionDetailResponse
@@ -27,12 +28,13 @@ class ConfirmClassificationRequest(BaseModel):
     document_type_id: str | None = None
 
 
-@router.post("/api/me/documents/{submission_id}/classify", response_model=SubmissionDetailResponse)
+@router.post("/api/me/documents/{submission_id}/classify", status_code=202)
 async def classify_document(
     submission_id: UUID,
     current_user: StudentClaims,
     db: SessionDep,
-) -> SubmissionDetailResponse:
+):
+    """Classify a single document. Delegates to the async job system."""
     user = await ensure_user_row(db, current_user)
     result = await db.execute(select(Student).where(Student.user_id == user.id))
     student = result.scalar_one_or_none()
@@ -52,59 +54,38 @@ async def classify_document(
             detail=f"Cannot classify a document with status '{submission.status.value}'. Only UPLOADED or FLAGGED documents can be classified.",
         )
 
-    await process_submission(submission.id)
-
-    await db.refresh(submission)
-    await db.refresh(submission, attribute_names=["document_type"])
-
-    if submission.document_type_id is not None:
-        verified_stmt = select(DocumentSubmission.id).where(
-            DocumentSubmission.student_id == student.id,
-            DocumentSubmission.document_type_id == submission.document_type_id,
-            DocumentSubmission.status == SubmissionStatus.VERIFIED,
-            DocumentSubmission.id != submission.id,
+    # Duplicate check
+    existing = await duplicate_check(db, student.id, "classify")
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="An active classification job is already in progress.",
         )
-        if (await db.execute(verified_stmt)).scalar_one_or_none() is not None:
-            doc_type_name = submission.document_type.name if submission.document_type else "that type"
-            if submission.file_key:
-                try:
-                    await asyncio.to_thread(gcs_delete_file, submission.file_key)
-                except Exception:
-                    logger.exception("Failed to delete GCS file for verified duplicate %s", submission.id)
-            await db.delete(submission)
-            await db.commit()
-            raise HTTPException(
-                status_code=409,
-                detail=f"Document classified as '{doc_type_name}' but that type is already verified. The duplicate has been removed.",
-            )
 
-    return SubmissionDetailResponse(
-        id=str(submission.id),
-        status=submission.status.value,
-        file_key=submission.file_key,
-        original_filename=submission.original_filename,
-        file_size=submission.file_size,
-        mime_type=submission.mime_type,
-        is_compiled=submission.is_compiled,
-        document_type_id=str(submission.document_type_id) if submission.document_type_id else None,
-        document_type_name=submission.document_type.name if submission.document_type else None,
-        classification_result=submission.classification_result,
-        created_at=submission.created_at.isoformat() if submission.created_at else "",
+    job = await create_job(
+        db,
+        student_id=student.id,
+        operation="classify",
+        submission_ids=[submission.id],
+        requested_by=user.id,
     )
 
+    return {
+        "job_id": str(job.id),
+        "operation": job.operation,
+        "status": job.status.value if job.status else "",
+        "progress": job.progress or 0,
+        "total": job.total or 0,
+    }
 
-@router.post("/api/me/documents/classify-all", response_model=list[SubmissionDetailResponse])
+
+@router.post("/api/me/documents/classify-all", status_code=202)
 async def classify_all_documents(
     current_user: StudentClaims,
     db: SessionDep,
     body: ClassifyAllRequest | None = None,
-) -> list[SubmissionDetailResponse]:
-    """Classify multiple document submissions for the current student.
-
-    If `submission_ids` is provided, only those submissions are classified after
-    verifying ownership and eligibility. If omitted, every eligible submission
-    belonging to the student is classified.
-    """
+):
+    """Classify multiple document submissions. Delegates to the async job system."""
     user = await ensure_user_row(db, current_user)
     result = await db.execute(select(Student).where(Student.user_id == user.id))
     student = result.scalar_one_or_none()
@@ -162,73 +143,32 @@ async def classify_all_documents(
         )
         submissions = list(result.scalars().all())
 
-    if submissions:
-        await db.commit()
+    if not submissions:
+        raise HTTPException(status_code=400, detail="No documents eligible for classification.")
 
-    for submission in submissions:
-        try:
-            await process_submission(submission.id)
-        except HTTPException as exc:
-            if exc.status_code == 409:
-                logger.warning("classify_all: submission %s has conflict - %s", submission.id, exc.detail)
-            else:
-                raise
-        except Exception:
-            logger.exception("classify_all: submission %s failed", submission.id)
-        await asyncio.sleep(2)
-
-    if submissions:
-        submission_ids = [submission.id for submission in submissions]
-        result = await db.execute(
-            select(DocumentSubmission)
-            .options(selectinload(DocumentSubmission.document_type))
-            .where(DocumentSubmission.id.in_(submission_ids))
-        )
-        updated_submissions = list(result.scalars().all())
-
-        # Check for verified-duplicate classifications
-        verified_type_ids_stmt = select(DocumentSubmission.document_type_id).where(
-            DocumentSubmission.student_id == student.id,
-            DocumentSubmission.status == SubmissionStatus.VERIFIED,
-        )
-        verified_type_ids = set(
-            (await db.execute(verified_type_ids_stmt)).scalars().all()
+    # Duplicate check
+    existing = await duplicate_check(db, student.id, "classify")
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="An active classification job is already in progress.",
         )
 
-        final_submissions: list[DocumentSubmission] = []
-        for sub in updated_submissions:
-            if sub.document_type_id is not None and sub.document_type_id in verified_type_ids:
-                if sub.file_key:
-                    try:
-                        await asyncio.to_thread(gcs_delete_file, sub.file_key)
-                    except Exception:
-                        logger.exception("Failed to delete GCS file for verified duplicate %s", sub.id)
-                await db.delete(sub)
-            else:
-                final_submissions.append(sub)
-        updated_submissions = final_submissions
-        await db.commit()
-    else:
-        updated_submissions = []
+    job = await create_job(
+        db,
+        student_id=student.id,
+        operation="classify",
+        submission_ids=[sub.id for sub in submissions],
+        requested_by=user.id,
+    )
 
-    return [
-        SubmissionDetailResponse(
-            id=str(submission.id),
-            status=submission.status.value,
-            file_key=submission.file_key,
-            original_filename=submission.original_filename,
-            file_size=submission.file_size,
-            mime_type=submission.mime_type,
-            is_compiled=submission.is_compiled,
-            document_type_id=str(submission.document_type_id) if submission.document_type_id else None,
-            document_type_name=submission.document_type.name if submission.document_type else None,
-            classification_result=submission.classification_result,
-            extracted_data=submission.extracted_data,
-            document_type_code=submission.document_type.code if submission.document_type else None,
-            created_at=submission.created_at.isoformat() if submission.created_at else "",
-        )
-        for submission in updated_submissions
-    ]
+    return {
+        "job_id": str(job.id),
+        "operation": job.operation,
+        "status": job.status.value if job.status else "",
+        "progress": job.progress or 0,
+        "total": job.total or 0,
+    }
 
 
 @router.post("/api/me/documents/{submission_id}/confirm", response_model=SubmissionDetailResponse)
@@ -238,6 +178,7 @@ async def confirm_classification(
     current_user: StudentClaims,
     db: SessionDep,
 ) -> SubmissionDetailResponse:
+    """Manually confirm/override a classification (synchronous, not an AI operation)."""
     user = await ensure_user_row(db, current_user)
     result = await db.execute(select(Student).where(Student.user_id == user.id))
     student = result.scalar_one_or_none()

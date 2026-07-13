@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -24,6 +25,8 @@ from ..models import (
 )
 
 RequirementAssignmentData = tuple[UUID, UUID | None]
+
+logger = logging.getLogger(__name__)
 
 # This module contains service functions for managing document requirements associated with school years.
 async def get_school_year_or_404(db: SessionDep, school_year_id: UUID) -> SchoolYear:
@@ -78,11 +81,37 @@ async def validate_active_document_type_ids(db: SessionDep, document_type_ids: l
 async def validate_requirement_assignments(
     db: SessionDep,
     requirements: list[RequirementAssignmentData],
+    school_year_id: UUID,
 ) -> None:
     document_type_ids = [document_type_id for document_type_id, _ in requirements]
-    await validate_active_document_type_ids(db, document_type_ids)
-    if not requirements:
+    if not document_type_ids:
         return
+
+    dt_stmt = select(DocumentType.id, DocumentType.status).where(
+        DocumentType.id.in_(document_type_ids)
+    )
+    dt_rows = dict((await db.execute(dt_stmt)).all())
+
+    not_found = [id_ for id_ in document_type_ids if id_ not in dt_rows]
+    if not_found:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more document types are missing or not active.",
+        )
+
+    archived_ids = [id_ for id_, s in dt_rows.items() if s == DocumentTypeStatus.ARCHIVED]
+    if archived_ids:
+        existing_req_stmt = select(SchoolYearRequirement.document_type_id).where(
+            SchoolYearRequirement.school_year_id == school_year_id,
+            SchoolYearRequirement.document_type_id.in_(archived_ids),
+        )
+        existing_archived_reqs = set((await db.execute(existing_req_stmt)).scalars().all())
+        not_existing = [id_ for id_ in archived_ids if id_ not in existing_archived_reqs]
+        if not_existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Archived document types cannot be added as new requirements.",
+            )
 
     schema_ids = {
         schema_id
@@ -121,7 +150,7 @@ async def replace_school_year_requirements(
 ) -> list[RequirementAssignmentData]:
     await ensure_school_year_requirements_mutable(db, school_year_id)
     deduped_requirements = dedupe_requirement_assignments(requirements)
-    await validate_requirement_assignments(db, deduped_requirements)
+    await validate_requirement_assignments(db, deduped_requirements, school_year_id)
 
     await db.execute(
         delete(SchoolYearRequirement).where(SchoolYearRequirement.school_year_id == school_year_id)
@@ -151,8 +180,14 @@ async def get_required_document_types_for_student(
     student: Student,
 ) -> list[DocumentType]:
     """
-    Returns active document types required for the student's school year
+    Returns document types required for the student's school year,
     filtered by the student's classification.
+
+    The SchoolYearRequirement join is the correct temporal boundary.
+    A document type's current global ``status`` (active/archived) should
+    NOT retroactively remove it from older cohorts that still have it
+    assigned — otherwise archiving a type in 2026-2027 would silently
+    clear requirements for 2025-2026 students.
     """
     if student.school_year_id is None:
         return []
@@ -165,7 +200,6 @@ async def get_required_document_types_for_student(
         )
         .where(
             SchoolYearRequirement.school_year_id == student.school_year_id,
-            DocumentType.status == DocumentTypeStatus.ACTIVE,
         )
         .order_by(DocumentType.name)
     )
@@ -214,17 +248,36 @@ async def carry_over_school_year_requirement_ids(
     await get_school_year_or_404(db, source_school_year_id)
     await ensure_school_year_requirements_mutable(db, target_school_year_id)
 
+    # Single query: fetch ALL requirements from the source year alongside
+    # each document type's current status so we can split active vs archived
+    # in memory without a second round-trip.
     stmt = (
-        select(SchoolYearRequirement.document_type_id, SchoolYearRequirement.extraction_schema_id)
+        select(
+            SchoolYearRequirement.document_type_id,
+            SchoolYearRequirement.extraction_schema_id,
+            DocumentType.status,
+        )
         .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
         .where(
             SchoolYearRequirement.school_year_id == source_school_year_id,
-            DocumentType.status == DocumentTypeStatus.ACTIVE,
         )
         .order_by(desc(SchoolYearRequirement.updated_at), desc(SchoolYearRequirement.created_at))
     )
-    source_requirements = list((await db.execute(stmt)).all())
-    requirements = await replace_school_year_requirements(db, target_school_year_id, source_requirements)
+    all_source_rows = list((await db.execute(stmt)).all())
+
+    active_ids: list[tuple[UUID, UUID | None]] = []
+    for row in all_source_rows:
+        if row.status == DocumentTypeStatus.ACTIVE:
+            active_ids.append((row.document_type_id, row.extraction_schema_id))
+
+    skipped = len(all_source_rows) - len(active_ids)
+    if skipped:
+        logger.warning(
+            "Skipped %d archived document type(s) during carry-over from school year %s",
+            skipped, source_school_year_id,
+        )
+
+    requirements = await replace_school_year_requirements(db, target_school_year_id, active_ids)
     return [document_type_id for document_type_id, _ in requirements]
 
 

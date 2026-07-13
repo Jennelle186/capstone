@@ -1,4 +1,4 @@
-export type SubmissionStatusType = "verified" | "in-review" | "flagged" | "uploaded" | "submitted" | "classified" | "processing";
+export type SubmissionStatusType = "pending" | "uploaded" | "processing" | "classified" | "extracting" | "in-review" | "verified" | "flagged" | "submitted";
 
 export type Submission = {
   id: string;
@@ -88,39 +88,49 @@ export const placeholderSubmissions: Submission[] = [
 ];
 
 export const statusConfig: Record<SubmissionStatus, { label: string; badge: string; dot: string }> = {
-  verified: {
-    label: "Verified",
-    badge: "bg-emerald-100 text-emerald-700",
-    dot: "bg-emerald-500",
-  },
-  "in-review": {
-    label: "In Review",
-    badge: "bg-amber-100 text-amber-700",
-    dot: "bg-amber-500",
-  },
-  flagged: {
-    label: "Flagged",
-    badge: "bg-rose-100 text-rose-700",
-    dot: "bg-rose-500",
+  pending: {
+    label: "Pending",
+    badge: "bg-slate-100 text-slate-700",
+    dot: "bg-slate-400",
   },
   uploaded: {
     label: "Uploaded",
     badge: "bg-blue-100 text-blue-700",
     dot: "bg-blue-500",
   },
-  submitted: {
-    label: "Submitted",
-    badge: "bg-slate-100 text-slate-700",
-    dot: "bg-slate-500",
+  processing: {
+    label: "Processing",
+    badge: "bg-blue-100 text-blue-700",
+    dot: "bg-blue-500",
   },
   classified: {
     label: "Classified",
     badge: "bg-emerald-100 text-emerald-700",
     dot: "bg-emerald-500",
   },
-  processing: {
-    label: "Processing",
-    badge: "bg-blue-100 text-blue-700",
-    dot: "bg-blue-500",
+  extracting: {
+    label: "Extracting",
+    badge: "bg-violet-100 text-violet-700",
+    dot: "bg-violet-500",
+  },
+  "in-review": {
+    label: "In Review",
+    badge: "bg-amber-100 text-amber-700",
+    dot: "bg-amber-500",
+  },
+  verified: {
+    label: "Verified",
+    badge: "bg-emerald-100 text-emerald-700",
+    dot: "bg-emerald-500",
+  },
+  flagged: {
+    label: "Flagged",
+    badge: "bg-rose-100 text-rose-700",
+    dot: "bg-rose-500",
+  },
+  submitted: {
+    label: "Submitted",
+    badge: "bg-slate-100 text-slate-700",
+    dot: "bg-slate-500",
   },
 };
