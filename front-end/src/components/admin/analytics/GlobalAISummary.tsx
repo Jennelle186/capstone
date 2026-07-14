@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 interface GlobalAISummaryProps {
   selectedSyId: string
-  selectedDeptId: string
+  selectedDeptId?: string
   schoolYearName: string
   departmentName: string
   requestWithAdminAuth: (path: string, init?: RequestInit) => Promise<unknown>
@@ -67,7 +67,7 @@ function ParsedBriefing({ text, isStale }: { text: string; isStale: boolean }) {
   )
 }
 
-function cacheKey(syId: string, deptId: string, userId?: string) {
+function cacheKey(syId: string, deptId?: string, userId?: string) {
   const prefix = userId ? `${userId}_` : ""
   return `${prefix}ai_briefing_${syId}_${deptId || "all"}`
 }

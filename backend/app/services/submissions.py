@@ -23,6 +23,7 @@ from ..models import (
 )
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .gcp_storage import generate_presigned_url as gcs_generate_presigned_url
+from ..utils.computation import apply_computed_fields
 from .helpers import compute_initials, exclude_replaced_submissions, relative_time
 
 
@@ -221,6 +222,8 @@ async def get_submission_extractions(
             "type": field_def.get("type", "string"),
             "description": field_def.get("description", ""),
             "required": field_def.get("required", False),
+            "readOnly": field_def.get("readOnly", False),
+            "is_computed": field_def.get("is_computed", False),
             "value": value,
             "confidence": confidence,
             "needs_review": needs_review,
@@ -277,6 +280,27 @@ async def save_submission_extraction_field(
         "confidence": 1.0,
         "source_key": "adviser_manual",
     }
+
+    # Recompute any computed fields that depend on the just-saved field.
+    if submission.document_type_id:
+        syr_result = await db.execute(
+            select(SchoolYearRequirement).where(
+                SchoolYearRequirement.school_year_id == student.school_year_id,
+                SchoolYearRequirement.document_type_id == submission.document_type_id,
+                SchoolYearRequirement.extraction_schema_id.isnot(None),
+            )
+        )
+        syr = syr_result.scalar_one_or_none()
+        if syr:
+            schema = await db.get(ExtractionSchema, syr.extraction_schema_id)
+            if schema and schema.fields_json:
+                affected = [
+                    f for f in schema.fields_json
+                    if f.get("is_computed")
+                    and field_id in (f.get("computation") or {}).get("dependencies", [])
+                ]
+                if affected:
+                    extracted = apply_computed_fields(schema.fields_json, extracted)
 
     submission.extracted_data = extracted
     attributes.flag_modified(submission, "extracted_data")

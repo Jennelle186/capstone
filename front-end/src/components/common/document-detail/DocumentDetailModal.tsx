@@ -23,6 +23,7 @@ export interface ExtractionField {
     ui_component: string | null;
     options: { value: string; label: string }[] | null;
     confidence: number;
+    is_computed?: boolean;
   };
 }
 

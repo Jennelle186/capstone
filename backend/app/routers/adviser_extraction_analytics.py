@@ -80,7 +80,7 @@ async def adviser_extraction_analytics(
     if department_id and department_id not in adviser_dept_ids:
         raise HTTPException(status_code=403, detail="Department not assigned to this adviser")
 
-    ids = [department_id] if department_id else (adviser_dept_ids if adviser_dept_ids else None)
+    ids = [department_id] if department_id else adviser_dept_ids
     try:
         result = await svc_get_extraction_analytics(db, school_year_id, department_ids=ids)
     except ValueError as e:
@@ -133,6 +133,6 @@ async def adviser_insights(
     if department_id and department_id not in adviser_dept_ids:
         raise HTTPException(status_code=403, detail="Department not assigned to this adviser")
 
-    ids = [department_id] if department_id else (adviser_dept_ids if adviser_dept_ids else None)
+    ids = [department_id] if department_id else adviser_dept_ids
     summary = await svc_generate_insights(db, school_year_id, department_ids=ids)
     return {"summary": summary}

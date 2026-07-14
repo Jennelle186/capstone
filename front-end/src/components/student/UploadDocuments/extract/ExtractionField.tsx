@@ -39,7 +39,7 @@ function StaticValue({
   value: string;
   onEdit: () => void;
 }) {
-  const isLocked = field.readOnly;
+  const isLocked = field.readOnly || field.is_computed;
   const isEmpty = value === "";
   const isMissing = isEmpty && field.required;
   const lowConfidence = field.confidence <= 0.9;
@@ -99,9 +99,9 @@ export default function ExtractionField({ field, onAutoSave }: ExtractionFieldPr
   const [editing, setEditing] = useState(false);
 
   const handleStartEdit = useCallback(() => {
-    if (field.readOnly) return;
+    if (field.readOnly || field.is_computed) return;
     setEditing(true);
-  }, [field.readOnly]);
+  }, [field.readOnly, field.is_computed]);
 
   const handleSave = useCallback(() => {
     const val = form.getValues(field.key) ?? "";

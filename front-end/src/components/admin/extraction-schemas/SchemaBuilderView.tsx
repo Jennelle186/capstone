@@ -353,6 +353,7 @@ export default function SchemaBuilderView({
                                             <FieldEditorRow
                                                 field={field}
                                                 index={formState.fields_json.findIndex((f) => f.id === field.id)}
+                                                allFields={formState.fields_json}
                                                 isLast={formState.fields_json.length === 1}
                                                 onUpdate={onFieldUpdate}
                                                 onDelete={onRemoveField}

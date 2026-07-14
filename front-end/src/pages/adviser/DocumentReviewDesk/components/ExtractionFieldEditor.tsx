@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Sparkles, Info, Pencil, Check, X, AlertTriangle } from "lucide-react";
+import { Sparkles, Info, Pencil, Check, X, AlertTriangle, Calculator } from "lucide-react";
 import { cn } from "@/lib/utils";
 import SubmissionStatusBadge from "@/components/adviser/ui/SubmissionStatusBadge";
 import type { ExtractionSection, ExtractionField } from "@/components/common/document-detail/DocumentDetailModal";
@@ -301,9 +301,10 @@ function FieldCard({
   const raw = field._raw;
 
   const handleStartEdit = useCallback(() => {
+    if (raw?.is_computed) return;
     setDraft(value);
     setEditing(true);
-  }, [value]);
+  }, [value, raw?.is_computed]);
 
   const handleSave = useCallback(() => {
     onChange(draft);
@@ -362,26 +363,34 @@ function FieldCard({
         <div className="px-3 pb-3">
           <div
             className={cn(
-              "group relative flex items-center gap-2 rounded-lg border px-3 py-2.5 transition-colors cursor-pointer",
-              needsReview && "border-amber-300 bg-amber-50",
-              !needsReview && "border-slate-200 bg-white hover:border-slate-300",
+              "group relative flex items-center gap-2 rounded-lg border px-3 py-2.5 transition-colors",
+              raw?.is_computed && "border-purple-200 bg-purple-50",
+              !raw?.is_computed && needsReview && "border-amber-300 bg-amber-50",
+              !raw?.is_computed && !needsReview && "border-slate-200 bg-white hover:border-slate-300 cursor-pointer",
             )}
             onClick={handleStartEdit}
           >
             <div className="flex-1 min-w-0">
               <DisplayValue value={value} raw={raw} />
             </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleStartEdit();
-              }}
-              className="flex-shrink-0 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
-              title="Edit"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
+            {raw?.is_computed ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-1.5 py-0.5 text-[9px] font-semibold text-purple-600">
+                <Calculator className="h-2.5 w-2.5" />
+                COMPUTED
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStartEdit();
+                }}
+                className="flex-shrink-0 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
+                title="Edit"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
       )}

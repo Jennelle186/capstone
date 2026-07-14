@@ -300,3 +300,44 @@ export function formatSchemaOption(schema: ExtractionSchemaRecord): string {
     const meta = formatSchemaMeta(schema);
     return meta ? `${schema.name} (${meta})` : schema.name;
 }
+
+export function computeFieldValue(
+    field: ExtractionSchemaField,
+    allExtractedData: Record<string, unknown>,
+): string | null {
+    if (!field.is_computed || !field.computation) return null;
+
+    const { operation, dependencies } = field.computation;
+    const values: number[] = [];
+
+    for (const depId of dependencies) {
+        const depData = allExtractedData[depId];
+        if (!depData || typeof depData !== "object") continue;
+        const val = (depData as Record<string, unknown>).value;
+        if (val === null || val === undefined || val === "") continue;
+        const num = parseFloat(String(val));
+        if (!isNaN(num)) values.push(num);
+    }
+
+    if (values.length === 0) return null;
+
+    let result: number;
+    switch (operation) {
+        case "average":
+            result = values.reduce((a, b) => a + b, 0) / values.length;
+            break;
+        case "sum":
+            result = values.reduce((a, b) => a + b, 0);
+            break;
+        case "max":
+            result = Math.max(...values);
+            break;
+        case "min":
+            result = Math.min(...values);
+            break;
+        default:
+            return null;
+    }
+
+    return result.toFixed(2);
+}

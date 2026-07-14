@@ -13,6 +13,11 @@ export interface BucketConfig {
     label: string;
 }
 
+export interface ComputationConfig {
+    operation: "average" | "sum" | "max" | "min";
+    dependencies: string[];
+}
+
 export interface ExtractionSchemaField {
     id: string;
     key: string;
@@ -32,6 +37,8 @@ export interface ExtractionSchemaField {
     analytics_label?: string | null;
     canonical_key?: string | null;
     buckets?: BucketConfig[] | null;
+    is_computed?: boolean;
+    computation?: ComputationConfig | null;
 }
 
 export interface ExtractionSchemaRecord {

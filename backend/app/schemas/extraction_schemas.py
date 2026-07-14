@@ -5,6 +5,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 AnalyticsMode = Literal["distribution", "numeric_summary", "boolean_summary", "bucketized"]
+ComputationOperation = Literal["average", "sum", "max", "min"]
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,6 +24,11 @@ class BucketConfig(BaseModel):
     min: float | None = Field(default=None, description="Inclusive lower bound of the bucket range")
     max: float | None = Field(default=None, description="Exclusive upper bound of the bucket range")
     label: str = Field(description="Display label for the bucket (e.g. '75-80', 'Below 75')")
+
+
+class ComputationConfig(BaseModel):
+    operation: ComputationOperation = Field(description="Operation: average, sum, max, or min")
+    dependencies: list[str] = Field(default_factory=list, description="List of field IDs this computation depends on")
 
 
 class ExtractionSchemaField(BaseModel):
@@ -45,6 +51,9 @@ class ExtractionSchemaField(BaseModel):
     analytics_label: str | None = Field(default=None, description="Display label in analytics UIs; falls back to field label")
     canonical_key: str | None = Field(default=None, description="Semantic key for cross-year alignment (e.g. 'shs_track', 'gender')")
     buckets: list[BucketConfig] | None = Field(default=None, description="Numeric range buckets for bucketized analytics (e.g. '75-80', '81-85')")
+
+    is_computed: bool = Field(default=False, description="Field value is deterministically computed from other fields, not extracted by AI")
+    computation: ComputationConfig | None = Field(default=None, description="Computation definition for derived fields")
 
     @field_validator("key")
     @classmethod

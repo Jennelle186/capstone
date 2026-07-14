@@ -1,3 +1,5 @@
+import type { ComputationConfig } from "@/types/extractionSchema";
+
 export interface ExtractionFieldOption {
   value: string;
   label: string;
@@ -19,7 +21,9 @@ export interface ExtractionFieldResponse {
   section_title: string | null;
   hierarchy_level: number;
   parent_field_id: string | null;
-  read_only: boolean;
+    read_only: boolean;
+    is_computed?: boolean;
+    computation?: ComputationConfig | null;
 }
 
 export interface ExtractionItemResponse {
@@ -48,7 +52,9 @@ export interface ExtractedField {
   section_title: string | null;
   hierarchy_level: number;
   parent_field_id: string | null;
-  readOnly: boolean;
+    readOnly: boolean;
+    is_computed?: boolean;
+    computation?: ComputationConfig | null;
 }
 
 export type ExtractionConfidence = "high" | "medium" | "low" | "needs-review";
@@ -82,6 +88,8 @@ export function toExtractionItem(resp: ExtractionItemResponse): ExtractionItem {
     hierarchy_level: f.hierarchy_level,
     parent_field_id: f.parent_field_id,
     readOnly: f.read_only,
+    is_computed: f.is_computed ?? false,
+    computation: f.computation ?? null,
   }));
 
   const hasReview = fields.some((f) => f.needsReview);

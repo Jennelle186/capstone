@@ -26,6 +26,14 @@ def extract_values(
         entry = extracted.get(field_id)
         if entry is None and field_key:
             entry = extracted.get(field_key)
+        if entry is None and field_key:
+            # Fallback: scan all entries for a matching source_key string.
+            # This recovers data that was stored under a different field_id
+            # (e.g. after a schema change that assigned a new UUID).
+            for _k, _v in extracted.items():
+                if isinstance(_v, dict) and _v.get("source_key") == field_key:
+                    entry = _v
+                    break
         if entry is None:
             continue
         raw = entry.get("value") if isinstance(entry, dict) else entry

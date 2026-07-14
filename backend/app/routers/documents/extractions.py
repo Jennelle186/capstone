@@ -19,6 +19,7 @@ from ...models import (
 )
 from ...services.job_queue import create_job, duplicate_check
 from ...services.user_sync import ensure_user_row
+from ...utils.computation import apply_computed_fields
 from .schemas import StudentClaims, SubmissionDetailResponse
 
 router = APIRouter(tags=["documents"])
@@ -41,6 +42,8 @@ class ExtractionFieldResponse(BaseModel):
     hierarchy_level: int = 1
     parent_field_id: str | None = None
     read_only: bool = False
+    is_computed: bool = False
+    computation: dict | None = None
 
 
 class ExtractionItemResponse(BaseModel):
@@ -340,8 +343,10 @@ async def list_extractions(
                 section_title=field_def.get("section_title"),
                 hierarchy_level=field_def.get("hierarchy_level", 1),
                 parent_field_id=field_def.get("parent_field_id"),
-                read_only=field_def.get("readOnly", False),
-            ))
+            read_only=field_def.get("readOnly", False),
+            is_computed=field_def.get("is_computed", False),
+            computation=field_def.get("computation"),
+        ))
 
         if fields:
             items.append(ExtractionItemResponse(
@@ -391,6 +396,27 @@ async def save_extraction_field(
         "confidence": 1.0,
         "source_key": "manual",
     }
+
+    # Recompute computed fields that depend on the just-saved field.
+    if submission.document_type_id and student.school_year_id:
+        syr_result = await db.execute(
+            select(SchoolYearRequirement).where(
+                SchoolYearRequirement.school_year_id == student.school_year_id,
+                SchoolYearRequirement.document_type_id == submission.document_type_id,
+                SchoolYearRequirement.extraction_schema_id.isnot(None),
+            )
+        )
+        syr = syr_result.scalar_one_or_none()
+        if syr:
+            schema = await db.get(ExtractionSchema, syr.extraction_schema_id)
+            if schema and schema.fields_json:
+                affected = [
+                    f for f in schema.fields_json
+                    if f.get("is_computed")
+                    and body.field_id in (f.get("computation") or {}).get("dependencies", [])
+                ]
+                if affected:
+                    extracted = apply_computed_fields(schema.fields_json, extracted)
 
     submission.extracted_data = extracted
     attributes.flag_modified(submission, "extracted_data")

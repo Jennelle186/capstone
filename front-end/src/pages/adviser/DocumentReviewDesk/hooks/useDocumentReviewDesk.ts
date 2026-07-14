@@ -72,6 +72,7 @@ export function useDocumentReviewDesk() {
           ui_component: f.ui_component,
           options: f.options,
           confidence: f.confidence,
+          is_computed: (f as { is_computed?: boolean }).is_computed ?? false,
         },
       });
     }

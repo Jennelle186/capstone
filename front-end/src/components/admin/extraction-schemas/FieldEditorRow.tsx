@@ -1,4 +1,4 @@
-import { BarChart3, GripVertical, Lock, Plus, Trash2, Unlock, X } from "lucide-react";
+import { BarChart3, GripVertical, Lock, Plus, Sigma, Trash2, Unlock, X } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import type { BucketConfig, ExtractionSchemaField, ExtractionSchemaFieldType } f
 interface FieldEditorRowProps {
     field: ExtractionSchemaField;
     index: number;
+    allFields: ExtractionSchemaField[];
     onUpdate: (fieldId: string, next: Partial<ExtractionSchemaField>) => void;
     onDelete: (fieldId: string) => void;
     isLast: boolean;
@@ -332,11 +333,13 @@ function BucketEditor({
 export default function FieldEditorRow({
     field,
     index,
+    allFields,
     onUpdate,
     onDelete,
     isLast,
 }: FieldEditorRowProps) {
     const [showAnalytics, setShowAnalytics] = useState(!!field.is_analytics);
+    const [showComputed, setShowComputed] = useState(!!field.is_computed);
     const analyticsModeOptions = [
         { value: "__auto__", label: "Auto (inferred from type)" },
         { value: "distribution", label: "Distribution" },
@@ -351,6 +354,27 @@ export default function FieldEditorRow({
         onUpdate(field.id, {
             is_analytics: next,
             canonical_key: next ? (field.canonical_key ?? normalizeFieldKey(field.key)) : null,
+        });
+    };
+
+    const toggleComputed = () => {
+        const next = !field.is_computed;
+        setShowComputed(next);
+        onUpdate(field.id, {
+            is_computed: next,
+            computation: next
+                ? (field.computation ?? { operation: "average", dependencies: [] })
+                : null,
+        });
+    };
+
+    const handleDependencyToggle = (depId: string) => {
+        const current = field.computation?.dependencies ?? [];
+        const next = current.includes(depId)
+            ? current.filter((d) => d !== depId)
+            : [...current, depId];
+        onUpdate(field.id, {
+            computation: { ...(field.computation ?? { operation: "average" }), dependencies: next },
         });
     };
 
@@ -472,6 +496,22 @@ export default function FieldEditorRow({
 
                 <button
                     type="button"
+                    disabled={field.readOnly}
+                    onClick={toggleComputed}
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                        field.readOnly
+                            ? "opacity-50 cursor-not-allowed"
+                            : field.is_computed
+                              ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                              : "bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800"
+                    }`}
+                    title={field.is_computed ? "Computed field" : "Make computed"}
+                >
+                    <Sigma className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                    type="button"
                     onClick={() =>
                         onUpdate(field.id, { readOnly: !field.readOnly })
                     }
@@ -570,6 +610,68 @@ export default function FieldEditorRow({
                         />
                     </div>
                 )}
+            </div>
+        )}
+
+        {showComputed && field.is_computed && (
+            <div className="mt-3 rounded-md bg-purple-50 p-3 space-y-3">
+                <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wide">Computed Field Configuration</p>
+                <div className="grid grid-cols-12 gap-3">
+                    <div className="col-span-4 space-y-1">
+                        <p className="text-[11px] font-medium text-muted-foreground">Operation</p>
+                        <Select
+                            value={field.computation?.operation ?? "average"}
+                            onValueChange={(value) =>
+                                onUpdate(field.id, {
+                                    computation: {
+                                        operation: value as "average" | "sum" | "max" | "min",
+                                        dependencies: field.computation?.dependencies ?? [],
+                                    },
+                                })
+                            }
+                            disabled={field.readOnly}
+                        >
+                            <SelectTrigger className="h-8 text-sm bg-white">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="average">Average</SelectItem>
+                                <SelectItem value="sum">Sum</SelectItem>
+                                <SelectItem value="max">Max</SelectItem>
+                                <SelectItem value="min">Min</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+                <div className="space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Dependencies</p>
+                    <div className="max-h-32 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 space-y-0.5">
+                        {allFields
+                            .filter((f) => f.id !== field.id && (f.type === "number" || f.type === "integer"))
+                            .map((f) => {
+                                const checked = (field.computation?.dependencies ?? []).includes(f.id);
+                                return (
+                                    <label
+                                        key={f.id}
+                                        className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-slate-50 cursor-pointer text-xs"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={() => handleDependencyToggle(f.id)}
+                                            disabled={field.readOnly}
+                                            className="h-3.5 w-3.5 rounded accent-purple-600"
+                                        />
+                                        <span className="text-slate-700 font-medium">{f.key || f.id}</span>
+                                        <span className="text-slate-400 ml-auto text-[10px]">{f.type}</span>
+                                    </label>
+                                );
+                            })}
+                        {allFields.filter((f) => f.id !== field.id && (f.type === "number" || f.type === "integer")).length === 0 && (
+                            <p className="text-[10px] text-slate-400 py-1 px-1.5">No other fields available</p>
+                        )}
+                    </div>
+                </div>
             </div>
         )}
         </div>

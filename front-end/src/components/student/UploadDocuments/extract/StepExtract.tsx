@@ -5,6 +5,7 @@ import { AlertCircle, Database, Loader2, RefreshCw, Sparkles, Lock } from "lucid
 import { cn } from "@/lib/utils";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { createJob, getActiveJobs, getJob, type JobResponse } from "@/lib/jobs";
+import { computeFieldValue } from "@/lib/schema-utils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import JobProgress from "@/components/student/UploadDocuments/JobProgress";
@@ -223,10 +224,44 @@ export default function StepExtract({
       setItems((prev) =>
         prev.map((item) => {
           if (item.id !== itemId) return item;
-          const updatedFields = item.fields.map((field) => {
+
+          // Update the edited field
+          let updatedFields = item.fields.map((field) => {
             if (field.id !== fieldKey) return field;
             return { ...field, value, needsReview: false, confidence: 1.0 };
           });
+
+          // Build a data map from the updated fields for recompute
+          const dataMap: Record<string, unknown> = {};
+          for (const f of updatedFields) {
+            dataMap[f.id] = { value: f.value };
+          }
+
+          // Recompute computed fields that depend on the edited field
+          const recomputed: { fieldId: string; newValue: string }[] = [];
+          updatedFields = updatedFields.map((f) => {
+            if (!f.is_computed || !f.computation) return f;
+            if (!f.computation.dependencies.includes(fieldKey)) return f;
+            const newValue = computeFieldValue(
+              { id: f.id, key: f.key, type: f.type, description: f.label, required: false, is_computed: true, computation: f.computation },
+              dataMap,
+            );
+            if (newValue !== null && newValue !== f.value) {
+              recomputed.push({ fieldId: f.id, newValue });
+              return { ...f, value: newValue, needsReview: false, confidence: 1.0 };
+            }
+            return f;
+          });
+
+          // Background-save recomputed values to backend
+          for (const { fieldId: fid, newValue: nv } of recomputed) {
+            fetchWithClerkAuth(`/api/me/documents/${itemId}/extraction`, token, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ field_id: fid, value: nv }),
+            }).catch(() => {});
+          }
+
           const anyNeedsReview = updatedFields.some((f) => f.needsReview);
           return { ...item, fields: updatedFields, needsReview: anyNeedsReview };
         })

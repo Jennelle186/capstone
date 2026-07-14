@@ -10,6 +10,7 @@ from sqlalchemy.orm import attributes
 
 from ..models import DocumentSubmission, SubmissionStatus
 from ..services.gcp_pipeline import GcpPipelineError, extract_fields_from_document
+from ..utils.computation import apply_computed_fields
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,15 @@ async def extract_single(
         return
 
     try:
-        logger.info("Extracting %d fields from %s via Gemini", len(field_defs), submission.file_key)
+        extractable_fields = [f for f in field_defs if not f.get("is_computed")]
+        logger.info("Extracting %d fields from %s via Gemini (%d computed fields excluded)",
+                     len(extractable_fields), submission.file_key,
+                     len(field_defs) - len(extractable_fields))
 
         extracted = await asyncio.to_thread(
             extract_fields_from_document,
             submission.file_key,
-            field_defs,
+            extractable_fields,
         )
 
         existing = dict(submission.extracted_data or {}) if isinstance(submission.extracted_data, dict) else {}
@@ -82,6 +86,9 @@ async def extract_single(
                 "needs_review": confidence < 0.7 if field_def.get("required", True) else False,
                 "source_key": field_key,
             }
+
+        # Evaluate computed fields against the freshly extracted data.
+        existing = apply_computed_fields(field_defs, existing)
 
         existing["_ocr_text"] = ""
         existing["_raw_kie_pairs"] = extracted

@@ -33,7 +33,6 @@ export function useAdviserExtractionAnalyticsPage() {
   const [schoolYears, setSchoolYears] = useState<AdviserSchoolYear[]>([])
   const [selectedSyId, setSelectedSyId] = useState<string>("")
   const [departments, setDepartments] = useState<AdviserDepartment[]>([])
-  const [selectedDeptId, setSelectedDeptId] = useState<string>("")
   const [snapshot, setSnapshot] = useState<SnapshotResponse | null>(null)
   const [canonicalKeys, setCanonicalKeys] = useState<CanonicalKeyItem[]>([])
   const [enrolment, setEnrolment] = useState<EnrolmentSeriesItem[]>([])
@@ -48,8 +47,6 @@ export function useAdviserExtractionAnalyticsPage() {
   const [trendFromYear, setTrendFromYear] = useState("2023")
   const [trendToYear, setTrendToYear] = useState("2026")
   const [selectedTrendKeys, setSelectedTrendKeys] = useState<string[]>(["gender"])
-
-  const deptQuery = selectedDeptId ? `&department_id=${selectedDeptId}` : ""
 
   const apiBase = "/api/adviser/extraction-analytics"
 
@@ -101,7 +98,7 @@ export function useAdviserExtractionAnalyticsPage() {
       setIsLoadingSnapshot(true)
       try {
         const payload = (await requestWithAuth(
-          `${apiBase}/snapshot?school_year_id=${syId}${deptQuery}`,
+          `${apiBase}/snapshot?school_year_id=${syId}`,
         )) as SnapshotResponse
         setSnapshot(payload)
       } catch (error) {
@@ -110,7 +107,7 @@ export function useAdviserExtractionAnalyticsPage() {
         setIsLoadingSnapshot(false)
       }
     },
-    [requestWithAuth, apiBase, deptQuery],
+    [requestWithAuth, apiBase],
   )
 
   const loadCanonicalKeys = useCallback(async () => {
@@ -132,7 +129,7 @@ export function useAdviserExtractionAnalyticsPage() {
       setIsLoadingEnrolment(true)
       try {
         const payload = (await requestWithAuth(
-          `${apiBase}/enrolment?from_year=${from}&to_year=${to}${deptQuery}`,
+          `${apiBase}/enrolment?from_year=${from}&to_year=${to}`,
         )) as EnrolmentResponse
         setEnrolment(payload.series)
       } catch (error) {
@@ -141,7 +138,7 @@ export function useAdviserExtractionAnalyticsPage() {
         setIsLoadingEnrolment(false)
       }
     },
-    [requestWithAuth, apiBase, deptQuery],
+    [requestWithAuth, apiBase],
   )
 
   const loadTrends = useCallback(
@@ -150,7 +147,7 @@ export function useAdviserExtractionAnalyticsPage() {
       setIsLoadingTrends(true)
       try {
         const payload = (await requestWithAuth(
-          `${apiBase}/trends?keys=${keys.join(",")}&from_year=${from}&to_year=${to}${deptQuery}`,
+          `${apiBase}/trends?keys=${keys.join(",")}&from_year=${from}&to_year=${to}`,
         )) as TrendResponse
         setTrends(payload)
       } catch (error) {
@@ -159,7 +156,7 @@ export function useAdviserExtractionAnalyticsPage() {
         setIsLoadingTrends(false)
       }
     },
-    [requestWithAuth, apiBase, deptQuery],
+    [requestWithAuth, apiBase],
   )
 
   useEffect(() => {
@@ -185,12 +182,12 @@ export function useAdviserExtractionAnalyticsPage() {
   useEffect(() => {
     if (!selectedSyId) return
     void loadSnapshot(selectedSyId)
-  }, [selectedSyId, loadSnapshot, deptQuery])
+  }, [selectedSyId, loadSnapshot])
 
   useEffect(() => {
     if (tab !== "trends") return
     void loadTrends(selectedTrendKeys, trendFromYear, trendToYear)
-  }, [tab, selectedTrendKeys, trendFromYear, trendToYear, loadTrends, deptQuery])
+  }, [tab, selectedTrendKeys, trendFromYear, trendToYear, loadTrends])
 
   const snapshotFieldsByGroup = useMemo(() => {
     if (!snapshot) return []
@@ -221,23 +218,13 @@ export function useAdviserExtractionAnalyticsPage() {
     [schoolYears],
   )
 
-  const departmentOptions = useMemo(
-    () =>
-      departments.map((d) => ({
-        value: d.id,
-        label: d.name,
-      })),
-    [departments],
-  )
-
   return {
     schoolYears,
     schoolYearOptions,
     selectedSyId,
     setSelectedSyId,
-    departmentOptions,
-    selectedDeptId,
-    setSelectedDeptId,
+    departments,
+    departmentName: departments.map((d) => d.name).join(", ") || null,
     requestWithAuth,
     snapshot,
     isLoadingSnapshot,

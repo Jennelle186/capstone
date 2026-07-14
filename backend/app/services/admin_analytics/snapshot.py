@@ -112,7 +112,31 @@ async def get_extraction_analytics(
         snap = schema_snapshots.get(schema.id)
         # Use the frozen snapshot if available, otherwise fall back to the
         # live schema.fields_json.
-        schema_fields = snap if snap is not None else (schema.fields_json or [])
+        schema_fields = list(snap if snap is not None else (schema.fields_json or []))
+
+        # When a frozen snapshot exists, overlay analytics-metadata properties
+        # from the live schema so that mode / bucket / canonical-key changes
+        # take effect immediately without requiring a snapshot refresh.
+        if snap is not None:
+            live_by_key: dict[str, dict] = {}
+            for f in (schema.fields_json or []):
+                if isinstance(f, dict) and f.get("key"):
+                    live_by_key[f["key"]] = f
+            for f in schema_fields:
+                if not isinstance(f, dict):
+                    continue
+                fk = f.get("key")
+                if not fk or fk not in live_by_key:
+                    continue
+                live = live_by_key[fk]
+                for prop in (
+                    "is_analytics", "analytics_mode", "analytics_group",
+                    "analytics_label", "canonical_key", "buckets",
+                    "is_computed", "computation",
+                ):
+                    if prop in live:
+                        f[prop] = live[prop]
+
         for field in schema_fields:
             if not isinstance(field, dict):
                 continue
@@ -127,6 +151,73 @@ async def get_extraction_analytics(
             # Extract raw values for this field from all verified submissions,
             # then delegate to the appropriate aggregator.
             values = extract_values(submissions, field_id, field_type, field_key)
+
+            # ── Per-submission compute fallback ─
+            # For each submission that did NOT contribute a stored value,
+            # try to compute one on-the-fly from its existing dependency data.
+            # This fills gaps when some (but not all) submissions lack a
+            # pre-stored computed value (e.g. after a schema change or when
+            # the computed field was added mid-year).
+            if field.get("is_computed"):
+                comp = field.get("computation") or {}
+                op = comp.get("operation")
+                dep_ids = comp.get("dependencies", [])
+                if op and dep_ids:
+                    # Map each field id → key so the dependency resolver can
+                    # fall back to a source_key scan when the direct field-id
+                    # lookup misses (submissions extracted with an older schema
+                    # that used different UUIDs).
+                    dep_id_to_key: dict[str, str] = {}
+                    for f in schema_fields:
+                        if isinstance(f, dict) and f.get("id"):
+                            dep_id_to_key[f["id"]] = f.get("key", "")
+
+                    for sub in submissions:
+                        ed = sub.extracted_data or {}
+
+                        # Skip submissions that already contributed a stored
+                        # value via extract_values above.
+                        entry = ed.get(field_id)
+                        if entry is None and field_key:
+                            entry = ed.get(field_key)
+                        if entry is None and field_key:
+                            for _v in ed.values():
+                                if isinstance(_v, dict) and _v.get("source_key") == field_key:
+                                    entry = _v
+                                    break
+                        if entry is not None:
+                            continue
+
+                        # Resolve dependency values using the same 3-step
+                        # lookup: direct id → source_key scan.
+                        deps: list[float] = []
+                        for did in dep_ids:
+                            d = ed.get(did, {})
+                            if not isinstance(d, dict) or d.get("value") is None:
+                                dep_key = dep_id_to_key.get(did, "")
+                                if dep_key:
+                                    for _v in ed.values():
+                                        if isinstance(_v, dict) and _v.get("source_key") == dep_key:
+                                            d = _v
+                                            break
+                            v = (d.get("value") if isinstance(d, dict) else None)
+                            if v is not None and v != "":
+                                try:
+                                    deps.append(float(v))
+                                except (ValueError, TypeError):
+                                    pass
+                        if deps:
+                            if op == "average":
+                                values.append(round(sum(deps) / len(deps), 2))
+                            elif op == "sum":
+                                values.append(round(sum(deps), 2))
+                            elif op == "max":
+                                values.append(round(max(deps), 2))
+                            elif op == "min":
+                                values.append(round(min(deps), 2))
+                        # If deps is empty the submission is silently skipped —
+                        # it simply has no computable data.
+
             aggregator = AGGREGATORS.get(mode)
             if not aggregator:
                 continue

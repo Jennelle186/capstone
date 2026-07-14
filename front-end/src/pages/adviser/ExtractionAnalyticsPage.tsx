@@ -16,9 +16,7 @@ export default function ExtractionAnalyticsPage() {
     schoolYearOptions,
     selectedSyId,
     setSelectedSyId,
-    departmentOptions,
-    selectedDeptId,
-    setSelectedDeptId,
+    departmentName,
     requestWithAuth,
     snapshot,
     isLoadingSnapshot,
@@ -40,20 +38,19 @@ export default function ExtractionAnalyticsPage() {
   } = useAdviserExtractionAnalyticsPage()
 
   const selectedSyName = schoolYearOptions.find((o) => o.value === selectedSyId)?.label ?? ""
-  const selectedDeptName = departmentOptions.find((o) => o.value === selectedDeptId)?.label ?? "All Departments"
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Extraction Analytics"
-        subtitle="Schema-driven analytics filtered to your advisees"
+        subtitle={departmentName ? `Department: ${departmentName}` : "Schema-driven analytics filtered to your advisees"}
       />
 
       <GlobalAISummary
         selectedSyId={selectedSyId}
-        selectedDeptId={selectedDeptId}
+        selectedDeptId={undefined}
         schoolYearName={selectedSyName}
-        departmentName={selectedDeptName}
+        departmentName={departmentName ?? "All Departments"}
         requestWithAdminAuth={requestWithAuth}
         insightsEndpoint="/api/adviser/extraction-analytics/insights"
         userId={user?.id}
@@ -72,19 +69,6 @@ export default function ExtractionAnalyticsPage() {
           </TabsList>
 
           <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={selectedDeptId}
-              onChange={(e) => setSelectedDeptId(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">All Departments</option>
-              {departmentOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-
             {tab === "snapshot" && schoolYearOptions.length > 0 && (
               <select
                 value={selectedSyId}
