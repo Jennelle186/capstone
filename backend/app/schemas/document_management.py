@@ -18,6 +18,19 @@ class StudentClassificationSchema(str, Enum):
     CROSS_ENROLLEE = "cross_enrollee"
 
 
+class GenerateClassificationRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    code: str = Field(min_length=1, max_length=64)
+    description: str = Field(min_length=1)
+    applicable_classifications: list[StudentClassificationSchema] = Field(default_factory=list)
+
+
+class GenerateClassificationResponse(BaseModel):
+    classifier_description: str
+    keywords: list[str]
+    reasoning: str
+
+
 class DocumentTypeResponse(BaseModel):
     id: UUID
     name: str

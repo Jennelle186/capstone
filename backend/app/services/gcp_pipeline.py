@@ -691,3 +691,147 @@ def extract_fields_from_document(
         raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc
 
     return result
+
+
+# ── Admin Classification Settings Generation ────────────────────────────────
+
+
+CLASSIFICATION_SETTINGS_SYSTEM_INSTRUCTION = """You are a Document Classification Expert for an academic institution's enrollment system.
+
+TASK:
+Given a document type's name, description, and the student classifications it applies to,
+generate classification settings that will help an AI system identify this document type
+during automated document processing.
+
+RULES:
+1. classifier_description: Write 2–3 sentences describing visual and textual clues that
+   make this document recognizable. Mention typical headers, layout patterns, stamps,
+   signatures, table structures, and common data fields. Be specific to the document type.
+2. keywords: Generate 5–10 keywords or short phrases that commonly appear in this document.
+   These should be distinctive enough to differentiate it from other document types in
+   an enrollment workflow (report cards, birth certificates, medical certificates,
+   transfer credentials, etc.). Include both formal terms and colloquial variants.
+3. reasoning: Briefly explain why these keywords and description were chosen, and how
+   they distinguish this document from other academic document types."""
+
+
+def _build_classification_settings_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "classifier_description": {
+                "type": "string",
+                "description": "2–3 sentences describing visual and textual clues for document identification.",
+            },
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "5–10 distinctive keywords or short phrases found in this document.",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Brief explanation of why these settings were chosen.",
+            },
+        },
+        "required": ["classifier_description", "keywords", "reasoning"],
+    }
+
+
+def generate_classification_settings(
+    name: str,
+    code: str,
+    description: str,
+    applicable_classifications: list[str],
+) -> dict[str, Any]:
+    """Generate classifier description and keywords for a document type using Gemini.
+
+    This is a text-only prompt — no document file is uploaded. Gemini uses the
+    document name, code, description, and applicable student classifications
+    to produce classifier_description, keywords, and reasoning.
+    """
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    model_name = os.getenv("VERTEX_AI_MODEL")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    client = genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+    )
+
+    classification_labels: list[str] = []
+    label_map = {
+        "freshman": "Freshman",
+        "transferee": "Transferee",
+        "shifter": "Shifter",
+        "returning": "Returning / Continuing",
+        "cross_enrollee": "Cross-Enrollee",
+    }
+    for cls in applicable_classifications:
+        classification_labels.append(label_map.get(cls, cls))
+
+    prompt_parts = [
+        "Generate classification settings for the following document type.",
+        "",
+        f"Document Name: {name}",
+        f"Code: {code}",
+        f"Description: {description}",
+    ]
+
+    if classification_labels:
+        prompt_parts.append(f"Applies To: {', '.join(classification_labels)}")
+    else:
+        prompt_parts.append("Applies To: All student classifications")
+
+    prompt_parts.extend([
+        "",
+        "Return classifier_description, keywords, and reasoning as JSON.",
+    ])
+
+    prompt = "\n".join(prompt_parts)
+    schema = _build_classification_settings_schema()
+
+    logger.info("Generating classification settings for document type '%s' (model=%s)", name, model_name)
+
+    last_error: Exception | None = None
+    for attempt in range(4):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[types.Part.from_text(text=prompt)],
+                config=types.GenerateContentConfig(
+                    system_instruction=CLASSIFICATION_SETTINGS_SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    temperature=0.0,
+                    http_options=types.HttpOptions(timeout=30_000),
+                ),
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if _retry_on_gemini_error(exc, name, attempt, "classification settings generation"):
+                continue
+            raise GcpPipelineError(f"Gemini classification settings generation failed: {exc}") from exc
+
+    if last_error is not None:
+        raise GcpPipelineError(
+            f"Gemini classification settings generation failed after retries: {last_error}"
+        ) from last_error
+
+    if not response.text or not response.text.strip():
+        logger.error("Gemini returned empty classification settings response for '%s'", name)
+        raise GcpPipelineError("Gemini returned empty classification settings response")
+
+    try:
+        result = json.loads(response.text.strip())
+    except (json.JSONDecodeError, AttributeError) as exc:
+        logger.error("Gemini returned invalid JSON for '%s': %s", name, response.text[:500])
+        raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc
+
+    return {
+        "classifier_description": result.get("classifier_description", ""),
+        "keywords": result.get("keywords", []),
+        "reasoning": result.get("reasoning", ""),
+    }

@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Sparkles, Tag, X } from "lucide-react";
+import { RefreshCw, Sparkles, Tag, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +37,9 @@ interface DocumentTypeFormProps {
     onKeywordAdd: (rawKeyword: string) => void;
     onKeywordRemove: (keyword: string) => void;
     onSubmit: () => void;
+    onGenerateWithAi?: () => void;
+    showAiGenerate?: boolean;
+    showAiRegenerate?: boolean;
 }
 
 export default function DocumentTypeForm({
@@ -51,6 +54,9 @@ export default function DocumentTypeForm({
     onKeywordAdd,
     onKeywordRemove,
     onSubmit,
+    onGenerateWithAi,
+    showAiGenerate = false,
+    showAiRegenerate = false,
 }: DocumentTypeFormProps) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,11 +141,42 @@ export default function DocumentTypeForm({
                     >
                         <div className="flex items-center gap-2">
                             <Sparkles className="h-4 w-4 text-cyan-700" />
-                            <div>
+                            <div className="flex-1">
                                 <h3 className="text-sm font-semibold text-foreground">Classification Settings</h3>
                                 <p className="text-xs text-muted-foreground">Settings for classifying document types.</p>
                             </div>
+                            {showAiRegenerate ? (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 gap-1 text-muted-foreground hover:text-cyan-700"
+                                    onClick={onGenerateWithAi}
+                                    aria-label="Regenerate classification settings with AI"
+                                >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                    <span className="text-xs">Regenerate</span>
+                                </Button>
+                            ) : null}
                         </div>
+
+                        {showAiGenerate ? (
+                            <div className="space-y-3 rounded-md border border-dashed border-cyan-200 bg-cyan-50/50 p-3">
+                                <p className="text-xs text-cyan-800">
+                                    Use AI to auto-generate classifier description and keywords for this document type.
+                                </p>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full border-cyan-300 text-cyan-700 hover:bg-cyan-100 hover:text-cyan-800"
+                                    onClick={onGenerateWithAi}
+                                >
+                                    <Sparkles className="mr-2 h-4 w-4" />
+                                    Generate with AI
+                                </Button>
+                            </div>
+                        ) : null}
 
                         <div className="space-y-2">
                             <Label htmlFor="document-type-classifier-description">Classifier Description</Label>

@@ -13,6 +13,8 @@ from ...schemas.document_management import (
     DocumentTypeCreateRequest,
     DocumentTypeResponse,
     DocumentTypeUpdateRequest,
+    GenerateClassificationRequest,
+    GenerateClassificationResponse,
     RequirementAssignmentRequest,
     RequirementAssignmentResponse,
     SchemaRegistryResponse,
@@ -25,6 +27,7 @@ from ...services.document_requirements import (
     replace_school_year_requirement_ids,
     replace_school_year_requirements,
 )
+from ...services.gcp_pipeline import GcpPipelineError, generate_classification_settings
 
 router = APIRouter()
 
@@ -137,6 +140,33 @@ async def update_document_type(
     await db.commit()
     await db.refresh(document_type)
     return serialize_document_type(document_type)
+
+
+@router.post("/document-types/generate-classification", response_model=GenerateClassificationResponse)
+async def generate_document_type_classification(
+    payload: GenerateClassificationRequest,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    del current_user, db
+    try:
+        result = generate_classification_settings(
+            name=payload.name,
+            code=payload.code,
+            description=payload.description,
+            applicable_classifications=[c.value for c in payload.applicable_classifications],
+        )
+    except GcpPipelineError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
+    return GenerateClassificationResponse(
+        classifier_description=result["classifier_description"],
+        keywords=result["keywords"],
+        reasoning=result["reasoning"],
+    )
 
 
 @router.get("/requirements", response_model=RequirementAssignmentResponse)

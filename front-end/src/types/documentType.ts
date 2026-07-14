@@ -50,3 +50,16 @@ export interface DocumentTypeUpsertPayload {
     applicable_classifications: StudentClassification[];
     status: DocumentTypeStatus;
 }
+
+export interface GenerateClassificationRequest {
+    name: string;
+    code: string;
+    description: string;
+    applicable_classifications: StudentClassification[];
+}
+
+export interface GeneratedClassificationResult {
+    classifier_description: string;
+    keywords: string[];
+    reasoning: string;
+}
