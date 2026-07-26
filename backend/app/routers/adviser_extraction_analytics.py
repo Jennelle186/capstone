@@ -102,11 +102,14 @@ async def adviser_trends(
     if not adviser:
         raise HTTPException(status_code=404, detail="Adviser not found")
 
-    active_sy_id = await get_active_school_year_id(db)
-    if active_sy_id:
-        dept_ids = await list_adviser_departments(db, adviser, active_sy_id)
-        adviser_dept_ids = [UUID(d["id"]) for d in dept_ids]
-        if department_id and department_id not in adviser_dept_ids:
+    if department_id:
+        active_sy_id = await get_active_school_year_id(db)
+        if active_sy_id:
+            dept_ids = await list_adviser_departments(db, adviser, active_sy_id)
+            adviser_dept_ids = [UUID(d["id"]) for d in dept_ids]
+        else:
+            adviser_dept_ids = []
+        if department_id not in adviser_dept_ids:
             raise HTTPException(status_code=403, detail="Department not assigned to this adviser")
 
     key_list = [k.strip() for k in keys.split(",") if k.strip()]
@@ -126,11 +129,14 @@ async def adviser_enrolment_trends(
     if not adviser:
         raise HTTPException(status_code=404, detail="Adviser not found")
 
-    active_sy_id = await get_active_school_year_id(db)
-    if active_sy_id:
-        dept_ids = await list_adviser_departments(db, adviser, active_sy_id)
-        adviser_dept_ids = [UUID(d["id"]) for d in dept_ids]
-        if department_id and department_id not in adviser_dept_ids:
+    if department_id:
+        active_sy_id = await get_active_school_year_id(db)
+        if active_sy_id:
+            dept_ids = await list_adviser_departments(db, adviser, active_sy_id)
+            adviser_dept_ids = [UUID(d["id"]) for d in dept_ids]
+        else:
+            adviser_dept_ids = []
+        if department_id not in adviser_dept_ids:
             raise HTTPException(status_code=403, detail="Department not assigned to this adviser")
 
     result = await svc_get_enrolment_trends(db, from_year, to_year, department_id=department_id)

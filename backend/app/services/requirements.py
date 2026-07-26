@@ -232,7 +232,7 @@ async def get_student_slot_statuses(
             # Count approved submissions for this document type
             approved_for_type = [
                 status for status in inventory.get(item.document_type_id, [])
-                if status in ("classified", "submitted", "in_review", "verified")
+                if status in ("classified", "submitted", "in-review", "verified")
             ]
             if approved_for_type:
                 matched_count += 1
@@ -424,7 +424,7 @@ async def get_bulk_student_slot_statuses(
                 approved_for_type = [
                     status
                     for status in inventory.get(item.document_type_id, [])
-                    if status in ("classified", "submitted", "in_review", "verified")
+                    if status in ("classified", "submitted", "in-review", "verified")
                 ]
                 if approved_for_type:
                     matched_count += 1
