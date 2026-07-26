@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, Response, status
 from ...database import SessionDep
 from ...rbac import require_admin
 from ...schemas.school_years import (
+    AdminAuditLogResponse,
     SchoolYearActivationPreviewResponse,
-    SchoolYearAuditLogResponse,
     SchoolYearAutoClosureResponse,
     SchoolYearCreateRequest,
     SchoolYearDepartmentAssignmentResponse,
@@ -81,7 +81,7 @@ async def get_activation_preview(
     return await school_year_service.get_activation_preview(db, school_year_id)
 
 
-@router.get("/{school_year_id}/audit-logs", response_model=list[SchoolYearAuditLogResponse])
+@router.get("/{school_year_id}/audit-logs", response_model=list[AdminAuditLogResponse])
 async def list_school_year_audit_logs(
     school_year_id: UUID,
     current_user: dict = Depends(require_admin),

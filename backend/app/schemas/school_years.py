@@ -89,7 +89,7 @@ class SchoolYearDepartmentAssignmentResponse(BaseModel):
     adviser_email: str | None
 
 
-class SchoolYearAuditLogResponse(BaseModel):
+class AdminAuditLogResponse(BaseModel):
     id: str
     school_year_id: str
     action: str

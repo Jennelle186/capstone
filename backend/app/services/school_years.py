@@ -12,19 +12,19 @@ from sqlalchemy.exc import ProgrammingError
 from ..database import SessionDep
 from ..models import (
     Adviser,
+    AdminAuditLog,
     Department,
     DocumentType,
     ProgramAdviserAssignment,
     SchoolYear,
-    SchoolYearAuditLog,
     SchoolYearRequirement,
     SchoolYearStatus,
     User,
 )
 from .helpers import program_uuid_for_department_code
 from ..schemas.school_years import (
+    AdminAuditLogResponse,
     SchoolYearActivationPreviewResponse,
-    SchoolYearAuditLogResponse,
     SchoolYearAutoClosureResponse,
     SchoolYearCreateRequest,
     SchoolYearDepartmentAssignmentResponse,
@@ -126,9 +126,10 @@ async def log_school_year_action(
         actor_clerk_user_id = None
 
     db.add(
-        SchoolYearAuditLog(
+        AdminAuditLog(
             school_year_id=school_year.id,
             action=action,
+            entity_type="school_year",
             actor_user_id=await _actor_user_id(db, current_user or {}),
             actor_clerk_user_id=actor_clerk_user_id,
             previous_values=previous_values,
@@ -438,14 +439,14 @@ async def get_activation_preview(db: SessionDep, school_year_id: UUID) -> School
     )
 
 # Helper function to retrieve a list of audit log entries for a given school year, including details about the actor and the changes made in each action    
-async def list_school_year_audit_logs(db: SessionDep, school_year_id: UUID) -> list[SchoolYearAuditLogResponse]:
+async def list_school_year_audit_logs(db: SessionDep, school_year_id: UUID) -> list[AdminAuditLogResponse]:
     await get_school_year_or_404(db, school_year_id)
 
     stmt = (
-        select(SchoolYearAuditLog, User)
-        .outerjoin(User, SchoolYearAuditLog.actor_user_id == User.id)
-        .where(SchoolYearAuditLog.school_year_id == school_year_id)
-        .order_by(desc(SchoolYearAuditLog.created_at))
+        select(AdminAuditLog, User)
+        .outerjoin(User, AdminAuditLog.actor_user_id == User.id)
+        .where(AdminAuditLog.school_year_id == school_year_id)
+        .order_by(desc(AdminAuditLog.created_at))
     )
     try:
         rows = (await db.execute(stmt)).all()
@@ -453,7 +454,7 @@ async def list_school_year_audit_logs(db: SessionDep, school_year_id: UUID) -> l
         await db.rollback()
         return []
     return [
-        SchoolYearAuditLogResponse(
+        AdminAuditLogResponse(
             id=str(log.id),
             school_year_id=str(log.school_year_id),
             action=log.action,

@@ -27,6 +27,7 @@ class StudentClassification(str, enum.Enum):
     SHIFTER = "shifter"
     RETURNING = "returning"
     CROSS_ENROLLEE = "cross_enrollee"
+    SECOND_COURSER = "second_courser"
 
 
 class AdviserInvitationStatus(str, enum.Enum):
@@ -119,6 +120,21 @@ class Student(Base):
 
     application_status = Column(String(30), nullable=True, index=True)
 
+    # ── Fields synced from verified admission form extraction ───────────────
+    gender = Column(String(20), nullable=True)
+    birth_date = Column(Date, nullable=True)
+    address = Column(Text, nullable=True)
+    admission_form_name = Column(JSONB, nullable=True)
+
+    # ── Program mismatch tracking (set during admission form sync) ──────────
+    program_mismatch_pending = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    program_mismatch_extracted = Column(String(30), nullable=True)
+
+    # ── Privacy policy consent (Feature 4) ────────────────────────────────
+    accepted_policy_version = Column(String(20), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -205,31 +221,46 @@ class SchoolYear(Base):
         cascade="all, delete-orphan",
     )
     audit_logs = relationship(
-        "SchoolYearAuditLog",
+        "AdminAuditLog",
         back_populates="school_year",
         cascade="all, delete-orphan",
     )
 
 
-class SchoolYearAuditLog(Base):
-    __tablename__ = "school_year_audit_logs"
+class AdminAuditLog(Base):
+    """
+    Unified audit trail for all admin actions.
+    Replaces the legacy SchoolYearAuditLog (school-year-scoped only).
+    """
+    __tablename__ = "admin_audit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+
+    action = Column(String(50), nullable=False, index=True)
+    entity_type = Column(String(30), nullable=False, index=True)
+    entity_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+
     school_year_id = Column(
         UUID(as_uuid=True),
         ForeignKey("school_years.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
-    action = Column(String(40), nullable=False, index=True)
+
     actor_user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     actor_clerk_user_id = Column(String(255), nullable=True)
+    actor_name = Column(String(200), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    actor_role = Column(String(50), nullable=True)
+
     previous_values = Column(JSONB, nullable=True)
     new_values = Column(JSONB, nullable=True)
+    audit_metadata = Column(JSONB, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     school_year = relationship("SchoolYear", back_populates="audit_logs")
@@ -261,6 +292,33 @@ class ProgramAdviserAssignment(Base):
     adviser = relationship("Adviser", back_populates="program_adviser_assignments")
     program = relationship("Program", back_populates="program_adviser_assignments")
     school_year = relationship("SchoolYear", back_populates="program_adviser_assignments")
+
+
+class PrivacyPolicy(Base):
+    __tablename__ = "privacy_policies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    version = Column(String(20), nullable=False)
+    title = Column(String(100), nullable=False)
+    content = Column(Text, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    effective_date = Column(Date, nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ConsentLog(Base):
+    __tablename__ = "consent_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    policy_version = Column(String(20), nullable=False)
+    full_name_typed = Column(String(200), nullable=False)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    consented_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    student = relationship("Student")
 
 
 class DocumentType(Base):
@@ -557,6 +615,13 @@ class DocumentSubmission(Base):
         UUID(as_uuid=True),
         ForeignKey("document_submissions.id", ondelete="SET NULL"),
         nullable=True,
+    )
+
+    # ── Compiled PDF splitting (Feature 3) ──────────────────────────────────
+    page_range = Column(String(20), nullable=True)
+    segment_index = Column(Integer, nullable=True)
+    is_compiled_parent = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
 
     student = relationship("Student", back_populates="submissions")
