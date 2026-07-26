@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from ..database import SessionDep
-from ..models import DocumentSubmission, DocumentSubmissionHistory, User, UserRole
+from ..models import DocumentSubmission, DocumentSubmissionHistory, Student, User, UserRole
 from ..rbac import require_roles
-from ..services.adviser_core import resolve_adviser
+from ..services.adviser_core import get_department_ids_for_adviser, resolve_adviser
 from ..services.analytics import get_analytics as svc_get_analytics, get_archived as svc_get_archived
 from ..services.school_years import list_adviser_school_years as svc_list_school_years
 from ..services.students import list_students as svc_list_students, get_student_detail as svc_get_student_detail
@@ -402,6 +402,16 @@ async def get_adviser_submission_history(
     submission = await db.get(DocumentSubmission, submission_id)
     if submission is None:
         raise HTTPException(404, "Submission not found.")
+
+    student = await db.get(Student, submission.student_id)
+    if student is None:
+        raise HTTPException(404, "Submission student not found.")
+    if student.school_year_id is None:
+        raise HTTPException(404, "Student has no school year assigned.")
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        raise HTTPException(403, detail="You do not have permission to view this submission's history.")
 
     db_result = await db.execute(
         select(DocumentSubmissionHistory, User)
