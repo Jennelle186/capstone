@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -15,6 +16,7 @@ from ..models import (
     AdviserInvitationStatus,
     Program,
     ProgramAdviserAssignment,
+    SchoolYear,
     Student,
     User,
     UserRole,
@@ -22,6 +24,10 @@ from ..models import (
 from .clerk import fetch_user_profile, update_user_personal_names
 
 logger = logging.getLogger(__name__)
+
+# Tracks last image_url sync time per clerk_user_id to avoid calling Clerk API on every request.
+# Resets on server restart (acceptable — one extra fetch per user after restart).
+_last_image_sync: dict[str, float] = {}
 
 # Must match the namespace used by admin program assignment logic so the mapping is deterministic.
 PROGRAM_UUID_NAMESPACE = uuid.UUID("e40ec4af-aa57-47e2-9169-cc4f1f6d03ff")
@@ -103,14 +109,18 @@ def _program_uuid_for_department_code(department_code: str) -> uuid.UUID:
 
 async def _ensure_student_profile(db: AsyncSession, user: User) -> None:
     """
-    Ensure a student profile exists for users with student role.
+    Ensure a student profile exists for users with student role,
+    auto-assigning the active school year if one exists.
     """
     result = await db.execute(select(Student).where(Student.user_id == user.id))
     student = result.scalar_one_or_none()
     if student is not None:
         return
 
-    db.add(Student(user_id=user.id))
+    active_stmt = select(SchoolYear.id).where(SchoolYear.is_active.is_(True)).limit(1)
+    active_school_year_id = (await db.execute(active_stmt)).scalar_one_or_none()
+
+    db.add(Student(user_id=user.id, school_year_id=active_school_year_id))
     try:
         await db.commit()
     except IntegrityError:
@@ -127,7 +137,7 @@ async def _promote_and_finalize_adviser_invitation(db: AsyncSession, user: User)
     """
     # If token claims missed email on the first pass, try Clerk API once more before giving up.
     if not user.email:
-        api_email, _api_first_name, _api_middle_name, _api_last_name, _api_metadata = await fetch_user_profile(user.clerk_user_id)
+        api_email, _api_first_name, _api_middle_name, _api_last_name, _api_metadata, _api_image_url = await fetch_user_profile(user.clerk_user_id)
         normalized_api_email = _normalize_email(api_email)
         if normalized_api_email:
             user.email = normalized_api_email
@@ -277,13 +287,17 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
         middle_name = token_middle_name
         role = _coerce_role(token_role_value) or UserRole.STUDENT
 
-        # Fallback: if token claims are incomplete, fetch profile values from Clerk.
+        # Fallback: fetch missing fields + image_url from Clerk API.
+        api_image_url = None
         if (not email) or (not first_name) or (not middle_name) or (not last_name):
-            api_email, api_first_name, api_middle_name, api_last_name, _api_metadata = await fetch_user_profile(clerk_user_id)
+            api_email, api_first_name, api_middle_name, api_last_name, _api_metadata, api_image_url = await fetch_user_profile(clerk_user_id)
             email = email or _normalize_email(api_email)
             first_name = first_name or _normalize_name(api_first_name)
             middle_name = middle_name or _normalize_name(api_middle_name)
             last_name = last_name or _normalize_name(api_last_name)
+        else:
+            # Fetch image_url separately since it's not in token claims.
+            _, _, _, _, _, api_image_url = await fetch_user_profile(clerk_user_id)
 
         user = User(
             clerk_user_id=clerk_user_id,
@@ -292,6 +306,7 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
             middle_name=middle_name,
             last_name=last_name,
             role=role,
+            image_url=api_image_url,
         )
         db.add(user)
         try:
@@ -348,7 +363,8 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
     user_middle_ok = _normalize_name(user.middle_name) if user.middle_name else None
     user_last_ok = _normalize_name(user.last_name) if user.last_name else None
     should_sync_from_clerk_api = (
-        ((not user_email_ok) and (not token_email))
+        (not user.image_url)
+        or ((not user_email_ok) and (not token_email))
         or ((not user_first_ok) and (not token_first_name))
         or ((not user_middle_ok) and (not token_middle_name))
         or ((not user_last_ok) and (not token_last_name))
@@ -358,8 +374,9 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
     ):
         should_sync_from_clerk_api = True
 
+    api_image_url = None
     if should_sync_from_clerk_api:
-        api_email, api_first_name, api_middle_name, api_last_name, _api_metadata = await fetch_user_profile(clerk_user_id)
+        api_email, api_first_name, api_middle_name, api_last_name, _api_metadata, api_image_url = await fetch_user_profile(clerk_user_id)
         api_email = _normalize_email(api_email)
         api_first_name = _normalize_name(api_first_name)
         api_middle_name = _normalize_name(api_middle_name)
@@ -378,6 +395,24 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
             changed = True
         if profile_fetch_succeeded and token_last_name is None and user_last_ok != api_last_name:
             user.last_name = api_last_name
+            changed = True
+        if api_image_url is not None and user.image_url != api_image_url:
+            user.image_url = api_image_url
+            changed = True
+
+    # Periodic image_url refresh (5 min cooldown) — catches avatar changes made in Clerk.
+    _now = time.time()
+    if (_now - _last_image_sync.get(clerk_user_id, 0)) > 300:
+        _last_image_sync[clerk_user_id] = _now
+        if not should_sync_from_clerk_api:
+            _, _, _, _, _, fresh_image_url = await fetch_user_profile(clerk_user_id)
+        else:
+            fresh_image_url = api_image_url
+        if fresh_image_url is not None and user.image_url != fresh_image_url:
+            user.image_url = fresh_image_url
+            changed = True
+        elif fresh_image_url is None and user.image_url is not None:
+            user.image_url = None
             changed = True
 
     if changed:

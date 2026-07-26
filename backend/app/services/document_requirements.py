@@ -1,24 +1,32 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, desc, select
 
 from ..database import SessionDep
+from ..schemas.document_management import (
+    SchemaRegistryEntry,
+    SchemaRegistryRequirementInfo,
+    SchemaRegistryResponse,
+    SchemaRegistrySchemaBrief,
+)
 from ..models import (
-    AdmissionFormSchema,
-    AdmissionFormSchemaStatus,
+    ExtractionSchema,
+    ExtractionSchemaStatus,
     DocumentType,
     DocumentTypeStatus,
     SchoolYear,
     SchoolYearRequirement,
     SchoolYearStatus,
+    Student,
 )
 
-ADMISSION_FORM_DOCUMENT_CODE = "ADMISSION_FORM"
-
 RequirementAssignmentData = tuple[UUID, UUID | None]
+
+logger = logging.getLogger(__name__)
 
 # This module contains service functions for managing document requirements associated with school years.
 async def get_school_year_or_404(db: SessionDep, school_year_id: UUID) -> SchoolYear:
@@ -42,7 +50,7 @@ async def list_school_year_requirements(db: SessionDep, school_year_id: UUID) ->
     await get_school_year_or_404(db, school_year_id)
 
     stmt = (
-        select(SchoolYearRequirement.document_type_id, SchoolYearRequirement.admission_form_schema_id)
+        select(SchoolYearRequirement.document_type_id, SchoolYearRequirement.extraction_schema_id)
         .where(SchoolYearRequirement.school_year_id == school_year_id)
         .order_by(desc(SchoolYearRequirement.updated_at), desc(SchoolYearRequirement.created_at))
     )
@@ -73,51 +81,54 @@ async def validate_active_document_type_ids(db: SessionDep, document_type_ids: l
 async def validate_requirement_assignments(
     db: SessionDep,
     requirements: list[RequirementAssignmentData],
+    school_year_id: UUID,
 ) -> None:
     document_type_ids = [document_type_id for document_type_id, _ in requirements]
-    await validate_active_document_type_ids(db, document_type_ids)
-    if not requirements:
+    if not document_type_ids:
         return
 
-    document_types_stmt = select(DocumentType).where(DocumentType.id.in_(document_type_ids))
-    document_types = {
-        document_type.id: document_type
-        for document_type in (await db.execute(document_types_stmt)).scalars().all()
-    }
+    dt_stmt = select(DocumentType.id, DocumentType.status).where(
+        DocumentType.id.in_(document_type_ids)
+    )
+    dt_rows = dict((await db.execute(dt_stmt)).all())
+
+    not_found = [id_ for id_ in document_type_ids if id_ not in dt_rows]
+    if not_found:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more document types are missing or not active.",
+        )
+
+    archived_ids = [id_ for id_, s in dt_rows.items() if s == DocumentTypeStatus.ARCHIVED]
+    if archived_ids:
+        existing_req_stmt = select(SchoolYearRequirement.document_type_id).where(
+            SchoolYearRequirement.school_year_id == school_year_id,
+            SchoolYearRequirement.document_type_id.in_(archived_ids),
+        )
+        existing_archived_reqs = set((await db.execute(existing_req_stmt)).scalars().all())
+        not_existing = [id_ for id_ in archived_ids if id_ not in existing_archived_reqs]
+        if not_existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Archived document types cannot be added as new requirements.",
+            )
 
     schema_ids = {
         schema_id
         for _, schema_id in requirements
         if schema_id is not None
     }
-    schemas: set[UUID] = set()
     if schema_ids:
-        schema_stmt = select(AdmissionFormSchema.id).where(
-            AdmissionFormSchema.id.in_(schema_ids),
-            AdmissionFormSchema.status != AdmissionFormSchemaStatus.ARCHIVED,
+        schema_stmt = select(ExtractionSchema.id).where(
+            ExtractionSchema.id.in_(schema_ids),
+            ExtractionSchema.status != ExtractionSchemaStatus.ARCHIVED,
         )
-        schemas = set((await db.execute(schema_stmt)).scalars().all())
-
-    for document_type_id, schema_id in requirements:
-        document_type = document_types.get(document_type_id)
-        if document_type is None:
-            continue
-
-        is_admission_form = document_type.code.upper() == ADMISSION_FORM_DOCUMENT_CODE
-        if is_admission_form and schema_id is None:
+        found = set((await db.execute(schema_stmt)).scalars().all())
+        missing = schema_ids - found
+        if missing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Admission Form requirements must include an admission form schema.",
-            )
-        if not is_admission_form and schema_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only Admission Form requirements can reference an admission form schema.",
-            )
-        if schema_id is not None and schema_id not in schemas:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Admission form schema is missing or archived.",
+                detail="One or more extraction schemas are missing or archived.",
             )
 
 
@@ -139,23 +150,73 @@ async def replace_school_year_requirements(
 ) -> list[RequirementAssignmentData]:
     await ensure_school_year_requirements_mutable(db, school_year_id)
     deduped_requirements = dedupe_requirement_assignments(requirements)
-    await validate_requirement_assignments(db, deduped_requirements)
+    await validate_requirement_assignments(db, deduped_requirements, school_year_id)
 
     await db.execute(
         delete(SchoolYearRequirement).where(SchoolYearRequirement.school_year_id == school_year_id)
     )
 
-    for document_type_id, admission_form_schema_id in deduped_requirements:
+    for document_type_id, extraction_schema_id in deduped_requirements:
+        snapshot = None
+        if extraction_schema_id:
+            schema = await db.get(ExtractionSchema, extraction_schema_id)
+            if schema:
+                snapshot = schema.fields_json
         db.add(
             SchoolYearRequirement(
                 school_year_id=school_year_id,
                 document_type_id=document_type_id,
-                admission_form_schema_id=admission_form_schema_id,
+                extraction_schema_id=extraction_schema_id,
+                snapshot_fields_json=snapshot,
             )
         )
 
     await db.commit()
     return deduped_requirements
+
+
+async def get_required_document_types_for_student(
+    db: SessionDep,
+    student: Student,
+) -> list[DocumentType]:
+    """
+    Returns document types required for the student's school year,
+    filtered by the student's classification.
+
+    The SchoolYearRequirement join is the correct temporal boundary.
+    A document type's current global ``status`` (active/archived) should
+    NOT retroactively remove it from older cohorts that still have it
+    assigned — otherwise archiving a type in 2026-2027 would silently
+    clear requirements for 2025-2026 students.
+    """
+    if student.school_year_id is None:
+        return []
+
+    stmt = (
+        select(DocumentType)
+        .join(
+            SchoolYearRequirement,
+            SchoolYearRequirement.document_type_id == DocumentType.id,
+        )
+        .where(
+            SchoolYearRequirement.school_year_id == student.school_year_id,
+        )
+        .order_by(DocumentType.name)
+    )
+    document_types = list((await db.execute(stmt)).scalars().all())
+
+    classification = student.classification
+    if classification is None:
+        return document_types
+
+    filtered: list[DocumentType] = []
+    for dt in document_types:
+        applicable = dt.applicable_classifications or []
+        if not applicable:
+            filtered.append(dt)
+        elif classification.value in applicable:
+            filtered.append(dt)
+    return filtered
 
 
 # This function replaces the document type requirements for a specific school year with a new list of document type IDs, ensuring that the school year is mutable and that all provided document type IDs are valid and active. It first deletes any existing requirements for the school year and then adds new requirements based on the provided list of document type IDs.
@@ -187,18 +248,104 @@ async def carry_over_school_year_requirement_ids(
     await get_school_year_or_404(db, source_school_year_id)
     await ensure_school_year_requirements_mutable(db, target_school_year_id)
 
+    # Single query: fetch ALL requirements from the source year alongside
+    # each document type's current status so we can split active vs archived
+    # in memory without a second round-trip.
     stmt = (
-        select(SchoolYearRequirement.document_type_id, SchoolYearRequirement.admission_form_schema_id)
+        select(
+            SchoolYearRequirement.document_type_id,
+            SchoolYearRequirement.extraction_schema_id,
+            DocumentType.status,
+        )
         .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
         .where(
             SchoolYearRequirement.school_year_id == source_school_year_id,
-            DocumentType.status == DocumentTypeStatus.ACTIVE,
         )
         .order_by(desc(SchoolYearRequirement.updated_at), desc(SchoolYearRequirement.created_at))
     )
-    source_requirements = list((await db.execute(stmt)).all())
-    requirements = await replace_school_year_requirements(db, target_school_year_id, source_requirements)
+    all_source_rows = list((await db.execute(stmt)).all())
+
+    active_ids: list[tuple[UUID, UUID | None]] = []
+    for row in all_source_rows:
+        if row.status == DocumentTypeStatus.ACTIVE:
+            active_ids.append((row.document_type_id, row.extraction_schema_id))
+
+    skipped = len(all_source_rows) - len(active_ids)
+    if skipped:
+        logger.warning(
+            "Skipped %d archived document type(s) during carry-over from school year %s",
+            skipped, source_school_year_id,
+        )
+
+    requirements = await replace_school_year_requirements(db, target_school_year_id, active_ids)
     return [document_type_id for document_type_id, _ in requirements]
 
 
+async def get_schema_registry(db: SessionDep) -> SchemaRegistryResponse:
+    doc_types_stmt = select(DocumentType).order_by(DocumentType.name)
+    document_types = list((await db.execute(doc_types_stmt)).scalars().all())
+
+    schemas_stmt = select(ExtractionSchema).order_by(ExtractionSchema.name)
+    all_schemas = list((await db.execute(schemas_stmt)).scalars().all())
+
+    requirements_stmt = (
+        select(
+            SchoolYearRequirement.document_type_id,
+            SchoolYearRequirement.extraction_schema_id,
+            SchoolYear.name,
+            SchoolYear.id,
+        )
+        .join(SchoolYear, SchoolYear.id == SchoolYearRequirement.school_year_id)
+        .order_by(SchoolYear.name)
+    )
+    requirement_rows = list((await db.execute(requirements_stmt)).all())
+
+    schema_map: dict[UUID, ExtractionSchema] = {s.id: s for s in all_schemas}
+
+    doc_type_schemas: dict[UUID, list[SchemaRegistrySchemaBrief]] = {}
+    for schema in all_schemas:
+        dt_id = schema.document_type_id
+        if dt_id is None:
+            continue
+        doc_type_schemas.setdefault(dt_id, []).append(
+            SchemaRegistrySchemaBrief(
+                id=schema.id,
+                name=schema.name,
+                version_label=schema.version_label,
+                status=schema.status.value,
+            )
+        )
+
+    doc_type_requirements: dict[UUID, list[SchemaRegistryRequirementInfo]] = {}
+    for row in requirement_rows:
+        dt_id = row[0]
+        es_id = row[1]
+        school_year_name = row[2]
+        school_year_id = row[3]
+        es_name = schema_map[es_id].name if es_id and es_id in schema_map else None
+        doc_type_requirements.setdefault(dt_id, []).append(
+            SchemaRegistryRequirementInfo(
+                school_year_id=school_year_id,
+                school_year_name=school_year_name,
+                extraction_schema_id=es_id,
+                extraction_schema_name=es_name,
+            )
+        )
+
+    entries = [
+        SchemaRegistryEntry(
+            document_type_id=dt.id,
+            document_type_name=dt.name,
+            document_type_code=dt.code,
+            status=dt.status.value,
+            extraction_type="structured"
+            if any(s.status != ExtractionSchemaStatus.ARCHIVED.value for s in doc_type_schemas.get(dt.id, []))
+            else "none",
+            schemas=doc_type_schemas.get(dt.id, []),
+            requirements=doc_type_requirements.get(dt.id, []),
+        )
+        for dt in document_types
+    ]
+
+    return SchemaRegistryResponse(entries=entries)
 

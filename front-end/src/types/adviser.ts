@@ -1,4 +1,13 @@
 // Type definitions related to advisers, including response shapes for API calls and form state interfaces
+export interface AdviserProfileResponse {
+  first_name: string | null;
+  middle_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  department: string | null;
+  school_year: string | null;
+}
+
 export interface Adviser {
     id: string;
     name: string;

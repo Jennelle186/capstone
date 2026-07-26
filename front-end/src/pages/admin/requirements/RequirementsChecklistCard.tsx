@@ -7,24 +7,23 @@ import RequirementChecklist from "@/components/admin/document-management/Require
 import { fadeInUp } from "@/components/admin/motion-variants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
+import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
 import type { DocumentTypeItem } from "@/types/documentType";
 import type { SchoolYearRecord } from "@/types/schoolYear";
 
 type RequirementsChecklistCardProps = {
     availableDocumentTypes: DocumentTypeItem[];
     draftSelectedRequirementIds: Set<string>;
-    admissionSchemas: AdmissionSchemaRecord[];
-    selectedAdmissionFormSchemaId: string;
+    extractionSchemas: ExtractionSchemaRecord[];
+    draftSchemaIds: Record<string, string>;
     selectedSchoolYear: SchoolYearRecord | null;
     selectedSchoolYearId: string;
     isSelectedSchoolYearClosed: boolean;
     isRequirementsLoading: boolean;
     isSaving: boolean;
     onRequirementToggle: (documentTypeId: string) => void;
-    onAdmissionFormSchemaChange: (schemaId: string) => void;
+    onSchemaChange: (documentTypeId: string, schemaId: string) => void;
     onSelectAllRequirements: () => void;
     onClearRequirements: () => void;
     onResetRequirements: () => void;
@@ -34,15 +33,15 @@ type RequirementsChecklistCardProps = {
 export default function RequirementsChecklistCard({
     availableDocumentTypes,
     draftSelectedRequirementIds,
-    admissionSchemas,
-    selectedAdmissionFormSchemaId,
+    extractionSchemas,
+    draftSchemaIds,
     selectedSchoolYear,
     selectedSchoolYearId,
     isSelectedSchoolYearClosed,
     isRequirementsLoading,
     isSaving,
     onRequirementToggle,
-    onAdmissionFormSchemaChange,
+    onSchemaChange,
     onSelectAllRequirements,
     onClearRequirements,
     onResetRequirements,
@@ -51,13 +50,10 @@ export default function RequirementsChecklistCard({
     const selectedAvailableCount = availableDocumentTypes.filter((item) => (
         draftSelectedRequirementIds.has(item.id)
     )).length;
-    const admissionFormDocumentType = availableDocumentTypes.find((item) => item.code === "ADMISSION_FORM") ?? null;
-    const isAdmissionFormSelected =
-        admissionFormDocumentType !== null && draftSelectedRequirementIds.has(admissionFormDocumentType.id);
     const allAvailableSelected =
         availableDocumentTypes.length > 0 && selectedAvailableCount === availableDocumentTypes.length;
     const isEditingDisabled = isSelectedSchoolYearClosed || isRequirementsLoading || isSaving;
-    const formatSchemaOption = (schema: AdmissionSchemaRecord) => {
+    const formatSchemaOption = (schema: ExtractionSchemaRecord) => {
         const meta = [
             schema.version_label,
             schema.effective_date ? `effective ${schema.effective_date}` : null,
@@ -130,46 +126,44 @@ export default function RequirementsChecklistCard({
                                 items={availableDocumentTypes}
                                 selectedIds={draftSelectedRequirementIds}
                                 onToggle={onRequirementToggle}
-                            />
-                            {isAdmissionFormSelected ? (
-                                <div className="rounded-md border bg-cyan-50/50 p-4">
-                                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-foreground">
-                                                Admission Form Extraction Schema
-                                            </h3>
-                                            <p className="mt-1 text-sm text-muted-foreground">
-                                                Select the schema version LlamaExtract should use for this school year.
-                                            </p>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="admission-form-schema">Schema Version</Label>
+                                renderRowSuffix={(item) => {
+                                    const docSchemas = extractionSchemas.filter(
+                                        (s) => (s.document_type_id === item.id || s.document_type_id === null) && s.status !== "archived",
+                                    );
+                                    if (docSchemas.length === 0) return null;
+                                    const isSelected = draftSelectedRequirementIds.has(item.id);
+                                    const needsSchema = isSelected && !draftSchemaIds[item.id];
+                                    return (
+                                        <div className="pt-2" onClick={(e) => e.stopPropagation()}>
                                             <Select
-                                                value={selectedAdmissionFormSchemaId}
-                                                onValueChange={onAdmissionFormSchemaChange}
+                                                value={draftSchemaIds[item.id] ?? "__none__"}
+                                                onValueChange={(value) =>
+                                                    onSchemaChange(item.id, value === "__none__" ? "" : value)
+                                                }
                                                 disabled={isEditingDisabled}
                                             >
-                                                <SelectTrigger id="admission-form-schema">
-                                                    <SelectValue placeholder="Select a schema" />
+                                                <SelectTrigger className="h-8 text-xs">
+                                                    <SelectValue placeholder="Schema" />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {admissionSchemas.map((schema) => (
+                                                    <SelectItem value="__none__">None</SelectItem>
+                                                    {docSchemas.map((schema) => (
                                                         <SelectItem key={schema.id} value={schema.id}>
                                                             {formatSchemaOption(schema)}
-                                                            {schema.status === "active" ? " [active]" : ""}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
                                             </Select>
-                                            {admissionSchemas.length === 0 ? (
-                                                <p className="text-xs text-destructive">
-                                                    Create an admission schema before saving this requirement.
+                                            {needsSchema && (
+                                                <p className="mt-1 flex items-center gap-1 text-xs text-amber-600">
+                                                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                                                    No schema selected
                                                 </p>
-                                            ) : null}
+                                            )}
                                         </div>
-                                    </div>
-                                </div>
-                            ) : null}
+                                    );
+                                }}
+                            />
                             <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
                                 <Button
                                     variant="outline"

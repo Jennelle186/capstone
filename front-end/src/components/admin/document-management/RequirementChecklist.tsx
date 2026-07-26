@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import {
+    Archive,
     CheckCircle2,
     ClipboardList,
     FileBadge2,
@@ -7,7 +8,7 @@ import {
     FileSearch2,
     GraduationCap,
 } from "lucide-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +20,7 @@ interface RequirementChecklistProps {
     items: DocumentTypeItem[];
     selectedIds: Set<string>;
     onToggle: (documentTypeId: string) => void;
+    renderRowSuffix?: (item: DocumentTypeItem) => ReactNode;
 }
 
 const CODE_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
@@ -30,9 +32,11 @@ const CODE_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
 };
 
 const CLASSIFICATION_LABELS: Record<StudentClassification, string> = {
-    regular: "Regular",
+    freshman: "Freshman",
     transferee: "Transferee",
-    shiftee: "Shiftee",
+    shifter: "Shifter",
+    returning: "Returning / Continuing",
+    cross_enrollee: "Cross-Enrolee",
 };
 
 function getDocumentIcon(code: string) {
@@ -44,6 +48,7 @@ export default function RequirementChecklist({
     items,
     selectedIds,
     onToggle,
+    renderRowSuffix,
 }: RequirementChecklistProps) {
     return (
         <div className="grid gap-3 md:grid-cols-2">
@@ -68,7 +73,7 @@ export default function RequirementChecklist({
                                 "transition-colors",
                                 checked ? "border-emerald-300 bg-emerald-50/60" : undefined,
                                 !checked && !disabled ? "hover:border-slate-300 hover:bg-slate-50/60" : undefined,
-                                disabled ? "bg-muted/30 opacity-80" : undefined,
+                                disabled || item.isArchived ? "bg-muted/30 opacity-80" : undefined,
                             )}
                         >
                             <CardContent className="flex items-start justify-between gap-3 p-4">
@@ -81,6 +86,12 @@ export default function RequirementChecklist({
                                     </div>
                                     <div className="space-y-1">
                                         <p className="font-medium text-foreground">{item.name}</p>
+                                        {item.isArchived && (
+                                            <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
+                                                <Archive className="h-3 w-3" />
+                                                Archived
+                                            </span>
+                                        )}
                                         <p className="text-sm text-muted-foreground">{item.description}</p>
                                         {classifications.length > 0 && (
                                             <div className="flex flex-wrap gap-1 pt-1">
@@ -91,6 +102,7 @@ export default function RequirementChecklist({
                                                 ))}
                                             </div>
                                         )}
+                                        {renderRowSuffix?.(item)}
                                     </div>
                                 </div>
                                 <div className="pt-0.5">

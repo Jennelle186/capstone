@@ -1,4 +1,7 @@
+import asyncio
+import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 
 from typing_extensions import Annotated
@@ -6,29 +9,89 @@ from typing_extensions import Annotated
 from fastapi import FastAPI
 from fastapi import Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .auth import get_current_user
-from .database import init_db
+from .database import AsyncSessionLocal, init_db
 from .database import SessionDep
 from .models import UserRole
+from .services.job_queue import dispatcher, recover_stuck_jobs
 from .routers.debug import router as debug_router
+from .routers.documents import router as documents_router
 from .routers.users import router as users_router
+from .routers.adviser import router as adviser_router
+from .routers.adviser_extraction_analytics import router as adviser_extraction_analytics_router
+from .routers.notifications import router as notifications_router
+from .routers.jobs import router as jobs_router
+from .routers.students.requirements import router as student_requirements_router
 from .routers import admin
 from .services.user_sync import ensure_user_row
+from .services.clerk import update_user_personal_names, update_user_public_metadata
+from .services.gcp_storage import ensure_bucket_cors
+
+logger = logging.getLogger(__name__)
+
+
+worker_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global worker_task
+
+    # Ensure app-level loggers emit at INFO so background task logs are visible.
+    # Uvicorn configures its own handlers on the `uvicorn.*` loggers with
+    # propagate=False, so this does not interfere with access/error formatting.
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if not root.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
+        root.addHandler(handler)
+
     # For local dev convenience: set AUTO_CREATE_TABLES=true to create tables on startup.
     # This uses SQLAlchemy `Base.metadata.create_all` under the hood; Alembic is still the right tool for migrations.
     if os.getenv("AUTO_CREATE_TABLES", "").lower() in {"1", "true", "yes"}:
         await init_db()
+    try:
+        ensure_bucket_cors()
+    except Exception as exc:
+        logger.warning("Failed to configure GCS bucket CORS: %s", exc)
+
+    # ── Job queue startup ────────────────────────────────────────────────
+    # Recover any jobs stuck in "running" from a previous crash.
+    try:
+        async with AsyncSessionLocal() as session:
+            await recover_stuck_jobs(session)
+            logger.info("Crash recovery complete — stuck jobs re-queued.")
+    except Exception as exc:
+        logger.warning("Crash recovery failed: %s", exc)
+
+    # Start the background dispatcher that claims and processes queued jobs.
+    worker_task = asyncio.create_task(dispatcher())
+    logger.info("Job dispatcher started.")
+
     yield
+
+    # Shutdown: cancel the worker on app teardown.
+    if worker_task is not None:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Job dispatcher stopped.")
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(documents_router)
 app.include_router(users_router)
+app.include_router(adviser_router)
+app.include_router(adviser_extraction_analytics_router)
+app.include_router(notifications_router)
 app.include_router(debug_router)
+app.include_router(jobs_router)
+app.include_router(student_requirements_router)
 app.include_router(admin.router)
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]
@@ -63,16 +126,69 @@ async def read_root() -> dict:
     return {"message": "FastAPI server is running."}
 
 
+class ProfileUpdateRequest(BaseModel):
+    first_name: str = Field(min_length=1, max_length=255)
+    middle_name: str | None = Field(default=None, max_length=255)
+    last_name: str = Field(min_length=1, max_length=255)
+
+
 @app.get("/api/me", tags=["auth"])
 async def read_me(current_user: CurrentUser, db: SessionDep) -> dict:
     # Protected endpoint: returns claims from Clerk-verified session token.
     # Also upserts the user into our DB on first authenticated call.
     user = await ensure_user_row(db, current_user)
+    await db.refresh(user, ["student"])
+    student_number: str | None = None
+    program_id: str | None = None
+    if user.student is not None:
+        student_number = user.student.student_number
+        if user.student.program_id is not None:
+            program_id = str(user.student.program_id)
     return {
         "userId": current_user.get("sub"),
         "sessionId": current_user.get("sid"),
         "email": user.email,
+        "firstName": user.first_name,
+        "lastName": user.last_name,
+        "middleName": user.middle_name,
+        "student_number": student_number,
+        "program_id": program_id,
         "role": getattr(user.role, "value", user.role),
+    }
+
+
+@app.patch("/api/me", tags=["auth"])
+async def update_me(
+    body: ProfileUpdateRequest,
+    current_user: CurrentUser,
+    db: SessionDep,
+) -> dict:
+    user = await ensure_user_row(db, current_user)
+
+    # Update Clerk profile.
+    clerk_user_id = current_user.get("sub")
+    if clerk_user_id:
+        await update_user_personal_names(
+            clerk_user_id,
+            first_name=body.first_name,
+            last_name=body.last_name,
+        )
+        await update_user_public_metadata(
+            clerk_user_id,
+            {"middle_name": body.middle_name},
+        )
+
+    # Update local DB.
+    user.first_name = body.first_name
+    user.middle_name = body.middle_name
+    user.last_name = body.last_name
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "firstName": user.first_name,
+        "middleName": user.middle_name,
+        "lastName": user.last_name,
     }
 
 

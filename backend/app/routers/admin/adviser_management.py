@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from uuid import UUID
 
@@ -22,16 +21,17 @@ from ...models import (
 from ...rbac import require_admin
 from ...services.clerk import (
     fetch_user_lock_status,
+    fetch_users_lock_status,
     lock_user_account,
     unlock_user_account,
     update_user_personal_names,
 )
-from .program_assignment import (
+from ...services.helpers import (
     get_active_school_year_id,
-    get_adviser_department_map_for_school_year,
     get_program_id_to_department_code_map,
     program_uuid_for_department_code,
 )
+from .program_assignment import get_adviser_department_map_for_school_year
 
 router = APIRouter(prefix="/advisers")
 
@@ -195,14 +195,12 @@ async def list_advisers(
         [adviser.id for adviser, _ in rows],
         active_school_year_id,
     )
-    lock_states = await asyncio.gather(
-        *(fetch_user_lock_status(user.clerk_user_id) for _, user in rows),
-        return_exceptions=True,
-    )
-    adviser_lock_map: dict[UUID, bool | None] = {}
-    for index, (adviser, _user) in enumerate(rows):
-        lock_state = lock_states[index]
-        adviser_lock_map[adviser.id] = None if isinstance(lock_state, Exception) else lock_state
+    clerk_ids = [user.clerk_user_id for _, user in rows]
+    lock_state_map = await fetch_users_lock_status(clerk_ids)
+    adviser_lock_map: dict[UUID, bool | None] = {
+        adviser.id: lock_state_map.get(user.clerk_user_id)
+        for adviser, user in rows
+    }
 
     return [
         AdviserResponse(

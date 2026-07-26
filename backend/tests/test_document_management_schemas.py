@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.routers.documents import DownloadUrlResponse
 from app.schemas.document_management import (
     DocumentTypeCreateRequest,
     RequirementAssignmentRequest,
@@ -29,3 +30,13 @@ def test_requirement_assignment_request_dedupes_document_type_ids() -> None:
     )
 
     assert len(payload.document_type_ids) == 1
+
+
+def test_download_url_response_serializes_url_and_expiry() -> None:
+    payload = DownloadUrlResponse(
+        url="https://storage.googleapis.com/bucket/key?X-Goog-Signature=abc",
+        expires_in=3600,
+    )
+
+    assert payload.url.startswith("https://storage.googleapis.com/")
+    assert payload.expires_in == 3600

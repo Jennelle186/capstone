@@ -53,7 +53,6 @@ export default function ChangeEmailDialog({
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      console.log("Change email submitted", values);
       toast.success("Email update request submitted.");
       onSubmitted?.(values);
       setOpen(false);

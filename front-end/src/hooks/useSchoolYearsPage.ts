@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
 import {
     buildDefaultRolloverForm,
@@ -25,7 +26,7 @@ import type {
     SchoolYearStatus,
 } from "@/types/schoolYear";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
-import type { AdmissionSchemaRecord } from "@/types/admissionSchema";
+import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
 import type { RequirementAssignmentResponse } from "@/types/requirement";
 
 // Constants and utility functions related to managing school years in the admin interface, including form state, API interactions, and error handling.
@@ -58,7 +59,8 @@ function findDuplicateSchoolYear(
     // The useSchoolYearsPage hook encapsulates all the state and logic for the School Years admin page,
 // including loading school years, handling form interactions for creating/editing school years,
 export function useSchoolYearsPage() {
-    const { getToken, isLoaded, isSignedIn } = useAuth();
+    const { isLoaded, isSignedIn } = useAuth();
+    const getTokenRef = useStableToken();
     const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -75,7 +77,7 @@ export function useSchoolYearsPage() {
     const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
     const [schoolYearRequirements, setSchoolYearRequirements] = useState<RequirementAssignmentResponse | null>(null);
     const [documentTypes, setDocumentTypes] = useState<DocumentTypeApiRecord[]>([]);
-    const [admissionSchemas, setAdmissionSchemas] = useState<AdmissionSchemaRecord[]>([]);
+    const [extractionSchemas, setExtractionSchemas] = useState<ExtractionSchemaRecord[]>([]);
     const [isRequirementsLoading, setIsRequirementsLoading] = useState(false);
     const [activationIntent, setActivationIntent] = useState<ActivationIntent>(null);
     const [activationPreview, setActivationPreview] = useState<SchoolYearActivationPreview | null>(null);
@@ -110,7 +112,7 @@ export function useSchoolYearsPage() {
     // Utility function to make authenticated API requests to the admin endpoints,
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
-            const token = await getToken();
+            const token = await getTokenRef.current();
             if (!token) throw new Error("Missing admin authentication token.");
 
             const response = await fetchWithClerkAuth(path, token, init);
@@ -126,12 +128,12 @@ export function useSchoolYearsPage() {
             }
             return response.status === 204 ? null : ((await response.json()) as unknown);
         },
-        [getToken],
+        [],
     );
 
     const requestRawWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<Response> => {
-            const token = await getToken();
+            const token = await getTokenRef.current();
             if (!token) throw new Error("Missing admin authentication token.");
 
             const response = await fetchWithClerkAuth(path, token, init);
@@ -147,7 +149,7 @@ export function useSchoolYearsPage() {
             }
             return response;
         },
-        [getToken],
+        [],
     );
 
     // Function to load the list of school years from the API, with error handling and loading state management.
@@ -422,18 +424,18 @@ export function useSchoolYearsPage() {
         void Promise.all([
             requestWithAdminAuth(`/api/admin/requirements?school_year_id=${schoolYear.id}`),
             requestWithAdminAuth("/api/admin/document-types?status=all"),
-            requestWithAdminAuth("/api/admin/admission-form-schemas?status=all"),
+            requestWithAdminAuth("/api/admin/extraction-schemas?status=all"),
         ])
-            .then(([requirementsPayload, documentTypesPayload, admissionSchemasPayload]) => {
+            .then(([requirementsPayload, documentTypesPayload, extractionSchemasPayload]) => {
                 setSchoolYearRequirements(requirementsPayload as RequirementAssignmentResponse);
                 setDocumentTypes(documentTypesPayload as DocumentTypeApiRecord[]);
-                setAdmissionSchemas(admissionSchemasPayload as AdmissionSchemaRecord[]);
+                setExtractionSchemas(extractionSchemasPayload as ExtractionSchemaRecord[]);
             })
             .catch((error) => {
                 toast.error(error instanceof Error ? error.message : "Failed to load requirements.");
                 setSchoolYearRequirements(null);
                 setDocumentTypes([]);
-                setAdmissionSchemas([]);
+                setExtractionSchemas([]);
             })
             .finally(() => {
                 setIsRequirementsLoading(false);
@@ -450,7 +452,7 @@ export function useSchoolYearsPage() {
             setIsAuditLogsLoading(false);
             setSchoolYearRequirements(null);
             setDocumentTypes([]);
-            setAdmissionSchemas([]);
+            setExtractionSchemas([]);
             setIsRequirementsLoading(false);
         }
     }, []);
@@ -598,7 +600,7 @@ export function useSchoolYearsPage() {
         schoolYearAssignments,
         schoolYearRequirements,
         documentTypes,
-        admissionSchemas,
+        extractionSchemas,
         isRequirementsLoading,
         schoolYears,
         searchQuery,

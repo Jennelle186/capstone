@@ -89,8 +89,9 @@ export function DataTable<TData, TValue>({
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Status</SelectItem>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="verified">Verified</SelectItem>
+                            <SelectItem value="uploaded">Uploaded</SelectItem>
+                            <SelectItem value="verified">Verified by Adviser</SelectItem>
+                            <SelectItem value="accepted">Accepted</SelectItem>
                             <SelectItem value="rejected">Rejected</SelectItem>
                         </SelectContent>
                     </Select>

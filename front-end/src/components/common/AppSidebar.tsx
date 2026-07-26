@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Link, useLocation } from 'react-router'
 import { motion } from 'framer-motion'
+import { ChevronDown } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import {
@@ -14,17 +15,23 @@ import {
     SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
+    SidebarMenuAction,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     useSidebar,
 } from '@/components/ui/sidebar'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { cn } from '@/lib/utils'
 
 type SidebarItem = {
     title: string
-    icon: LucideIcon
+    icon?: LucideIcon
     url: string
     onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void | Promise<void>
+    children?: SidebarItem[]
 }
 
 type SidebarGroupConfig = {
@@ -44,6 +51,98 @@ type AppSidebarProps = {
     className?: string
 }
 
+function SidebarItemRenderer({ item }: { item: SidebarItem }) {
+    const location = useLocation()
+    const [open, setOpen] = React.useState(false)
+
+    const isActive = location.pathname === item.url
+    const hasActiveChild = item.children?.some((child) => location.pathname === child.url)
+    const isExpanded = open || hasActiveChild
+
+    if (item.children && item.children.length > 0) {
+        return (
+            <SidebarMenuItem>
+                <SidebarMenuButton
+                    asChild
+                    tooltip={item.title}
+                    isActive={isActive || hasActiveChild}
+                >
+                    <Link
+                        to={item.url}
+                        onClick={item.onClick}
+                        className="group relative flex items-center gap-2 rounded-md px-2 py-2"
+                    >
+                        {item.icon ? (
+                            <item.icon className="size-4 shrink-0 text-slate-600 group-hover:text-slate-900" />
+                        ) : null}
+                        <span className="truncate">{item.title}</span>
+                    </Link>
+                </SidebarMenuButton>
+                <SidebarMenuAction
+                    showOnHover
+                    onClick={() => setOpen((prev) => !prev)}
+                    aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                >
+                    <ChevronDown
+                        className={cn(
+                            'size-4 transition-transform',
+                            isExpanded && 'rotate-180',
+                        )}
+                    />
+                </SidebarMenuAction>
+                {isExpanded ? (
+                    <SidebarMenuSub>
+                        {item.children.map((child) => {
+                            const childActive = location.pathname === child.url
+                            return (
+                                <SidebarMenuSubItem key={child.title}>
+                                    <SidebarMenuSubButton asChild isActive={childActive}>
+                                        <Link
+                                            to={child.url}
+                                            onClick={child.onClick}
+                                            className={childActive ? 'font-medium' : ''}
+                                        >
+                                            {child.title}
+                                        </Link>
+                                    </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                            )
+                        })}
+                    </SidebarMenuSub>
+                ) : null}
+            </SidebarMenuItem>
+        )
+    }
+
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip={item.title} isActive={isActive}>
+                <Link
+                    to={item.url}
+                    onClick={item.onClick}
+                    className="group relative flex items-center gap-2 rounded-md px-2 py-2"
+                >
+                    {isActive ? (
+                        <motion.span
+                            layoutId="activeIndicator"
+                            transition={{
+                                type: 'spring',
+                                stiffness: 380,
+                                damping: 30,
+                            }}
+                            className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-md bg-green-600"
+                        />
+                    ) : null}
+                    {item.icon ? (
+                        <item.icon className="size-4 shrink-0 text-slate-600 group-hover:text-slate-900" />
+                    ) : null}
+                    <span className="truncate">{item.title}</span>
+                </Link>
+            </SidebarMenuButton>
+        </SidebarMenuItem>
+    )
+}
+
 export default function AppSidebar({
     portalLabel,
     portalTitle,
@@ -56,8 +155,6 @@ export default function AppSidebar({
     className,
 }: AppSidebarProps) {
     const { state } = useSidebar()
-    const location = useLocation()
-    const MotionLink = React.useMemo(() => motion.create(Link), [])
     const containerVariants = React.useMemo(
         () => ({
             hidden: { opacity: 0 },
@@ -96,7 +193,7 @@ export default function AppSidebar({
                             className="relative size-9 rounded-xl border border-white/60 object-cover shadow-sm"
                         />
                     </div>
-                    {state === 'expanded' && (
+                    {state === 'expanded' ? (
                         <div className="leading-tight">
                             <div className="text-[11px] uppercase tracking-wide text-slate-500">
                                 {portalLabel}
@@ -105,7 +202,7 @@ export default function AppSidebar({
                                 {portalTitle}
                             </div>
                         </div>
-                    )}
+                    ) : null}
                 </motion.div>
             </SidebarHeader>
 
@@ -118,43 +215,11 @@ export default function AppSidebar({
                         <SidebarGroupContent>
                             <SidebarMenu className="space-y-2">
                                 <motion.div variants={containerVariants} initial="hidden" animate="show">
-                                    {group.items.map((item) => {
-                                        const isActive = location.pathname === item.url
-                                        return (
-                                            <motion.div key={item.title} variants={itemVariants}>
-                                                <SidebarMenuItem>
-                                                    <SidebarMenuButton asChild tooltip={item.title} isActive={isActive}>
-                                                        <MotionLink
-                                                            to={item.url}
-                                                            onClick={item.onClick}
-                                                            whileHover={{ x: 4 }}
-                                                            whileTap={{ scale: 0.97 }}
-                                                            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                                                            className={`group relative flex items-center gap-2 rounded-md px-2 py-2 ${
-                                                                isActive
-                                                                    ? 'bg-slate-100/80 pl-3 text-slate-900'
-                                                                    : 'text-slate-500'
-                                                            }`}
-                                                        >
-                                                            {isActive && (
-                                                                <motion.span
-                                                                    layoutId="activeIndicator"
-                                                                    transition={{
-                                                                        type: 'spring',
-                                                                        stiffness: 380,
-                                                                        damping: 30,
-                                                                    }}
-                                                                    className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-md bg-green-600"
-                                                                />
-                                                            )}
-                                                            <item.icon className="size-4 text-slate-600 group-hover:text-slate-900" />
-                                                            <span>{item.title}</span>
-                                                        </MotionLink>
-                                                    </SidebarMenuButton>
-                                                </SidebarMenuItem>
-                                            </motion.div>
-                                        )
-                                    })}
+                                    {group.items.map((item) => (
+                                        <motion.div key={item.title} variants={itemVariants}>
+                                            <SidebarItemRenderer item={item} />
+                                        </motion.div>
+                                    ))}
                                 </motion.div>
                             </SidebarMenu>
                         </SidebarGroupContent>

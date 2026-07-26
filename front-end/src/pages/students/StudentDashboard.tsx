@@ -1,279 +1,427 @@
 import * as React from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GraduationCap, User, PlusCircle, AlertTriangle, Check, Loader2, IdCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { DataTable } from "@/components/student/Dashboard Datatable/dataTable";
+import { Badge } from "@/components/ui/badge";
 import {
-  columns,
-  type DataTableDashboard,
-} from "@/components/student/Dashboard Datatable/columns";
-import { motion, type Variants } from "framer-motion";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
-  FileText,
-  CheckCircle2,
-  ShieldCheck,
-  Clock3,
-  Sparkles,
-  Bell,
-} from "lucide-react";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Link } from "react-router";
 import { fetchWithClerkAuth } from "@/lib/api";
+import StatSummaryCards from "@/components/student/Dashboard/StatSummaryCards";
+import AnnouncementBar from "@/components/student/Dashboard/AnnouncementBar";
+import SubmissionsTable from "@/components/student/Dashboard/SubmissionsTable";
+import DocumentDetailModal from "@/components/student/Dashboard/DocumentDetailModal";
+import {
+  placeholderSubmissions,
+  type Submission,
+  type SubmissionStatusType,
+} from "@/components/student/Dashboard/types";
+import type { SubmissionDetail } from "@/types/submission";
 
-const stats = [
-  { label: "Documents Uploaded", value: 6, icon: FileText, tone: "blue" },
-  { label: "Pending Documents", value: "0 / 0", icon: Clock3, tone: "amber" },
-  { label: "Verified Documents", value: 6, icon: ShieldCheck, tone: "emerald" },
-  { label: "Ready for Admission", value: 6, icon: CheckCircle2, tone: "green" },
-];
+interface MeResponse {
+  userId: string;
+  firstName: string | null;
+  lastName: string | null;
+  student_number: string | null;
+  program_id: string | null;
+}
 
-const documents: DataTableDashboard[] = [
-  { id: "doc-1", documentType: "Birth Certificate", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-2", documentType: "Report Card", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-3", documentType: "Admission Form", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-4", documentType: "CET", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-5", documentType: "Medical Certificate", uploaded: true, status: "verified", sentToAdmin: true },
-  { id: "doc-6", documentType: "Good Moral Certificate", uploaded: true, status: "verified", sentToAdmin: true },
-];
+interface RequiredDocumentsData {
+  school_year_id: string | null;
+  school_year_name: string | null;
+  classification: string | null;
+}
 
-async function getData(): Promise<DataTableDashboard[]> {
-  return documents;
+interface DepartmentOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
+interface AdviserInfo {
+  adviser_name: string | null;
+  adviser_email: string | null;
+  department_code: string | null;
+  department_name: string | null;
+}
+
+function formatFileSize(bytes: string | null): string {
+  if (!bytes) return "Unknown";
+  const num = parseInt(bytes, 10);
+  if (isNaN(num)) return "Unknown";
+  if (num < 1024) return `${num} B`;
+  const kb = num / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function formatDate(iso: string): string {
+  const date = new Date(iso);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function mimeToLabel(mime: string | null): string {
+  if (!mime) return "Unknown";
+  if (mime.startsWith("image/")) return "Image";
+  if (mime === "application/pdf") return "PDF";
+  return mime;
+}
+
+function toSubmission(detail: SubmissionDetail): Submission {
+  return {
+    id: detail.id,
+    documentName: detail.original_filename,
+    documentType: detail.document_type_name ?? "Unclassified",
+    uploadDate: formatDate(detail.created_at),
+    status: detail.status as SubmissionStatusType,
+    fileType: mimeToLabel(detail.mime_type),
+    fileSize: formatFileSize(detail.file_size),
+  };
 }
 
 export default function StudentDashboard() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [data, setData] = React.useState<DataTableDashboard[]>([]);
-  const [userId, setUserId] = React.useState<string | null>(null);
-  const pendingStat = stats.find((stat) => stat.label === "Pending Documents");
-  const isAllCaughtUp = pendingStat?.value === "0 / 0";
+  const [firstName, setFirstName] = React.useState<string | null>(null);
+  const [lastName, setLastName] = React.useState<string | null>(null);
+  const [schoolYear, setSchoolYear] = React.useState<string | null>(null);
+  const [classification, setClassification] = React.useState<string | null>(null);
+  const [studentNumber, setStudentNumber] = React.useState<string | null>(null);
+  const [programId, setProgramId] = React.useState<string | null>(null);
+  const [departments, setDepartments] = React.useState<DepartmentOption[]>([]);
 
-  const cardContainer: Variants = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.08, delayChildren: 0.05 },
-    },
-  };
-  const cardItem: Variants = {
-    hidden: { opacity: 0, y: 20 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: { type: "spring" as const, stiffness: 100, damping: 15 },
-    },
-  };
+  const [submissions, setSubmissions] = React.useState<Submission[]>(placeholderSubmissions);
+  const [loadingDocs, setLoadingDocs] = React.useState(true);
+  const [currentIndex, setCurrentIndex] = React.useState(-1);
+  const [modalOpen, setModalOpen] = React.useState(false);
 
-  React.useEffect(() => {
-    let isMounted = true;
-    getData().then((result) => {
-      if (isMounted) {
-        setData(result);
-        setIsLoading(false);
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const [adviserName, setAdviserName] = React.useState<string | null>(null);
+  const [adviserEmail, setAdviserEmail] = React.useState<string | null>(null);
+
+  const [pendingProgramId, setPendingProgramId] = React.useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [dialogAdviser, setDialogAdviser] = React.useState<AdviserInfo | null>(null);
+  const [loadingAdviser, setLoadingAdviser] = React.useState(false);
+  const [savingProgram, setSavingProgram] = React.useState(false);
 
   React.useEffect(() => {
-    //React gets Clerk token and backend verifies it.
     if (!isLoaded || !isSignedIn) return;
 
     let isMounted = true;
-    const loadProfile = async () => {
+    const load = async () => {
       try {
         const token = await getToken();
-        if (!token) {
-          throw new Error("Missing Clerk session token before /api/me request.");
-        }
+        if (!token) return;
 
-        const response = await fetchWithClerkAuth("/api/me", token);
-        if (!response.ok) {
-          let message = `Failed to load authenticated profile. (${response.status})`;
-          try {
-            const errorPayload = (await response.json()) as { detail?: string };
-            if (errorPayload?.detail) {
-              message = `${message} ${errorPayload.detail}`;
+        const [meRes, reqRes, docsRes, deptRes] = await Promise.all([
+          fetchWithClerkAuth("/api/me", token),
+          fetchWithClerkAuth("/api/me/required-documents", token),
+          fetchWithClerkAuth("/api/me/documents", token),
+          fetchWithClerkAuth("/api/me/departments", token),
+        ]);
+
+        if (!meRes.ok || !reqRes.ok) return;
+        if (!isMounted) return;
+
+        const me = (await meRes.json()) as MeResponse;
+        const req = (await reqRes.json()) as RequiredDocumentsData;
+
+        setFirstName(me.firstName);
+        setLastName(me.lastName);
+        setStudentNumber(me.student_number);
+        setSchoolYear(req.school_year_name);
+        setClassification(req.classification);
+        setProgramId(me.program_id);
+
+        if (me.program_id) {
+          const adviserRes = await fetchWithClerkAuth("/api/me/adviser", token);
+          if (adviserRes.ok) {
+            const adviserData = (await adviserRes.json()) as AdviserInfo | null;
+            if (adviserData?.adviser_name) {
+              setAdviserName(adviserData.adviser_name);
+              setAdviserEmail(adviserData.adviser_email);
             }
-          } catch {
-            // Ignore JSON parse failures and keep the status-based message.
           }
-          throw new Error(message);
         }
 
-        const payload = (await response.json()) as { userId?: string };
-        if (isMounted) {
-          setUserId(payload.userId ?? null);
+        if (deptRes.ok) {
+          const depts = (await deptRes.json()) as DepartmentOption[];
+          if (isMounted) setDepartments(depts);
         }
-      } catch (error) {
-        console.error("Failed to fetch protected profile:", error);
+
+        if (docsRes.ok) {
+          const docs = (await docsRes.json()) as SubmissionDetail[];
+          if (isMounted) {
+            setSubmissions(docs.map(toSubmission));
+            setLoadingDocs(false);
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (isMounted) setLoadingDocs(false);
       }
     };
 
-    void loadProfile();
-
-    return () => {
-      isMounted = false;
-    };
+    void load();
+    return () => { isMounted = false; };
   }, [getToken, isLoaded, isSignedIn]);
 
+  const handleProgramSelect = async (value: string) => {
+    setPendingProgramId(value);
+    setLoadingAdviser(true);
+    setDialogOpen(true);
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/adviser", token);
+      if (res.ok) {
+        const data = (await res.json()) as AdviserInfo | null;
+        setDialogAdviser(data);
+      } else {
+        setDialogAdviser(null);
+      }
+    } catch {
+      setDialogAdviser(null);
+    } finally {
+      setLoadingAdviser(false);
+    }
+  };
+
+  const handleConfirmProgram = async () => {
+    if (!pendingProgramId) return;
+    setSavingProgram(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/program", token, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ program_id: pendingProgramId }),
+      });
+      if (res.ok) {
+        setProgramId(pendingProgramId);
+        const adviserRes = await fetchWithClerkAuth("/api/me/adviser", token);
+        if (adviserRes.ok) {
+          const adviserData = (await adviserRes.json()) as AdviserInfo | null;
+          if (adviserData?.adviser_name) {
+            setAdviserName(adviserData.adviser_name);
+            setAdviserEmail(adviserData.adviser_email);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSavingProgram(false);
+      setDialogOpen(false);
+      setPendingProgramId(null);
+    }
+  };
+
+  const selectedDept = departments.find((d) => d.id === programId);
+  const pendingDept = departments.find((d) => d.id === pendingProgramId);
+
+  const handleView = (submission: Submission) => {
+    const idx = submissions.findIndex((s) => s.id === submission.id);
+    if (idx >= 0) setCurrentIndex(idx);
+    setModalOpen(true);
+  };
+
+  const handleIndexChange = (index: number) => {
+    setCurrentIndex(index);
+  };
+
   return (
-    <main className="flex flex-1 flex-col gap-6 p-6 md:p-8 bg-slate-50 min-h-screen">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Student Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
-              Track your enrollment documents and verification status.
+    <main className="flex flex-1 flex-col gap-6">
+      {/* Program Selection Warning */}
+      {!programId && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+          <div className="flex flex-1 flex-col gap-3">
+            <p className="text-sm font-medium text-red-800">
+              Please choose which program you belong to, or else your documents will not be verified.
             </p>
-            {userId && (
-              <p className="text-xs text-slate-500">
-                Authenticated via Clerk backend token verification: {userId}
-              </p>
+            <Select onValueChange={handleProgramSelect} disabled={loadingDocs}>
+              <SelectTrigger className="w-full max-w-xs bg-white border-red-300 focus:border-red-500 focus:ring-red-500">
+                <SelectValue placeholder="Select your program..." />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((dept) => (
+                  <SelectItem key={dept.id} value={dept.id}>
+                    {dept.code} — {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={dialogOpen} onOpenChange={(open) => { if (!open && !savingProgram) { setDialogOpen(false); setPendingProgramId(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm your program</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  By selecting <strong>{pendingDept?.code} — {pendingDept?.name}</strong>, you confirm
+                  you are enrolled in this program.
+                </p>
+
+                {loadingAdviser && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Checking adviser information...
+                  </div>
+                )}
+
+                {!loadingAdviser && dialogAdviser?.adviser_name && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
+                    <p className="font-medium text-blue-900">Your assigned adviser</p>
+                    <p className="text-blue-700 mt-1">{dialogAdviser.adviser_name}</p>
+                    <p className="text-blue-600 text-xs">{dialogAdviser.adviser_email}</p>
+                    <p className="text-blue-700 mt-1 text-xs">
+                      Your documents will be verified by this adviser.
+                    </p>
+                  </div>
+                )}
+
+                {!loadingAdviser && dialogAdviser && !dialogAdviser.adviser_name && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+                    <p className="font-medium text-amber-900">No adviser assigned yet</p>
+                    <p className="text-amber-700 mt-1">
+                      There is currently no adviser assigned to this department for this school year.
+                      You may still select this program, but please contact the administrator if you
+                      need an adviser.
+                    </p>
+                  </div>
+                )}
+
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+                  <p className="font-medium text-amber-900">This action is irreversible</p>
+                  <p className="text-amber-700 mt-1">
+                    You will not be able to change your program later. Contact your adviser
+                    if you need to make changes.
+                  </p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingProgram}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmProgram} disabled={savingProgram || loadingAdviser}>
+              {savingProgram ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Confirm"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Welcome Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <span className="text-lg font-medium text-slate-500">Welcome,</span>
+          <h1 className="text-4xl font-bold tracking-tight text-foreground">
+            {firstName ? `${firstName} ${lastName ?? ""}` : "Student Dashboard"}
+          </h1>
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            {schoolYear && (
+              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 rounded-full border-0 gap-1 text-xs font-semibold">
+                <GraduationCap className="h-3 w-3" />
+                School Year: {schoolYear}
+              </Badge>
+            )}
+            {classification && (
+              <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 rounded-full border-0 gap-1 text-xs font-semibold capitalize">
+                <User className="h-3 w-3" />
+                Classification: {classification}
+              </Badge>
+            )}
+            {studentNumber && (
+              <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100 rounded-full border-0 gap-1 text-xs font-semibold">
+                <IdCard className="h-3 w-3" />
+                ID: {studentNumber}
+              </Badge>
+            )}
+            {selectedDept && (
+              <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 rounded-full border-0 gap-1 text-xs font-semibold">
+                <Check className="h-3 w-3" />
+                Program: {selectedDept.code}
+              </Badge>
+            )}
+            {adviserName && (
+              <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 rounded-full border-0 gap-1 text-xs font-semibold max-w-full" title={adviserEmail ?? undefined}>
+                <User className="h-3 w-3 shrink-0" />
+                <span className="truncate">Adviser: {adviserName}</span>
+              </Badge>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="relative"
-            aria-label="Notifications"
-          >
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500" />
+        <Link to="/student/upload">
+          <Button className="bg-primary text-white hover:bg-primary/90 rounded-xl gap-2">
+            <PlusCircle className="h-4 w-4 fill-current" />
+            Upload New Document
           </Button>
+        </Link>
+      </div>
+
+      {/* Stat Cards */}
+      <StatSummaryCards submissions={submissions} />
+
+      {/* Announcements */}
+      <AnnouncementBar />
+
+      {/* Submissions Table */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 bg-slate-50 border-b border-slate-200">
+          <h3 className="text-base font-semibold text-slate-900">Document Archive</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Review your historical uploads and AI-verified extractions.</p>
+        </div>
+        <div className="p-5">
+          {loadingDocs ? (
+            <div className="flex items-center justify-center py-12 text-slate-400 text-sm">
+              Loading documents...
+            </div>
+          ) : (
+            <SubmissionsTable data={submissions} onView={handleView} />
+          )}
         </div>
       </div>
 
-      <motion.div
-        className="grid gap-4 md:grid-cols-4"
-        variants={cardContainer}
-        initial="hidden"
-        animate="show"
-      >
-        {isLoading
-          ? Array.from({ length: 4 }).map((_, index) => (
-            <Card
-              key={`stat-skeleton-${index}`}
-              className="h-full rounded-2xl border border-slate-200 shadow-sm transition-all"
-            >
-              <CardContent className="flex h-full flex-col justify-between p-6">
-                <div className="flex items-start justify-between">
-                  <Skeleton className="h-4 w-28" />
-                  <Skeleton className="h-10 w-10 rounded-full" />
-                </div>
-                <Skeleton className="h-9 w-20" />
-              </CardContent>
-            </Card>
-          ))
-          : stats.map(({ label, value, icon: Icon, tone }) => {
-            const isGolden = label === "Ready for Admission";
-            const isPending = label === "Pending Documents";
-            const displayValue = isPending && isAllCaughtUp ? "0" : value;
-            const toneStyles =
-              tone === "blue"
-                ? "bg-blue-100 text-blue-600"
-                : tone === "amber"
-                  ? "bg-amber-100 text-amber-600"
-                  : tone === "emerald"
-                    ? "bg-emerald-100 text-emerald-600"
-                    : "bg-green-100 text-green-600";
-            const cardStyles = isGolden
-              ? "border-l-4 border-green-500 bg-green-50 text-green-900"
-              : "border-slate-200 bg-white text-slate-900";
-            return (
-              <motion.div
-                key={label}
-                variants={cardItem}
-                whileHover={{
-                  y: -5,
-                  transition: { duration: 0.2 },
-                  boxShadow: "0 12px 30px rgba(59, 130, 246, 0.15)",
-                }}
-              >
-                <Card
-                  className={`h-full rounded-2xl border shadow-sm transition-all hover:shadow-md ${cardStyles}`}
-                >
-                  <CardContent className="flex h-full flex-col justify-between p-6">
-                    <div className="flex items-start justify-between">
-                      <CardTitle className={isGolden ? "text-sm text-green-800" : "text-sm text-slate-500"}>
-                        {label}
-                      </CardTitle>
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-full ${toneStyles}`}>
-                        <Icon className="h-5 w-5" />
-                      </div>
-                    </div>
-                    <div className="text-4xl font-bold">{displayValue}</div>
-                    {isPending && isAllCaughtUp && (
-                      <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Sparkles className="h-3 w-3" />
-                        All caught up!
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-      </motion.div>
-
-      <Card className="rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base font-semibold">My Documents</CardTitle>
-          <Link to="/student/upload">
-            <Button>
-              Upload
-            </Button>
-          </Link>
-
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm text-slate-700">
-                <thead>
-                  <tr className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-600">
-                    <th className="px-6 py-4 text-left">Document Type</th>
-                    <th className="px-6 py-4 text-left">Uploaded?</th>
-                    <th className="px-6 py-4 text-left">Status</th>
-                    <th className="px-6 py-4 text-left">Sent to Admin</th>
-                    <th className="px-6 py-4 text-left">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {Array.from({ length: 6 }).map((_, index) => (
-                    <tr key={`row-skeleton-${index}`}>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-4 w-44" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-4 w-10" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-6 w-20 rounded-full" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-4 w-10" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-8 w-20 rounded-full" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="p-4">
-              <DataTable columns={columns} data={data} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Detail Modal */}
+      <DocumentDetailModal
+        submissions={submissions}
+        currentIndex={currentIndex}
+        onIndexChange={handleIndexChange}
+        open={modalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) setCurrentIndex(-1);
+        }}
+      />
     </main>
   );
 }

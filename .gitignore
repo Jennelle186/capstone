@@ -1,3 +1,11 @@
+# --- Bug Reports & Planning ---
+bug_report.md
+SESSION_SUMMARY.md
+docs/
+*.docx
+report.docx
+
+# --- Backend Python/Test Artifacts ---
 backend/.venv/
 backend/__pycache__/
 backend/*.pyc
@@ -5,10 +13,21 @@ backend/.pytest_cache/
 backend/pytest-cache-files-*/
 **/__pycache__/
 *.pyc
-tmp*-cwd
+backend/test_output/
+backend/test_samples/
+backend/test_pipeline.py
+backend/test_concurrency.py
+
+# --- Frontend/Node Artifacts ---
 .vite/
+front-end/dist/
+
+# --- Environment Variables ---
 .env
 .env.local
 .env.*.local
-front-end/dist/
-report.docx
+
+# --- Misc & Temp Files ---
+tmp*-cwd
+es_*
+front-end/src/pages/admin/README.md

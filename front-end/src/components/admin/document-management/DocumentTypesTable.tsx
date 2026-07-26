@@ -26,9 +26,11 @@ function isArchived(item: DocumentTypeItem): boolean {
 }
 
 const CLASSIFICATION_LABELS: Record<StudentClassification, string> = {
-    regular: "Regular",
+    freshman: "Freshman",
     transferee: "Transferee",
-    shiftee: "Shiftee",
+    shifter: "Shifter",
+    returning: "Returning / Continuing",
+    cross_enrollee: "Cross-Enrolee",
 };
 
 export default function DocumentTypesTable({

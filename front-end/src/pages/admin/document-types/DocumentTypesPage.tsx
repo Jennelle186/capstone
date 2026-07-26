@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import EmptyState from "@/components/admin/document-management/EmptyState";
+import AIGenerateModal from "@/components/admin/document-management/AIGenerateModal";
 import DocumentTypeForm from "@/components/admin/document-management/DocumentTypeForm";
 import DocumentTypesTable from "@/components/admin/document-management/DocumentTypesTable";
 import FilterCard from "@/components/admin/document-management/FilterCard";
@@ -37,6 +38,8 @@ import type {
     DocumentTypeFormState,
     DocumentTypeItem,
     DocumentTypeUpsertPayload,
+    GeneratedClassificationResult,
+    GenerateClassificationRequest,
 } from "@/types/documentType";
 
 function createDefaultFormState(): DocumentTypeFormState {
@@ -46,7 +49,7 @@ function createDefaultFormState(): DocumentTypeFormState {
         description: "",
         classifierDescription: "",
         keywords: [],
-        applicableClassifications: ["regular"],
+        applicableClassifications: ["freshman"],
         isActive: true,
     };
 }
@@ -84,6 +87,10 @@ export default function DocumentTypesPage() {
     const [formError, setFormError] = useState("");
 
     const [documentTypeToArchive, setDocumentTypeToArchive] = useState<DocumentTypeItem | null>(null);
+
+    const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+    const [isAiLoading, setIsAiLoading] = useState(false);
+    const [aiResult, setAiResult] = useState<GeneratedClassificationResult | null>(null);
 
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
@@ -174,7 +181,7 @@ export default function DocumentTypesPage() {
             description: item.description,
             classifierDescription: item.classifierDescription,
             keywords: [...item.keywords],
-            applicableClassifications: [...(item.applicableClassifications ?? ["regular"])],
+            applicableClassifications: [...(item.applicableClassifications ?? ["freshman"])],
             isActive: !isArchived(item),
         });
         setKeywordInput("");
@@ -208,6 +215,54 @@ export default function DocumentTypesPage() {
             ...prev,
             keywords: prev.keywords.filter((keyword) => keyword !== keywordToRemove),
         }));
+    };
+
+    const handleGenerateWithAi = async () => {
+        const name = formState.name.trim();
+        const description = formState.description.trim();
+
+        if (!name || !description) {
+            setFormError("Name and description are required before generating classification settings.");
+            return;
+        }
+
+        setIsAiModalOpen(true);
+        setIsAiLoading(true);
+        setAiResult(null);
+
+        try {
+            const payload: GenerateClassificationRequest = {
+                name,
+                code: formState.code.trim(),
+                description,
+                applicable_classifications: formState.applicableClassifications,
+            };
+
+            const result = (await requestWithAdminAuth(
+                "/api/admin/document-types/generate-classification",
+                {
+                    method: "POST",
+                    body: JSON.stringify(payload),
+                },
+            )) as GeneratedClassificationResult;
+
+            setAiResult(result);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to generate classification settings.");
+            setIsAiModalOpen(false);
+        } finally {
+            setIsAiLoading(false);
+        }
+    };
+
+    const handleApplyAiResult = (classifierDescription: string, keywords: string[]) => {
+        setFormState((prev) => ({
+            ...prev,
+            classifierDescription,
+            keywords,
+        }));
+        setIsAiModalOpen(false);
+        setAiResult(null);
     };
 
     const handleSubmit = async () => {
@@ -412,6 +467,26 @@ export default function DocumentTypesPage() {
                 onSubmit={() => {
                     void handleSubmit();
                 }}
+                onGenerateWithAi={() => {
+                    void handleGenerateWithAi();
+                }}
+                showAiGenerate={
+                    !formState.classifierDescription.trim() && formState.keywords.length === 0
+                }
+                showAiRegenerate={
+                    !!(formState.classifierDescription.trim() || formState.keywords.length > 0)
+                }
+            />
+
+            <AIGenerateModal
+                open={isAiModalOpen}
+                isLoading={isAiLoading}
+                result={aiResult}
+                onOpenChange={setIsAiModalOpen}
+                onTryAgain={() => {
+                    void handleGenerateWithAi();
+                }}
+                onApply={handleApplyAiResult}
             />
 
             <AlertDialog

@@ -10,11 +10,13 @@ from sqlalchemy import desc, func, select
 from ...database import SessionDep
 from ...models import Adviser, Department, Program, ProgramAdviserAssignment, SchoolYear, SchoolYearStatus, Student, User, UserRole
 from ...rbac import require_admin
-from .program_assignment import (
+from ...services.helpers import (
     get_active_school_year_id,
+    program_uuid_for_department_code,
+)
+from .program_assignment import (
     get_adviser_department_map_for_school_year,
     get_department_adviser_counts_for_school_year,
-    program_uuid_for_department_code,
 )
 
 router = APIRouter(prefix="/departments")
@@ -156,14 +158,14 @@ async def _get_department_counts(db: SessionDep, school_year_id: UUID | None) ->
 
     student_counts_stmt = (
         select(
-            func.lower(Student.program).label("department_code"),
+            Department.code,
             func.count(Student.id).label("student_count"),
         )
-        .where(Student.program.isnot(None))
-        .group_by(func.lower(Student.program))
+        .join(Student, Student.program_id == Department.id)
+        .group_by(Department.code)
     )
     student_count_rows = (await db.execute(student_counts_stmt)).all()
-    student_counts = {row.department_code: row.student_count for row in student_count_rows if row.department_code}
+    student_counts = {row.code.lower(): row.student_count for row in student_count_rows if row.code}
 
     return adviser_counts, student_counts
 
@@ -326,11 +328,6 @@ async def update_department(
             assignments = (await db.execute(assignment_stmt)).scalars().all()
             for assignment in assignments:
                 assignment.program_id = new_program_id
-
-        students_stmt = select(Student).where(func.lower(Student.program) == previous_code.lower())
-        students = (await db.execute(students_stmt)).scalars().all()
-        for student in students:
-            student.program = department.code
 
     await db.commit()
     await db.refresh(department)

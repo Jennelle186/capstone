@@ -1,7 +1,7 @@
 import uuid
 import enum
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -22,9 +22,11 @@ class SchoolYearStatus(str, enum.Enum):
 
 
 class StudentClassification(str, enum.Enum):
-    REGULAR = "regular"
+    FRESHMAN = "freshman"
     TRANSFEREE = "transferee"
-    SHIFTEE = "shiftee"
+    SHIFTER = "shifter"
+    RETURNING = "returning"
+    CROSS_ENROLLEE = "cross_enrollee"
 
 
 class AdviserInvitationStatus(str, enum.Enum):
@@ -39,7 +41,7 @@ class DocumentTypeStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 
-class AdmissionFormSchemaStatus(str, enum.Enum):
+class ExtractionSchemaStatus(str, enum.Enum):
     DRAFT = "draft"
     ACTIVE = "active"
     ARCHIVED = "archived"
@@ -59,6 +61,9 @@ class User(Base):
     first_name = Column(String(255), nullable=True)
     middle_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
+
+    # Profile image URL from Clerk.
+    image_url = Column(String(1024), nullable=True)
 
     # Entire publicMetadata snapshot (useful for debugging/syncing without extra Clerk calls).
     public_metadata = Column(JSONB, nullable=True)
@@ -88,19 +93,39 @@ class Student(Base):
         unique=True
     )
 
+    school_year_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("school_years.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # These can be null at first sign-up; you can fill them later during onboarding.
     student_number = Column(String, unique=True, nullable=True)
-    program = Column(String, nullable=True)
-    classification = Column(
-        Enum(StudentClassification, name="student_classification"),
+    program_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("departments.id", ondelete="SET NULL"),
         nullable=True,
-        default=StudentClassification.REGULAR,
     )
+    classification = Column(
+        Enum(
+            StudentClassification,
+            name="student_classification",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=True,
+        default=StudentClassification.FRESHMAN,
+    )
+
+    application_status = Column(String(30), nullable=True, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     user = relationship("User", back_populates="student")
+    school_year = relationship("SchoolYear", foreign_keys=[school_year_id])
+    program_department = relationship("Department", foreign_keys=[program_id], lazy="selectin")
+    submissions = relationship("DocumentSubmission", back_populates="student", cascade="all, delete-orphan")
 
 
 class Adviser(Base):
@@ -293,22 +318,119 @@ class SchoolYearRequirement(Base):
         nullable=False,
         index=True,
     )
-    admission_form_schema_id = Column(
+    extraction_schema_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("admission_form_schemas.id", ondelete="SET NULL"),
+        ForeignKey("extraction_schemas.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
+    snapshot_fields_json = Column(JSONB, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     school_year = relationship("SchoolYear", back_populates="school_year_requirements")
     document_type = relationship("DocumentType", back_populates="school_year_requirements")
-    admission_form_schema = relationship("AdmissionFormSchema")
+    extraction_schema = relationship("ExtractionSchema")
 
 
-class AdmissionFormSchema(Base):
-    __tablename__ = "admission_form_schemas"
+class RequirementSlot(Base):
+    """
+    A named logical requirement for a school year that can be satisfied by one
+    or more document types.
+
+    Slots replace the flat ``SchoolYearRequirement`` model with a polymorphic
+    design:
+
+    - **solo** — requires exactly one document type (mirrors legacy flat rows).
+    - **group** — accepts any ``min_required`` out of N alternative document
+      types (e.g. "Proof of Financial Status" = ITR OR Certificate of Tax
+      Exemption OR Affidavit).
+
+    A single verified submission can satisfy *multiple* slots when the
+    submission's ``document_type_id`` appears in more than one slot's items
+    list (inventory-based resolution).
+    """
+    __tablename__ = "requirement_slots"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "school_year_id",
+            "display_order",
+            name="uq_requirement_slots_school_year_display_order",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    school_year_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("school_years.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    slot_type = Column(String(20), nullable=False)  # 'solo' | 'group'
+    group_name = Column(String(120), nullable=True)
+    description = Column(Text, nullable=True)
+    min_required = Column(Integer, nullable=False, default=1)
+    display_order = Column(Integer, nullable=False, default=0)
+    snapshot_fields_json = Column(JSONB, nullable=True, default=None)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    school_year = relationship("SchoolYear")
+    items = relationship(
+        "RequirementSlotItem",
+        back_populates="slot",
+        cascade="all, delete-orphan",
+    )
+
+
+class RequirementSlotItem(Base):
+    """
+    Bridge table linking a ``RequirementSlot`` to the ``DocumentType`` s that
+    can satisfy it, along with an optional ``ExtractionSchema`` to use when
+    extracting structured data from submissions of that type within the slot.
+    """
+    __tablename__ = "requirement_slot_items"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "requirement_slot_id",
+            "document_type_id",
+            name="uq_slot_items_slot_document_type",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    requirement_slot_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("requirement_slots.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_type_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    extraction_schema_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("extraction_schemas.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    is_primary = Column(Boolean, nullable=False, default=False)
+    display_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    slot = relationship("RequirementSlot", back_populates="items")
+    document_type = relationship("DocumentType")
+    extraction_schema = relationship("ExtractionSchema")
+
+
+class ExtractionSchema(Base):
+    __tablename__ = "extraction_schemas"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     name = Column(String(120), nullable=False)
@@ -317,15 +439,21 @@ class AdmissionFormSchema(Base):
     description = Column(Text, nullable=True)
     schema_json = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     fields_json = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    document_type_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_types.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     status = Column(
         Enum(
-            AdmissionFormSchemaStatus,
-            name="admission_form_schema_status",
+            ExtractionSchemaStatus,
+            name="extraction_schema_status",
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=False,
-        default=AdmissionFormSchemaStatus.DRAFT,
-        server_default=AdmissionFormSchemaStatus.DRAFT.value,
+        default=ExtractionSchemaStatus.DRAFT,
+        server_default=ExtractionSchemaStatus.DRAFT.value,
         index=True,
     )
     source_file_name = Column(String(255), nullable=True)
@@ -379,3 +507,237 @@ class AdviserInvitation(Base):
     accepted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SubmissionStatus(str, enum.Enum):
+    PENDING = "pending"
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    CLASSIFIED = "classified"
+    EXTRACTING = "extracting"
+    IN_REVIEW = "in-review"
+    VERIFIED = "verified"
+    FLAGGED = "flagged"
+    SUBMITTED = "submitted"
+
+
+class DocumentSubmission(Base):
+    __tablename__ = "document_submissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_key = Column(String(512), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    file_size = Column(String(32), nullable=True)
+    mime_type = Column(String(128), nullable=True)
+    is_compiled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    status = Column(
+        Enum(
+            SubmissionStatus,
+            name="submission_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=SubmissionStatus.PENDING,
+        server_default=SubmissionStatus.PENDING.value,
+    )
+    classification_result = Column(JSONB, nullable=True)
+    extracted_data = Column(JSONB, nullable=True)
+    document_type_id = Column(UUID(as_uuid=True), ForeignKey("document_types.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # ─── Audit columns ────────────────────────────────────────────────────────
+    rejection_reason = Column(Text, nullable=True)
+    flagged_at = Column(DateTime(timezone=True), nullable=True)
+    flagged_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    verified_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    parent_submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    student = relationship("Student", back_populates="submissions")
+    document_type = relationship("DocumentType")
+    parent_submission = relationship(
+        "DocumentSubmission",
+        remote_side="DocumentSubmission.id",
+        foreign_keys="DocumentSubmission.parent_submission_id",
+        post_update=True,
+    )
+    history_entries = relationship(
+        "DocumentSubmissionHistory",
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        order_by="DocumentSubmissionHistory.created_at",
+        foreign_keys="DocumentSubmissionHistory.submission_id",
+    )
+
+
+class DocumentSubmissionHistory(Base):
+    __tablename__ = "document_submission_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    action = Column(String(40), nullable=False, index=True)
+    previous_status = Column(String(30), nullable=True)
+    new_status = Column(String(30), nullable=True)
+    reason = Column(Text, nullable=True)
+    reference_submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    submission = relationship("DocumentSubmission", back_populates="history_entries", foreign_keys=[submission_id])
+    actor_user = relationship("User")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    recipient_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(150), nullable=False)
+    message = Column(Text, nullable=False)
+    notification_type = Column(String(50), nullable=False)
+    reference_id = Column(UUID(as_uuid=True), nullable=True)
+    is_read = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    recipient = relationship("User", foreign_keys=[recipient_id])
+
+# Job/task models for asynchronous AI processing pipeline.
+class JobStatus(str, enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    FINISHED = "finished"
+    CANCELLED = "cancelled"
+
+
+class JobResult(str, enum.Enum):
+    SUCCESS = "success"
+    PARTIAL_SUCCESS = "partial_success"
+    FAILED = "failed"
+
+
+class JobSubmissionItemStatus(str, enum.Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation = Column(String(32), nullable=False)  # "classify" | "extract"
+    status = Column(
+        Enum(
+            JobStatus,
+            name="job_status",
+            values_callable=lambda ec: [m.value for m in ec],
+        ),
+        nullable=False,
+        default=JobStatus.QUEUED,
+        server_default=JobStatus.QUEUED.value,
+        index=True,
+    )
+    result = Column(
+        Enum(
+            JobResult,
+            name="job_result",
+            values_callable=lambda ec: [m.value for m in ec],
+        ),
+        nullable=True,
+    )
+    progress = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    total = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    error_message = Column(Text, nullable=True)
+    attempt_number = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    parent_job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    requested_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    last_updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    student = relationship("Student", backref="jobs")
+    parent_job = relationship("Job", remote_side="Job.id", post_update=True)
+    submissions = relationship(
+        "JobSubmission",
+        back_populates="job",
+        cascade="all, delete-orphan",
+    )
+
+
+class JobSubmission(Base):
+    __tablename__ = "job_submissions"
+
+    job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True,
+        index=True,
+    )
+    submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True,
+        index=True,
+    )
+    status = Column(
+        Enum(
+            JobSubmissionItemStatus,
+            name="job_submission_item_status",
+            values_callable=lambda ec: [m.value for m in ec],
+        ),
+        nullable=True,
+        default=JobSubmissionItemStatus.PENDING,
+        server_default=JobSubmissionItemStatus.PENDING.value,
+        index=True,
+    )
+    error_message = Column(Text, nullable=True)
+
+    job = relationship("Job", back_populates="submissions")
+    submission = relationship("DocumentSubmission")

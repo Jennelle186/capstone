@@ -29,19 +29,19 @@ def _get_clerk_client() -> Clerk | None:
 
 async def fetch_user_profile(
     clerk_user_id: str,
-) -> tuple[str | None, str | None, str | None, str | None, dict[str, Any] | None]:
+) -> tuple[str | None, str | None, str | None, str | None, dict[str, Any] | None, str | None]:
     """
-    Fetch email, first_name, middle_name, last_name, and public_metadata from Clerk for the given user id.
+    Fetch email, first_name, middle_name, last_name, public_metadata, and image_url from Clerk for the given user id.
     """
     client = _get_clerk_client()
     if client is None:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     try:
         user = await client.users.get_async(user_id=clerk_user_id)
     except Exception:
         logger.exception("Failed to fetch Clerk user for %s", clerk_user_id)
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     # Email: prefer primary email.
     email = None
@@ -85,7 +85,9 @@ async def fetch_user_profile(
         if isinstance(middle, str) and middle.strip():
             middle_name = middle.strip()
 
-    return email, first_name, middle_name, last_name, public_metadata
+    image_url = _normalize_non_empty_string(getattr(user, "image_url", None))
+
+    return email, first_name, middle_name, last_name, public_metadata, image_url
 
 
 async def update_user_public_metadata(clerk_user_id: str, public_metadata: dict[str, Any]) -> dict[str, Any] | None:
@@ -161,6 +163,45 @@ async def fetch_user_lock_status(clerk_user_id: str) -> bool | None:
 
     locked = getattr(user, "locked", None)
     return bool(locked) if isinstance(locked, bool) else None
+
+
+async def fetch_users_lock_status(clerk_user_ids: list[str]) -> dict[str, bool | None]:
+    """
+    Return a dict mapping clerk_user_id -> locked status for all given user IDs.
+    Uses a single batch API call instead of N individual calls.
+    """
+    if not clerk_user_ids:
+        return {}
+
+    client = _get_clerk_client()
+    if client is None:
+        return {uid: None for uid in clerk_user_ids}
+
+    try:
+        users = await client.users.list_async(
+            request={
+                "user_id": clerk_user_ids,
+                "limit": len(clerk_user_ids),
+            }
+        )
+    except Exception:
+        logger.exception("Failed to batch-fetch Clerk lock states for %d users", len(clerk_user_ids))
+        return {uid: None for uid in clerk_user_ids}
+
+    result: dict[str, bool | None] = {}
+    found_ids: set[str] = set()
+    for user in users:
+        user_id = getattr(user, "id", None)
+        if user_id:
+            locked = getattr(user, "locked", None)
+            result[user_id] = bool(locked) if isinstance(locked, bool) else None
+            found_ids.add(user_id)
+
+    for uid in clerk_user_ids:
+        if uid not in found_ids:
+            result[uid] = None
+
+    return result
 
 
 async def lock_user_account(clerk_user_id: str) -> bool:

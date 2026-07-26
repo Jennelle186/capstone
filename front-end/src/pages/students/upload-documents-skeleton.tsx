@@ -1,5 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import UploadZoneSkeleton from "@/components/student/UploadDocuments/upload-zone-skeleton";
+import UploadZoneSkeleton from "@/components/student/UploadDocuments/upload/upload-zone-skeleton";
 
 export default function UploadDocumentsSkeleton() {
   return (

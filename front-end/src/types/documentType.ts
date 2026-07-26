@@ -1,6 +1,6 @@
 export type DocumentTypeStatus = "active" | "archived";
 
-export type StudentClassification = "regular" | "transferee" | "shiftee";
+export type StudentClassification = "freshman" | "transferee" | "shifter" | "returning" | "cross_enrollee";
 
 export interface DocumentTypeItem {
     id: string;
@@ -49,4 +49,17 @@ export interface DocumentTypeUpsertPayload {
     keywords: string[];
     applicable_classifications: StudentClassification[];
     status: DocumentTypeStatus;
+}
+
+export interface GenerateClassificationRequest {
+    name: string;
+    code: string;
+    description: string;
+    applicable_classifications: StudentClassification[];
+}
+
+export interface GeneratedClassificationResult {
+    classifier_description: string;
+    keywords: string[];
+    reasoning: string;
 }

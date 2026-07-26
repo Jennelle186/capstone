@@ -46,7 +46,7 @@ export default function SchoolYearsPage() {
         schoolYearAuditLogs,
         schoolYearRequirements,
         documentTypes,
-        admissionSchemas,
+        extractionSchemas,
         isRequirementsLoading,
         schoolYears,
         schoolYearToClose,
@@ -159,7 +159,7 @@ export default function SchoolYearsPage() {
                 schoolYearAuditLogs={schoolYearAuditLogs}
                 schoolYearRequirements={schoolYearRequirements}
                 documentTypes={documentTypes}
-                admissionSchemas={admissionSchemas}
+                extractionSchemas={extractionSchemas}
                 viewingSchoolYear={viewingSchoolYear}
             />
 

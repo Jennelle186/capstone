@@ -8,20 +8,32 @@ import TermsPage from "./pages/TermsPage";
 import StudentDashboard from "./pages/students/StudentDashboard";
 import UploadDocuments from "./pages/students/UploadDocuments";
 import ProfileSettings from "./pages/students/ProfileSettings";
+import ExtractionDetailPage from "./pages/students/ExtractionDetailPage";
+import ResolveFlaggedPage from "./pages/students/ResolveFlaggedPage";
+import NotificationsPage from "./pages/students/NotificationsPage";
 import RootLayout from "./layouts/RootLayout";
 import StudentLayout from "./layouts/StudentLayout";
-import TeacherDashboardLayout from "./layouts/TeacherDashboardLayout";
+import AdviserDashboardLayout from "./layouts/AdviserDashboardLayout";
 import AdminLayout from "./layouts/AdminLayout";
-import TeacherDashboard from "./pages/teachers/TeacherDashboard";
-import TeacherProfilePage from "./pages/teachers/TeacherProfilePage";
+import AdviserDashboard from "./pages/adviser/AdviserDashboard";
+import AdviserProfilePage from "./pages/adviser/AdviserProfilePage";
+import AdviseesPage from "./pages/adviser/AdviseesPage";
+import StudentDetailPage from "./pages/adviser/StudentDetailPage";
+import ArchivedPage from "./pages/adviser/ArchivedPage";
+import ExtractionAnalyticsPage from "./pages/adviser/ExtractionAnalyticsPage";
+import AnalyticsPage from "./pages/adviser/AnalyticsPage";
+import DocumentReviewDesk from "./pages/adviser/DocumentReviewDesk";
 import AdminDashboardPage from "./pages/admin/dashboard/AdminDashboardPage";
 import AdvisersPage from "./pages/admin/advisers/AdvisersPage";
 import ReportsPage from "./pages/admin/reports/ReportsPage";
 import DepartmentsPage from "./pages/admin/departments/DepartmentsPage";
+import StudentsPage from "./pages/admin/students/StudentsPage";
 import SchoolYearsPage from "./pages/admin/school-years/SchoolYearsPage";
 import DocumentTypesPage from "./pages/admin/document-types/DocumentTypesPage";
 import RequirementsPage from "./pages/admin/requirements/RequirementsPage";
-import AdmissionSchemasPage from "./pages/admin/admission-forms/AdmissionSchemasPage";
+import ExtractionSchemasPage from "./pages/admin/extraction-schemas/ExtractionSchemasPage";
+import SchemaRegistryPage from "./pages/admin/extraction-schemas/SchemaRegistryPage";
+import AdminAnalyticsPage from "./pages/admin/analytics/AnalyticsPage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
 import { RequireStudent, RequireAdviser, RequireAdmin } from "./components/auth/RequireRole";
@@ -59,10 +71,13 @@ const AppRoutes = createBrowserRouter([
             {
                 Component: StudentLayout,
                 children: [
-                    { index: true, element: <Navigate to="dashboard" replace /> },
-                    { path: "dashboard", Component: StudentDashboard },
-                    { path: "upload", Component: UploadDocuments },
-                    // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).
+                  { index: true, element: <Navigate to="dashboard" replace /> },
+                  { path: "dashboard", Component: StudentDashboard },
+                  { path: "notifications", Component: NotificationsPage },
+                  { path: "upload", Component: UploadDocuments },
+                  { path: "extraction/:submissionId", Component: ExtractionDetailPage },
+                  { path: "resolve-flagged/:documentId", Component: ResolveFlaggedPage },
+                  // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).
                     { path: "profile/*", Component: ProfileSettings },
                 ],
             },
@@ -73,11 +88,22 @@ const AppRoutes = createBrowserRouter([
         Component: RequireAdviser,
         children: [
             {
-                Component: TeacherDashboardLayout,
+                Component: AdviserDashboardLayout,
                 children: [
                     { index: true, element: <Navigate to="dashboard" replace /> },
-                    { path: "dashboard", Component: TeacherDashboard },
-                    { path: "profile/*", Component: TeacherProfilePage },
+                    { path: "dashboard", Component: AdviserDashboard },
+                    {
+                        path: "students",
+                        children: [
+                            { index: true, Component: AdviseesPage },
+                            { path: ":id", Component: StudentDetailPage },
+                            { path: ":studentId/review/:submissionId", Component: DocumentReviewDesk },
+                        ],
+                    },
+                    { path: "analytics", Component: AnalyticsPage },
+                    { path: "extraction-analytics", Component: ExtractionAnalyticsPage },
+                    { path: "archived", Component: ArchivedPage },
+                    { path: "profile/*", Component: AdviserProfilePage },
                 ],
             },
         ],
@@ -93,9 +119,17 @@ const AppRoutes = createBrowserRouter([
                     { path: "dashboard", Component: AdminDashboardPage },
                     { path: "advisers", Component: AdvisersPage },
                     { path: "departments", Component: DepartmentsPage },
+                    { path: "students", Component: StudentsPage },
                     { path: "document-types", Component: DocumentTypesPage },
-                    { path: "admission-forms", Component: AdmissionSchemasPage },
+                    {
+                        path: "extraction-schemas",
+                        children: [
+                            { index: true, Component: ExtractionSchemasPage },
+                            { path: "registry", Component: SchemaRegistryPage },
+                        ],
+                    },
                     { path: "requirements", Component: RequirementsPage },
+                    { path: "analytics", Component: AdminAnalyticsPage },
                     { path: "reports", Component: ReportsPage },
                     { path: "settings/school-year", Component: SchoolYearsPage },
                 ],

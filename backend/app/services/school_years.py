@@ -14,7 +14,6 @@ from ..models import (
     Adviser,
     Department,
     DocumentType,
-    DocumentTypeStatus,
     ProgramAdviserAssignment,
     SchoolYear,
     SchoolYearAuditLog,
@@ -22,7 +21,7 @@ from ..models import (
     SchoolYearStatus,
     User,
 )
-from ..routers.admin.program_assignment import program_uuid_for_department_code
+from .helpers import program_uuid_for_department_code
 from ..schemas.school_years import (
     SchoolYearActivationPreviewResponse,
     SchoolYearAuditLogResponse,
@@ -160,7 +159,6 @@ async def _summary_for_school_year(db: SessionDep, school_year: SchoolYear) -> d
         .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
         .where(
             SchoolYearRequirement.school_year_id == school_year.id,
-            DocumentType.status == DocumentTypeStatus.ACTIVE,
         )
     )
     requirement_count_result = await db.execute(requirement_count_stmt)
@@ -174,7 +172,6 @@ async def _summary_for_school_year(db: SessionDep, school_year: SchoolYear) -> d
             .join(DocumentType, DocumentType.id == SchoolYearRequirement.document_type_id)
             .where(
                 SchoolYearRequirement.school_year_id == school_year.id,
-                DocumentType.status == DocumentTypeStatus.ACTIVE,
             )
         )
         req_result = await db.execute(req_stmt)
@@ -722,3 +719,36 @@ async def rollover_school_year(
     await db.commit()
     await db.refresh(new_school_year)
     return await serialize_school_year(db, new_school_year)
+
+
+# ─── Adviser-specific school year listing ─────────────────────────────────────
+
+
+async def list_adviser_school_years(
+    db: SessionDep,
+    adviser: Adviser,
+) -> list[dict]:
+    assignment_stmt = (
+        select(ProgramAdviserAssignment.school_year_id)
+        .where(ProgramAdviserAssignment.adviser_id == adviser.id)
+        .distinct()
+    )
+    assigned_year_ids = (await db.execute(assignment_stmt)).scalars().all()
+    if not assigned_year_ids:
+        return []
+
+    stmt = (
+        select(SchoolYear)
+        .where(SchoolYear.id.in_(assigned_year_ids))
+        .order_by(desc(SchoolYear.start_date))
+    )
+    years = (await db.execute(stmt)).scalars().all()
+
+    return [
+        {
+            "id": str(y.id),
+            "name": y.name,
+            "is_current": y.is_active,
+        }
+        for y in years
+    ]

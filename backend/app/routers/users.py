@@ -5,13 +5,14 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
+from sqlalchemy.exc import IntegrityError
 from typing_extensions import Annotated
 
 from ..database import SessionDep
 from ..models import Adviser, ProgramAdviserAssignment, SchoolYear, Student, User, UserRole
 from ..rbac import require_roles, require_student
-from ..routers.admin.program_assignment import get_program_id_to_department_code_map
+from ..services.helpers import get_program_id_to_department_code_map, get_program_id_to_department_name_map
 from ..services.clerk import update_user_personal_names, update_user_public_metadata
 from ..services.user_sync import ensure_user_row
 
@@ -103,8 +104,8 @@ async def _get_active_assignment_for_adviser(db: SessionDep, adviser_id: Any) ->
     if program_id is None:
         return None, active_school_year.name
 
-    program_id_to_code = await get_program_id_to_department_code_map(db)
-    return program_id_to_code.get(program_id), active_school_year.name
+    program_id_to_name = await get_program_id_to_department_name_map(db)
+    return program_id_to_name.get(program_id), active_school_year.name
 
 
 def _build_adviser_profile_response(
@@ -166,10 +167,18 @@ async def update_public_metadata(payload: PublicMetadataUpdate, current_user: St
 
         if isinstance(student_number, str) and student_number:
             student.student_number = student_number
-        if isinstance(program, str) and program:
-            student.program = program
+        if isinstance(program, str) and program and not student.program_id:
+            from ..models import Department
+            dept_result = await db.execute(select(Department).where(func.lower(Department.code) == program.lower()))
+            dept = dept_result.scalar_one_or_none()
+            if dept is not None:
+                student.program_id = dept.id
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="A student with this student number already exists.")
     await db.refresh(user)
 
     return {
@@ -223,3 +232,4 @@ async def update_adviser_profile(
 
     department, school_year = await _get_active_assignment_for_adviser(db, adviser.id)
     return _build_adviser_profile_response(user, department=department, school_year=school_year)
+
