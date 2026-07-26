@@ -50,7 +50,7 @@ export default function UploadSidebar({ slots, legacyDocuments }: UploadSidebarP
                                         )}
                                     </div>
                                     {slot.is_complete && (
-                                        <p className="mt-1 text-[11px] text-amber-600 bg-amber-50/50 rounded-md px-2 py-0.5">
+                                        <p className="mt-1 text-[11px] text-emerald-600 bg-emerald-50/50 rounded-md px-2 py-0.5">
                                             Requirement fulfilled — new uploads add alternate copies.
                                         </p>
                                     )}

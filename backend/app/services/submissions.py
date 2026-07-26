@@ -400,18 +400,6 @@ async def verify_submission(
     )
     db.add(notification)
 
-    if student.application_status != "SUBMITTED_COMPLETE":
-        slot_statuses = await get_student_slot_statuses(db, student)
-        if slot_statuses and all(s.is_complete for s in slot_statuses):
-            student.application_status = "SUBMITTED_COMPLETE"
-            db.add(Notification(
-                recipient_id=student.user_id,
-                title="Enrollment Complete",
-                message="All your required documents have been verified. Your enrollment file is now complete.",
-                notification_type="ENROLLMENT_COMPLETE",
-                reference_id=student.id,
-            ))
-
     await db.commit()
 
     return {
