@@ -39,6 +39,8 @@ def extract_values(
         raw = entry.get("value") if isinstance(entry, dict) else entry
         if raw is None:
             continue
+        if raw == "" or raw == []:
+            continue
         if field_type == "multi-select" and isinstance(raw, list):
             values.append(raw)
         elif field_type in ("number", "integer") and not isinstance(raw, (int, float)):

@@ -59,6 +59,8 @@ class DistributionAggregator(Aggregator):
             items = v if isinstance(v, list) else [v]
             for item in items:
                 key = str(item).strip().lower()
+                if not key:
+                    continue
                 counts[key] += 1
 
         total = len(values)

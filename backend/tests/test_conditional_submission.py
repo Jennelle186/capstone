@@ -65,8 +65,8 @@ async def test_application_status_pending_when_slots_incomplete() -> None:
 
 
 @pytest.mark.asyncio
-async def test_verify_submission_promotes_pending_to_complete() -> None:
-    """verify_submission should promote PENDING_DOCUMENTS to SUBMITTED_COMPLETE when all slots become complete."""
+async def test_verify_submission_does_not_promote_application_status() -> None:
+    """verify_submission should NOT promote application_status — only submit-batch triggers SUBMITTED_COMPLETE."""
     student = SimpleNamespace(
         id=uuid4(),
         school_year_id=uuid4(),
@@ -114,13 +114,13 @@ async def test_verify_submission_promotes_pending_to_complete() -> None:
 
     assert result is not None
     assert result["status"] == "verified"
-    assert student.application_status == "SUBMITTED_COMPLETE"
+    assert student.application_status == "PENDING_DOCUMENTS"
 
 
 @pytest.mark.asyncio
-async def test_verify_submission_promotes_null_status() -> None:
-    """verify_submission should promote a student with null application_status
-    when all slots are complete."""
+async def test_verify_submission_does_not_promote_null_status() -> None:
+    """verify_submission should NOT promote a student's application_status
+    — only submit-batch triggers SUBMITTED_COMPLETE."""
     student = SimpleNamespace(
         id=uuid4(),
         school_year_id=uuid4(),
@@ -166,4 +166,4 @@ async def test_verify_submission_promotes_null_status() -> None:
 
     assert result is not None
     assert result["status"] == "verified"
-    assert student.application_status == "SUBMITTED_COMPLETE"
+    assert student.application_status is None
