@@ -6,23 +6,28 @@ import { ArrowLeft, ChevronDown, ChevronRight, FolderCheck, Lock } from "lucide-
 import { toast } from "sonner";
 import SubmissionCard from "@/components/student/UploadDocuments/submit/SubmissionCard";
 import SubmissionSummary from "@/components/student/UploadDocuments/submit/SubmissionSummary";
+import ConditionalSubmitModal from "@/components/student/UploadDocuments/submit/ConditionalSubmitModal";
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
 import ReviewDocumentDetailModal from "@/components/student/ReviewDocumentDetailModal";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { SubmissionCardStatus, SubmissionDetail } from "@/types/submission";
 import type { ExtractionItemResponse } from "@/types/extraction";
+import type { SlotStatusResponse } from "@/types/requirement";
+import { getSlotDisplayName } from "@/types/requirement";
 
 interface StepSubmitProps {
-  allVerified?: boolean;
+  requiredSlots: SlotStatusResponse[];
   submissions: SubmissionDetail[];
   getToken: () => Promise<string | null>;
   onSubmitted?: () => void;
 }
 
-export default function StepSubmit({ allVerified, submissions, getToken, onSubmitted }: StepSubmitProps) {
+export default function StepSubmit({ requiredSlots, submissions, getToken, onSubmitted }: StepSubmitProps) {
   const navigate = useNavigate();
   const [showConfirm, setShowConfirm] = React.useState(false);
+  const [showConditional, setShowConditional] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
+  const [pendingDocuments, setPendingDocuments] = React.useState(false);
   const [readOnly, setReadOnly] = React.useState(false);
   const [activeDocIndex, setActiveDocIndex] = React.useState(0);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
@@ -85,6 +90,17 @@ export default function StepSubmit({ allVerified, submissions, getToken, onSubmi
     ? items.reduce((s, i) => s + (i.confidence ?? 0), 0) / items.length
     : null;
 
+  const incompleteSlots = requiredSlots.filter((s) => !s.is_complete);
+  const hasIncompleteSlots = incompleteSlots.length > 0;
+
+  const handleSubmitClick = () => {
+    if (hasIncompleteSlots) {
+      setShowConditional(true);
+    } else {
+      setShowConfirm(true);
+    }
+  };
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
     setSubmitError(null);
@@ -103,7 +119,14 @@ export default function StepSubmit({ allVerified, submissions, getToken, onSubmi
         setIsSubmitting(false);
         return;
       }
-      const result = await res.json() as { status: string; submitted_count: number; skipped_count?: number; skipped?: Array<{ submission_id: string; document_type_name: string | null; reason: string }> };
+      const result = await res.json() as {
+        status: string;
+        submitted_count: number;
+        skipped_count?: number;
+        skipped?: Array<{ submission_id: string; document_type_name: string | null; reason: string }>;
+        application_status: string | null;
+        incomplete_slots?: Array<{ id: string; name: string; min_required: number }>;
+      };
       if (result.skipped_count && result.skipped_count > 0 && result.skipped) {
         const names = result.skipped
           .map((s) => s.document_type_name)
@@ -120,9 +143,16 @@ export default function StepSubmit({ allVerified, submissions, getToken, onSubmi
           });
         }
       }
-      toast.success(`${result.submitted_count} document(s) submitted for adviser review.`, {
-        duration: 5000,
-      });
+      if (result.application_status === "PENDING_DOCUMENTS") {
+        setPendingDocuments(true);
+        toast.warning("Documents submitted with missing requirements — marked as Pending Documents.", {
+          duration: 6000,
+        });
+      } else {
+        toast.success(`${result.submitted_count} document(s) submitted for adviser review.`, {
+          duration: 5000,
+        });
+      }
       setSubmitted(true);
       onSubmitted?.();
     } catch {
@@ -148,23 +178,61 @@ export default function StepSubmit({ allVerified, submissions, getToken, onSubmi
     setReadOnly(false);
   };
 
-  if (allVerified) {
-    return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-        <Lock className="mx-auto h-8 w-8 text-emerald-500" />
-        <h3 className="mt-4 text-lg font-semibold text-emerald-800">
-          All Required Documents Verified
-        </h3>
-        <p className="mx-auto mt-2 max-w-md text-sm text-emerald-600">
-          Every required document has been reviewed and verified by your
-          adviser. No further action is needed.
-        </p>
-      </div>
-    );
-  }
-
   // Celebration screen — shown immediately after successful submit
   if (submitted && !readOnly) {
+    if (pendingDocuments) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+            <FolderCheck className="h-8 w-8" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">
+            Submitted — Pending Documents
+          </h2>
+          <p className="max-w-md text-sm leading-relaxed text-slate-500">
+            Your enrollment file has been submitted, but{" "}
+            <strong>{incompleteSlots.length} requirement{incompleteSlots.length !== 1 ? "s" : ""}</strong>{" "}
+            {incompleteSlots.length !== 1 ? "are" : "is"} still missing. Your adviser
+            will review what you have submitted but cannot fully approve your
+            application until the following are provided:
+          </p>
+          <div className="w-full max-w-sm rounded-lg border border-amber-200 bg-amber-50 p-4 text-left">
+            <ul className="space-y-1">
+              {incompleteSlots.map((slot) => (
+                <li key={slot.id} className="flex items-start gap-2 text-sm text-amber-800">
+                  <span className="mt-0.5 shrink-0 text-amber-500">&bull;</span>
+                  <span>
+                    {getSlotDisplayName(slot)}
+                    {slot.min_required > 1 && (
+                      <span className="ml-1 text-xs text-amber-600">
+                        ({slot.matched_count}/{slot.min_required})
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="mt-2 flex w-full max-w-xs flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/student/dashboard")}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-white shadow-sm transition-all hover:opacity-90 active:scale-[0.98]"
+            >
+              Return to Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={() => setReadOnly(true)}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+            >
+              Review Submitted Documents
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
@@ -279,7 +347,7 @@ export default function StepSubmit({ allVerified, submissions, getToken, onSubmi
             classificationAccuracy={classificationAccuracy}
             extractionAccuracy={extractionAccuracy}
             onSaveLater={handleSaveLater}
-            onSubmit={() => setShowConfirm(true)}
+            onSubmit={() => handleSubmitClick()}
             isSubmitting={isSubmitting}
             hideActions={readOnly}
           />
@@ -290,6 +358,17 @@ export default function StepSubmit({ allVerified, submissions, getToken, onSubmi
         open={showConfirm}
         onOpenChange={setShowConfirm}
         onConfirm={handleSubmit}
+      />
+
+      <ConditionalSubmitModal
+        open={showConditional}
+        onOpenChange={setShowConditional}
+        onConfirm={() => {
+          setShowConditional(false);
+          handleSubmit();
+        }}
+        incompleteSlots={incompleteSlots}
+        isSubmitting={isSubmitting}
       />
 
       <ReviewDocumentDetailModal

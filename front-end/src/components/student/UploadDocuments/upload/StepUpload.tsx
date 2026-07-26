@@ -5,6 +5,7 @@ import { Lock } from "lucide-react";
 import { toast } from "sonner";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
+import type { SlotStatusResponse } from "@/types/requirement";
 import type { ConfirmUploadResponse, InitiateUploadResponse, SubmissionDetail } from "@/types/submission";
 import DocumentPreviewDialog, { type PreviewItem } from "./DocumentPreviewDialog";
 import DropZone from "./DropZone";
@@ -18,8 +19,8 @@ import type { FileItem } from "./types";
 const MAX_FILE_SIZE = 315 * 1024 * 1024;
 
 interface StepUploadProps {
-  allVerified?: boolean;
   requiredDocuments?: RequiredDocument[];
+  requiredSlots?: SlotStatusResponse[];
   getToken: () => Promise<string | null>;
   onUploadComplete?: (result: ConfirmUploadResponse) => void;
   onDeleteSubmission?: (id: string) => void;
@@ -28,10 +29,9 @@ interface StepUploadProps {
   replaceSubmissionId?: string | null;
 }
 
-// This is the upload workflow: drop zone, new file list, previously uploaded section, preview dialog, and sidebar.
 export default function StepUpload({
-  allVerified,
   requiredDocuments,
+  requiredSlots,
   getToken,
   onUploadComplete,
   onDeleteSubmission,
@@ -290,21 +290,6 @@ export default function StepUpload({
     return requiredDocuments.filter((doc) => verifiedDocIds.has(doc.id));
   }, [existingSubmissions, requiredDocuments]);
 
-  if (allVerified) {
-    return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-        <Lock className="mx-auto h-8 w-8 text-emerald-500" />
-        <h3 className="mt-4 text-lg font-semibold text-emerald-800">
-          All Required Documents Verified
-        </h3>
-        <p className="mx-auto mt-2 max-w-md text-sm text-emerald-600">
-          Every required document has been reviewed and verified by your
-          adviser. No further uploads are needed at this time.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="grid grid-cols-12 gap-4">
       {/* Left column: upload controls and file lists */}
@@ -349,7 +334,7 @@ export default function StepUpload({
         />
       </div>
       {/* Right sidebar: required documents and tips */}
-      <UploadSidebar requiredDocuments={requiredDocuments} />
+      <UploadSidebar slots={requiredSlots} legacyDocuments={requiredDocuments} />
       {/* Full-screen preview dialog with carousel navigation */}
       <DocumentPreviewDialog
         open={previewIndex !== null}

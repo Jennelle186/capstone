@@ -10,6 +10,7 @@ import StepExtract from "@/components/student/UploadDocuments/extract/StepExtrac
 import StepSubmit from "@/components/student/UploadDocuments/submit/StepSubmit";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
+import type { SlotStatusResponse, RequiredSlotsResponse } from "@/types/requirement";
 import type { ConfirmUploadResponse, SubmissionDetail } from "@/types/submission";
 
 const CLAMP = (n: number) => Math.max(1, Math.min(4, n));
@@ -18,6 +19,7 @@ export default function UploadDocuments() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
+  const [requiredSlots, setRequiredSlots] = useState<SlotStatusResponse[]>([]);
   const [classificationComplete, setClassificationComplete] = useState(false);
   const [extractionComplete, setExtractionComplete] = useState(false);
   const [existingSubmissions, setExistingSubmissions] = useState<SubmissionDetail[]>([]);
@@ -25,17 +27,6 @@ export default function UploadDocuments() {
   const [sessionUploadIds, setSessionUploadIds] = useState<Set<string>>(new Set());
 
   const replaceSubmissionId = searchParams.get("replace");
-
-  const allVerified = useMemo(() => {
-    if (requiredDocs.length === 0) return false;
-    const verifiedTypeIds = new Set(
-      existingSubmissions
-        .filter((s) => s.status === "verified")
-        .map((s) => s.document_type_id)
-        .filter(Boolean),
-    );
-    return requiredDocs.every((doc) => verifiedTypeIds.has(doc.id));
-  }, [requiredDocs, existingSubmissions]);
 
   const getExtractedData = (submission: SubmissionDetail) =>
     (submission as unknown as { extracted_data?: unknown; extractedData?: unknown }).extracted_data ??
@@ -96,12 +87,30 @@ export default function UploadDocuments() {
         const token = await getToken();
         if (!token) return;
         const [reqRes, docsRes] = await Promise.all([
-          fetchWithClerkAuth("/api/me/required-documents", token),
+          fetchWithClerkAuth("/api/me/required-slots", token),
           fetchWithClerkAuth("/api/me/documents", token),
         ]);
         if (reqRes.ok) {
-          const data = (await reqRes.json()) as { documents: RequiredDocument[] };
-          if (!cancelled) setRequiredDocs(data.documents);
+          const data = (await reqRes.json()) as RequiredSlotsResponse;
+          if (!cancelled) {
+            setRequiredSlots(data.slots);
+            const flatDocs: RequiredDocument[] = [];
+            const seen = new Set<string>();
+            for (const slot of data.slots) {
+              for (const item of slot.items) {
+                if (seen.has(item.document_type_id)) continue;
+                seen.add(item.document_type_id);
+                flatDocs.push({
+                  id: item.document_type_id,
+                  name: item.document_type_name,
+                  code: item.document_type_code,
+                  description: "",
+                  is_required: true,
+                });
+              }
+            }
+            setRequiredDocs(flatDocs);
+          }
         }
         if (docsRes.ok) {
           const data = (await docsRes.json()) as SubmissionDetail[];
@@ -125,6 +134,37 @@ export default function UploadDocuments() {
     };
   }, [getToken, isLoaded, isSignedIn]);
 
+  const refetchSlots = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const reqRes = await fetchWithClerkAuth("/api/me/required-slots", token);
+    if (reqRes.ok) {
+      const data = (await reqRes.json()) as RequiredSlotsResponse;
+      setRequiredSlots(data.slots);
+      const flatDocs: RequiredDocument[] = [];
+      const seen = new Set<string>();
+      for (const slot of data.slots) {
+        for (const item of slot.items) {
+          if (seen.has(item.document_type_id)) continue;
+          seen.add(item.document_type_id);
+          flatDocs.push({
+            id: item.document_type_id,
+            name: item.document_type_name,
+            code: item.document_type_code,
+            description: "",
+            is_required: true,
+          });
+        }
+      }
+      setRequiredDocs(flatDocs);
+    }
+  }, [getToken]);
+
+  const handleSubmissionsUpdate = useCallback((data: SubmissionDetail[]) => {
+    setExistingSubmissions(data);
+    refetchSlots();
+  }, [refetchSlots]);
+
   const handleUploadComplete = useCallback(async (result: ConfirmUploadResponse) => {
     setSessionUploadIds((prev) => new Set(prev).add(result.id));
     if (replaceSubmissionId) {
@@ -144,6 +184,7 @@ export default function UploadDocuments() {
           const data = (await freshRes.json()) as SubmissionDetail[];
           setExistingSubmissions(data);
         }
+        refetchSlots();
       }
       return;
     }
@@ -154,8 +195,9 @@ export default function UploadDocuments() {
         const data = (await freshRes.json()) as SubmissionDetail[];
         setExistingSubmissions(data);
       }
+      refetchSlots();
     }
-  }, [getToken, replaceSubmissionId]);
+  }, [getToken, replaceSubmissionId, refetchSlots]);
 
   const handleDeleted = useCallback(async () => {
     const token = await getToken();
@@ -165,7 +207,8 @@ export default function UploadDocuments() {
       const data = (await res.json()) as SubmissionDetail[];
       setExistingSubmissions(data);
     }
-  }, [getToken]);
+    refetchSlots();
+  }, [getToken, refetchSlots]);
 
   const refetchSubmissions = useCallback(async () => {
     const token = await getToken();
@@ -176,6 +219,11 @@ export default function UploadDocuments() {
       setExistingSubmissions(data);
     }
   }, [getToken]);
+
+  const handleSubmitted = useCallback(async () => {
+    await refetchSubmissions();
+    await refetchSlots();
+  }, [refetchSubmissions, refetchSlots]);
 
   useEffect(() => {
     if (step === 4) refetchSubmissions();
@@ -191,8 +239,8 @@ export default function UploadDocuments() {
       )}
       {step === 1 && (
         <StepUpload
-          allVerified={allVerified}
           requiredDocuments={requiredDocs}
+          requiredSlots={requiredSlots}
           getToken={getToken}
           onUploadComplete={handleUploadComplete}
           onDeleteSubmission={(id) =>
@@ -205,22 +253,21 @@ export default function UploadDocuments() {
       )}
       {step === 2 && (
         <StepClassify
-          allVerified={allVerified}
           requiredDocuments={requiredDocs}
+          requiredSlots={requiredSlots}
           submissions={sessionSubmissions}
           onClassificationChange={setClassificationComplete}
-          onSubmissionsUpdate={setExistingSubmissions}
+          onSubmissionsUpdate={handleSubmissionsUpdate}
           getToken={getToken}
         />
       )}
       {step === 3 && (
         <StepExtract
-          allVerified={allVerified}
           onExtractionChange={setExtractionComplete}
           getToken={getToken}
         />
       )}
-      {step === 4 && <StepSubmit allVerified={allVerified} submissions={sessionSubmissions} getToken={getToken} onSubmitted={refetchSubmissions} />}
+      {step === 4 && <StepSubmit requiredSlots={requiredSlots} submissions={sessionSubmissions} getToken={getToken} onSubmitted={handleSubmitted} />}
     </UploadWizard>
   );
 }

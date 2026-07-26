@@ -208,7 +208,10 @@ async def list_extractions(
     statuses: tuple[SubmissionStatus, ...]
     if status:
         parts = [s.strip() for s in status.split(",")]
-        statuses = tuple(SubmissionStatus(s) for s in parts)
+        try:
+            statuses = tuple(SubmissionStatus(s) for s in parts)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid status value: {e}")
     else:
         statuses = (SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED, SubmissionStatus.PROCESSING)
 

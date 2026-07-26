@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from ...database import SessionDep
 from ...models import Adviser, Department, DocumentSubmission, ProgramAdviserAssignment, SchoolYear, Student, SubmissionStatus, User
 from ..helpers import exclude_replaced_submissions, get_active_school_year_id, program_uuid_for_department_code
-from ..students import get_required_doc_counts_by_class
+from ..requirements import get_bulk_student_slot_statuses
 
 
 async def get_dashboard_kpi(db: SessionDep) -> dict:
@@ -125,22 +125,10 @@ async def get_dashboard_kpi(db: SessionDep) -> dict:
             "department_clearance": [],
         }
 
-    student_ids = [s.id for s in students]
-
-    verified_count_stmt = exclude_replaced_submissions(
-        select(DocumentSubmission.student_id, func.count(DocumentSubmission.id))
-        .where(
-            DocumentSubmission.student_id.in_(student_ids),
-            DocumentSubmission.status == SubmissionStatus.VERIFIED,
-        )
-        .group_by(DocumentSubmission.student_id)
-    )
-    verified_counts = {r.student_id: r[1] for r in (await db.execute(verified_count_stmt)).all()}
-
-    req_counts = await get_required_doc_counts_by_class(db, active_sy_id)
-
     dept_student_counts: dict[uuid.UUID, int] = defaultdict(int)
     dept_cleared_counts: dict[uuid.UUID, int] = defaultdict(int)
+
+    statuses_map = await get_bulk_student_slot_statuses(db, students)
 
     for s in students:
         dept_id = s.program_id
@@ -148,14 +136,9 @@ async def get_dashboard_kpi(db: SessionDep) -> dict:
             continue
         dept_student_counts[dept_id] += 1
 
-        classification_val = s.classification.value if s.classification else None
-        verified = verified_counts.get(s.id, 0)
-        total_required = req_counts.get(classification_val, 0) or req_counts.get(None, 0)
-
-        # A student is cleared when the number of verified submissions
-        # meets or exceeds the number of document types required for
-        # their classification level.
-        if total_required > 0 and verified >= total_required:
+        slot_statuses = statuses_map.get(s.id, [])
+        slots_total = len(slot_statuses)
+        if slots_total > 0 and all(sl.is_complete for sl in slot_statuses):
             dept_cleared_counts[dept_id] += 1
 
     department_clearance = [

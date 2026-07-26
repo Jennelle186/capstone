@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Database, Loader2, RefreshCw, Sparkles, Lock } from "lucide-react";
+import { AlertCircle, Database, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { createJob, getActiveJobs, getJob, type JobResponse } from "@/lib/jobs";
@@ -12,17 +12,16 @@ import JobProgress from "@/components/student/UploadDocuments/JobProgress";
 import ExtractionCard from "@/components/student/UploadDocuments/extract/ExtractionCard";
 import { toExtractionItem } from "@/types/extraction";
 import type { ExtractionItem, ExtractionItemResponse } from "@/types/extraction";
+import type { ExtractionSchemaFieldType } from "@/types/extractionSchema";
 
 const EXTRACTIONS_ENDPOINT = "/api/me/documents/extractions?status=classified,processing,flagged";
 
 interface StepExtractProps {
-  allVerified?: boolean;
   onExtractionChange?: (complete: boolean) => void;
   getToken: () => Promise<string | null>;
 }
 
 export default function StepExtract({
-  allVerified,
   onExtractionChange,
   getToken,
 }: StepExtractProps) {
@@ -243,7 +242,7 @@ export default function StepExtract({
             if (!f.is_computed || !f.computation) return f;
             if (!f.computation.dependencies.includes(fieldKey)) return f;
             const newValue = computeFieldValue(
-              { id: f.id, key: f.key, type: f.type, description: f.label, required: false, is_computed: true, computation: f.computation },
+              { id: f.id, key: f.key, type: f.type as ExtractionSchemaFieldType, description: f.label, required: false, is_computed: true, computation: f.computation },
               dataMap,
             );
             if (newValue !== null && newValue !== f.value) {
@@ -270,20 +269,6 @@ export default function StepExtract({
       // silent
     }
   }, []);
-
-  if (allVerified) {
-    return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-        <Lock className="mx-auto h-8 w-8 text-emerald-500" />
-        <h3 className="mt-4 text-lg font-semibold text-emerald-800">
-          All Required Documents Verified
-        </h3>
-        <p className="mx-auto mt-2 max-w-md text-sm text-emerald-600">
-          All required documents have been verified. Data extraction is complete.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">

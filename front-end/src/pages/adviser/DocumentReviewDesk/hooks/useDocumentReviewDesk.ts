@@ -81,10 +81,11 @@ export function useDocumentReviewDesk() {
 
   // Cross-student mode: use submissions from route state
   const stateSubmissions = state?.submissions;
+  const isCrossStudentMode = !!stateSubmissions && stateSubmissions.length > 0;
 
   useEffect(() => {
     // Cross-student mode: submissions passed via route state
-    if (stateSubmissions && stateSubmissions.length > 0) {
+    if (isCrossStudentMode) {
       let mounted = true;
 
       const load = async () => {
@@ -166,6 +167,7 @@ export function useDocumentReviewDesk() {
           image_url: data.image_url ?? null,
           program: data.program ?? "", school_year: data.school_year ?? "",
           classification: data.classification ?? "freshman",
+          application_status: data.application_status ?? null,
           documents_submitted: data.documents_submitted ?? 0,
           documents_total: data.documents_total ?? 0,
           completion_pct: data.completion_pct ?? 0,
@@ -239,6 +241,86 @@ export function useDocumentReviewDesk() {
 
   const currentSubmission =
     currentIndex >= 0 ? submissionsList[currentIndex] ?? null : null;
+
+  // ── Refresh student data from API (per-student mode only) ─────────
+  const refreshStudentData = useCallback(async () => {
+    if (!studentId) return;
+    try {
+      const token = await getTokenRef.current();
+      if (!token) return;
+      const res = await fetchWithClerkAuth(
+        `/api/adviser/students/${studentId}`,
+        token,
+      );
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      const data = await res.json();
+
+      const s: AdviserStudent = {
+        id: data.id, name: data.name, initials: data.initials,
+        student_number: data.student_number ?? null, email: data.email ?? null,
+        image_url: data.image_url ?? null,
+        program: data.program ?? "", school_year: data.school_year ?? "",
+        classification: data.classification ?? "freshman",
+        application_status: data.application_status ?? null,
+        documents_submitted: data.documents_submitted ?? 0,
+        documents_total: data.documents_total ?? 0,
+        completion_pct: data.completion_pct ?? 0,
+        gender: data.gender ?? null, cet_score: data.cet_score ?? null,
+        gpa: data.gpa ?? null, high_school: data.high_school ?? null,
+        provincial_address: data.provincial_address ?? null,
+        created_at: data.created_at ?? "",
+      };
+      const subs = (data.submissions ?? []) as AdviserStudentSubmission[];
+
+      setStudent(s);
+      setSubmissionsList(subs);
+
+      // Preserve current index if the submission still exists; otherwise stay at 0
+      setCurrentIndex((prevIdx) => {
+        if (prevIdx >= 0 && prevIdx < subs.length && subs[prevIdx]) {
+          return prevIdx;
+        }
+        return 0;
+      });
+
+      if (subs.length > 0) {
+        const extractionPromises = subs.map(async (sub) => {
+          try {
+            const t = await getTokenRef.current();
+            if (!t) return null;
+            const eres = await fetchWithClerkAuth(
+              `/api/adviser/submissions/${sub.id}/extractions`,
+              t,
+            );
+            if (!eres.ok) return { id: sub.id, sections: [], classification: null };
+            const raw: ExtractionItemRaw | null = await eres.json();
+            return {
+              id: sub.id,
+              sections: mapExtractions(raw),
+              classification: raw?.classification_result ?? null,
+            };
+          } catch {
+            return { id: sub.id, sections: [], classification: null };
+          }
+        });
+
+        const results = await Promise.all(extractionPromises);
+        const dataMap: Record<string, ExtractionSection[]> = {};
+        const classMap: Record<string, Record<string, unknown> | null> = {};
+        for (const r of results) {
+          if (r) {
+            dataMap[r.id] = r.sections;
+            classMap[r.id] = r.classification;
+          }
+        }
+        setExtractionData(dataMap);
+        setClassificationResults(classMap);
+      }
+    } catch (err) {
+      console.error("Failed to refresh student data:", err);
+      toast.error("Failed to refresh review data");
+    }
+  }, [studentId, getTokenRef, mapExtractions]);
 
   // Derive student info from current submission when in cross-student mode
   const currentStudentFromSubmission = currentSubmission
@@ -347,6 +429,10 @@ export function useDocumentReviewDesk() {
             toast.error("Failed to verify document on server", { position: "top-right" });
             return;
           }
+          // Sync with backend to ensure UI reflects the true state (single-student mode only)
+          if (!isCrossStudentMode) {
+            await refreshStudentData();
+          }
         }
 
         setSubmissionsList((prev) => {
@@ -379,7 +465,7 @@ export function useDocumentReviewDesk() {
         setActioning(false);
       }
     },
-    [currentSubmission, currentIndex, submissionsList.length, autoAdvance, getTokenRef],
+    [currentSubmission, currentIndex, submissionsList.length, autoAdvance, getTokenRef, refreshStudentData, isCrossStudentMode],
   );
 
   const handleSubmitFlag = useCallback(async () => {
@@ -411,12 +497,16 @@ export function useDocumentReviewDesk() {
         `${currentSubmission.document_type} flagged: ${reason.trim()}`,
         { position: "top-right" },
       );
+      // Sync with backend to ensure UI reflects the true state (single-student mode only)
+      if (!isCrossStudentMode) {
+        await refreshStudentData();
+      }
     } catch {
       toast.error("Failed to flag document", { position: "top-right" });
     } finally {
       setActioning(false);
     }
-  }, [currentSubmission, flagReasons, getTokenRef]);
+  }, [currentSubmission, flagReasons, getTokenRef, refreshStudentData, isCrossStudentMode]);
 
   const handleSaveField = useCallback(
     async (fieldId: string, value: string) => {

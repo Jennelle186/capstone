@@ -104,6 +104,42 @@ export default function AdviseesPage() {
       filterFn: "equals",
     },
     {
+      accessorKey: "application_status",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Application Status
+          <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const status = row.getValue("application_status") as AdviserStudent["application_status"];
+        if (status === "SUBMITTED_COMPLETE") {
+          return (
+            <Badge className="bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
+              Complete
+            </Badge>
+          );
+        }
+        if (status === "PENDING_DOCUMENTS") {
+          return (
+            <Badge className="bg-amber-100 text-amber-700 text-[10px] font-semibold">
+              Pending Docs
+            </Badge>
+          );
+        }
+        return (
+          <Badge className="bg-slate-100 text-slate-600 text-[10px] font-semibold">
+            In Progress
+          </Badge>
+        );
+      },
+    },
+    {
       accessorKey: "completion_pct",
       header: ({ column }) => (
         <Button
@@ -127,7 +163,7 @@ export default function AdviseesPage() {
         return (
           <div className="space-y-1.5 min-w-[140px] max-w-[200px]">
             <div className="text-[10px] font-bold text-slate-900">
-              {pct}% ({row.original.documents_submitted}/{row.original.documents_total} docs)
+              {pct}% ({row.original.documents_submitted}/{row.original.documents_total} reqs)
             </div>
             <div className="relative h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
@@ -260,10 +296,20 @@ export default function AdviseesPage() {
               >
                 {CLASSIFICATION_LABELS[student.classification]}
               </span>
+              {student.application_status === "PENDING_DOCUMENTS" && (
+                <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-700">
+                  Pending Docs
+                </span>
+              )}
+              {student.application_status === "SUBMITTED_COMPLETE" && (
+                <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-700">
+                  Complete
+                </span>
+              )}
             </div>
             <div className="mt-2 space-y-1">
               <div className="text-[10px] font-bold text-slate-900">
-                {(student.completion_pct ?? 0)}% ({student.documents_submitted}/{student.documents_total} docs)
+                {(student.completion_pct ?? 0)}% ({student.documents_submitted}/{student.documents_total} reqs)
               </div>
               <div className="relative h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
                 <div

@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+import type { SubmissionDetail } from "@/types/submission";
 
 const { mockGetToken, mockFetchWithClerk } = vi.hoisted(() => ({
   mockGetToken: vi.fn().mockResolvedValue("mock-token"),
@@ -191,14 +193,6 @@ describe("StepUpload", () => {
     mockGetToken.mockResolvedValue("mock-token");
   });
 
-  it("renders the locked view when allVerified is true", () => {
-    render(<StepUpload allVerified={true} getToken={mockGetToken} />);
-    expect(screen.getByText("All Required Documents Verified")).toBeDefined();
-    expect(
-      screen.getByText(/Every required document has been reviewed/),
-    ).toBeDefined();
-  });
-
   it("renders DropZone when not all verified", () => {
     render(<StepUpload getToken={mockGetToken} />);
     expect(screen.getByTestId("drop-zone")).toBeDefined();
@@ -226,7 +220,7 @@ describe("StepUpload", () => {
 
 import StepClassify from "@/components/student/UploadDocuments/classify/StepClassify";
 
-const makeSubmission = (overrides: Record<string, unknown> = {}) => ({
+const makeSubmission = (overrides: Partial<SubmissionDetail> = {}) => ({
   id: overrides.id ?? "sub-1",
   status: overrides.status ?? "uploaded",
   original_filename: overrides.original_filename ?? "test.pdf",
@@ -240,8 +234,9 @@ const makeSubmission = (overrides: Record<string, unknown> = {}) => ({
   extracted_data: null,
   rejection_reason: null,
   document_type_code: null,
-  file_key: null,
+  file_key: "",
   parent_submission_id: null,
+  llama_job_id: null,
 });
 
 describe("StepClassify", () => {
@@ -255,27 +250,17 @@ describe("StepClassify", () => {
     vi.mocked(jobLib.getActiveJobs).mockResolvedValue({ jobs: [] });
   });
 
-  it("renders the locked view when allVerified is true", () => {
-    render(
-      <StepClassify
-        allVerified={true}
-        requiredDocuments={[]}
-        submissions={[]}
-        getToken={mockGetToken}
-      />,
-    );
-    expect(screen.getByText("All Required Documents Verified")).toBeDefined();
-  });
-
   it("renders the checklist and header", () => {
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Report Card",
             code: "report_card",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[makeSubmission()]}
@@ -289,6 +274,7 @@ describe("StepClassify", () => {
   it("shows empty state when no visible items", () => {
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[]}
         submissions={[]}
         getToken={mockGetToken}
@@ -300,12 +286,14 @@ describe("StepClassify", () => {
   it("shows Classify All button when items are pending", () => {
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Form 137",
             code: "form_137",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[makeSubmission({ status: "uploaded" })]}
@@ -318,12 +306,14 @@ describe("StepClassify", () => {
   it("does not show Classify All when all items are classified", () => {
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Form 137",
             code: "form_137",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[
@@ -347,12 +337,14 @@ describe("StepClassify", () => {
     const onChange = vi.fn();
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Form 137",
             code: "form_137",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[
@@ -379,12 +371,14 @@ describe("StepClassify", () => {
     const onChange = vi.fn();
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Form 137",
             code: "form_137",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[makeSubmission({ id: "sub-1", status: "uploaded" })]}
@@ -418,12 +412,14 @@ describe("StepClassify", () => {
 
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Form 137",
             code: "form_137",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[makeSubmission({ id: "sub-1", status: "uploaded" })]}
@@ -466,12 +462,14 @@ describe("StepClassify", () => {
 
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Form 137",
             code: "form_137",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[makeSubmission({ id: "sub-1", status: "uploaded" })]}
@@ -513,12 +511,14 @@ describe("StepClassify", () => {
 
     render(
       <StepClassify
+        requiredSlots={[]}
         requiredDocuments={[
           {
             id: "dt-1",
             name: "Form 137",
             code: "form_137",
             description: "",
+            is_required: true,
           },
         ]}
         submissions={[makeSubmission({ status: "processing" })]}
@@ -570,11 +570,6 @@ describe("StepExtract", () => {
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
     vi.mocked(jobLib.getActiveJobs).mockResolvedValue({ jobs: [] });
-  });
-
-  it("renders the locked view when allVerified is true", () => {
-    render(<StepExtract allVerified={true} getToken={mockGetToken} />);
-    expect(screen.getByText("All Required Documents Verified")).toBeDefined();
   });
 
   it("shows loading state on initial mount", () => {
@@ -696,20 +691,10 @@ describe("StepSubmit", () => {
     });
   });
 
-  it("renders the locked view when allVerified is true", () => {
-    render(
-      <StepSubmit
-        allVerified={true}
-        submissions={[]}
-        getToken={mockGetToken}
-      />,
-    );
-    expect(screen.getByText("All Required Documents Verified")).toBeDefined();
-  });
-
   it("renders submission cards for pending items", () => {
     render(
       <StepSubmit
+        requiredSlots={[]}
         submissions={[
           {
             id: "sub-1",
@@ -725,8 +710,9 @@ describe("StepSubmit", () => {
             extracted_data: null,
             rejection_reason: null,
             document_type_code: null,
-            file_key: null,
+            file_key: "",
             parent_submission_id: null,
+            llama_job_id: null,
           },
         ]}
         getToken={mockGetToken}
@@ -738,6 +724,7 @@ describe("StepSubmit", () => {
   it("renders the submission summary", () => {
     render(
       <StepSubmit
+        requiredSlots={[]}
         submissions={[
           {
             id: "sub-1",
@@ -753,8 +740,9 @@ describe("StepSubmit", () => {
             extracted_data: null,
             rejection_reason: null,
             document_type_code: null,
-            file_key: null,
+            file_key: "",
             parent_submission_id: null,
+            llama_job_id: null,
           },
         ]}
         getToken={mockGetToken}
@@ -766,6 +754,7 @@ describe("StepSubmit", () => {
   it("shows verified document count when there are verified submissions", () => {
     render(
       <StepSubmit
+        requiredSlots={[]}
         submissions={[
           {
             id: "v-1",
@@ -781,8 +770,9 @@ describe("StepSubmit", () => {
             extracted_data: null,
             rejection_reason: null,
             document_type_code: null,
-            file_key: null,
+            file_key: "",
             parent_submission_id: null,
+            llama_job_id: null,
           },
         ]}
         getToken={mockGetToken}
@@ -794,6 +784,7 @@ describe("StepSubmit", () => {
   it("does not show verified count when there are no verified submissions", () => {
     render(
       <StepSubmit
+        requiredSlots={[]}
         submissions={[
           {
             id: "sub-1",
@@ -809,8 +800,9 @@ describe("StepSubmit", () => {
             extracted_data: null,
             rejection_reason: null,
             document_type_code: null,
-            file_key: null,
+            file_key: "",
             parent_submission_id: null,
+            llama_job_id: null,
           },
         ]}
         getToken={mockGetToken}

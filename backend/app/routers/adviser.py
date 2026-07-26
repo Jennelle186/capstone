@@ -98,6 +98,7 @@ class AdviserStudentResponse(BaseModel):
     program: str | None
     school_year: str | None
     classification: str | None
+    application_status: str | None = None
     documents_submitted: int
     documents_total: int
     completion_pct: int
@@ -122,6 +123,7 @@ class AdviserStudentDetailResponse(BaseModel):
     program: str | None
     school_year: str | None
     classification: str | None
+    application_status: str | None = None
     documents_submitted: int
     documents_total: int
     completion_pct: int
@@ -129,6 +131,7 @@ class AdviserStudentDetailResponse(BaseModel):
     unmapped_data: list = []
     created_at: str
     submissions: list[AdviserStudentSubmissionResponse]
+    slots: list[dict] = Field(default_factory=list)
 
 
 class AdviserAnalyticsResponse(BaseModel):

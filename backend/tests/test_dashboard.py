@@ -7,8 +7,24 @@ from uuid import UUID, uuid4, uuid5
 import pytest
 
 from app.services.admin_analytics.dashboard import get_dashboard_kpi
+from app.schemas.requirements import SlotItemStatus, SlotStatusResponse
 
 PROGRAM_UUID_NAMESPACE = UUID("e40ec4af-aa57-47e2-9169-cc4f1f6d03ff")
+
+
+def _make_slot_status(*, is_complete: bool, matched_count: int = 0, min_required: int = 1) -> SlotStatusResponse:
+    return SlotStatusResponse(
+        id=str(uuid4()),
+        slot_type="solo",
+        group_name=None,
+        description=None,
+        min_required=min_required,
+        display_order=0,
+        items=[SlotItemStatus(document_type_id=str(uuid4()), document_type_name="Test", document_type_code="TD", is_primary=True)],
+        is_complete=is_complete,
+        matched_submission_ids=[],
+        matched_count=matched_count,
+    )
 
 
 class _MockRow:
@@ -56,8 +72,8 @@ class TestGetDashboardKPI:
                 side_effect=lambda q: q,
             ),
             patch(
-                "app.services.admin_analytics.dashboard.get_required_doc_counts_by_class",
-                return_value={"freshman": 3, "senior": 4},
+                "app.services.admin_analytics.dashboard.get_bulk_student_slot_statuses",
+                return_value={},
             ),
         ]
         for p in patchers:
@@ -121,6 +137,16 @@ class TestGetDashboardKPI:
         student_2 = self._make_student(uuid4(), self.DEPT_ID_1, "freshman")
         student_3 = self._make_student(uuid4(), self.DEPT_ID_2, "senior")
 
+        statuses_map = {
+            student_1.id: [_make_slot_status(is_complete=True) for _ in range(3)],
+            student_2.id: [
+                _make_slot_status(is_complete=True),
+                _make_slot_status(is_complete=False),
+                _make_slot_status(is_complete=False),
+            ],
+            student_3.id: [_make_slot_status(is_complete=True) for _ in range(4)],
+        }
+
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=_make_mock_row(name="SY 2025-2026"))
         mock_db.execute.side_effect = [
@@ -153,7 +179,11 @@ class TestGetDashboardKPI:
             ]),
         ]
 
-        result = await get_dashboard_kpi(mock_db)
+        with patch(
+            "app.services.admin_analytics.dashboard.get_bulk_student_slot_statuses",
+            return_value=statuses_map,
+        ):
+            result = await get_dashboard_kpi(mock_db)
 
         assert result["school_year"] == "SY 2025-2026"
         assert result["total_submissions"] == 50
@@ -164,8 +194,8 @@ class TestGetDashboardKPI:
         clearance = {d["department_name"]: d for d in result["department_clearance"]}
         assert set(clearance.keys()) == {"Computer Engineering", "Information Technology"}
 
-        # Computer Engineering: 2 students, student_1 verified 3/3 (cleared),
-        # student_2 verified 1/3 (not cleared)
+        # Computer Engineering: 2 students, student_1 all slots complete (cleared),
+        # student_2 not all complete (not cleared)
         dept1 = clearance["Computer Engineering"]
         assert dept1["total_students"] == 2
         assert dept1["cleared_students"] == 1
@@ -173,7 +203,7 @@ class TestGetDashboardKPI:
         assert dept1["adviser_count"] == 1
         assert dept1["adviser_names"] == ["Alice Smith"]
 
-        # Information Technology: 1 student, verified 4/4 (cleared)
+        # Information Technology: 1 student, all slots complete (cleared)
         dept2 = clearance["Information Technology"]
         assert dept2["total_students"] == 1
         assert dept2["cleared_students"] == 1
@@ -206,8 +236,7 @@ class TestGetDashboardKPI:
 
         result = await get_dashboard_kpi(mock_db)
         dept = result["department_clearance"][0]
-        # student has no verified docs (verified_counts empty), required is
-        # req_counts.get(None, 0) = 0, so total_required = 0 → not cleared
+        # With empty slots, student is NOT cleared
         assert dept["total_students"] == 1
         assert dept["cleared_students"] == 0
         assert dept["clearance_rate"] == 0

@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import SessionDep
 from ...models import (
     DocumentSubmission,
-    DocumentType,
     ExtractionSchema,
     SchoolYear,
     SchoolYearRequirement,
     Student,
     SubmissionStatus,
 )
+from ...services.requirements import get_bulk_student_slot_statuses
 from .aggregators import AGGREGATORS, infer_mode, snake_to_title
 from .field_values import extract_values
 
@@ -258,85 +258,48 @@ async def get_extraction_analytics(
     # Sort fields by group first, then by canonical key within groups.
     fields.sort(key=lambda f: (f.get("analytics_group") or "", f["canonical_key"]))
 
-    # ── Document Compliance ──
-    # For each document type required in this school year, determine how many
-    # eligible students have a verified submission vs. pending vs. missing.
-    #
-    # "Eligible" means the student's classification matches the document type's
-    # ``applicable_classifications`` (or any student if that list is empty).
-    # Only the *latest* submission per student+document-type is considered
-    # (using row_number() over updated_at DESC).
-    doc_types_result = await db.execute(
-        select(DocumentType).where(DocumentType.id.in_(doc_type_ids))
-    )
-    doc_types = {dt.id: dt for dt in doc_types_result.scalars().all()}
+    # ── Slot Compliance ──
+    # Per-slot completion: for each requirement slot, count how many
+    # eligible students have satisfied it.  Completion is determined by
+    # ``get_student_slot_statuses`` which handles classification filtering
+    # and matched-counts-against-min_required.
+
+    statuses_map = await get_bulk_student_slot_statuses(db, all_students)
+
+    compliance_map: dict[str, dict] = {}
+    for s in all_students:
+        slot_statuses = statuses_map.get(s.id, [])
+        for st in slot_statuses:
+            slot_id = str(st.id)
+            if slot_id not in compliance_map:
+                compliance_map[slot_id] = {
+                    "display_name": st.group_name or st.description or (
+                        st.items[0].document_type_name if st.items else "Untitled slot"),
+                    "eligible": 0,
+                    "completed": 0,
+                    "classifications": set(),
+                }
+            compliance_map[slot_id]["eligible"] += 1
+            if s.classification and s.classification.value:
+                compliance_map[slot_id]["classifications"].add(s.classification.value)
+            if st.is_complete:
+                compliance_map[slot_id]["completed"] += 1
 
     compliance_items: list[dict] = []
-    for doc_type_id in doc_type_ids:
-        dt = doc_types.get(doc_type_id)
-        if not dt:
+    for slot_id, info in compliance_map.items():
+        eligible = info["eligible"]
+        completed = info["completed"]
+        if eligible == 0:
             continue
-
-        applicable = dt.applicable_classifications or []
-        if applicable:
-            eligible_students = [
-                s for s in all_students if s.classification in applicable
-            ]
-        else:
-            eligible_students = all_students
-        eligible_count = len(eligible_students)
-        if not eligible_count:
-            continue
-
-        eligible_ids = [s.id for s in eligible_students]
-
-        # Windowed subquery: for each (student, document_type) pair, rank
-        # submissions by updated_at DESC and keep only the most recent (rn=1).
-        latest_sub = (
-            select(
-                DocumentSubmission.student_id,
-                DocumentSubmission.document_type_id,
-                DocumentSubmission.status,
-                func.row_number().over(
-                    partition_by=(
-                        DocumentSubmission.student_id,
-                        DocumentSubmission.document_type_id,
-                    ),
-                    order_by=DocumentSubmission.updated_at.desc(),
-                ).label("rn"),
-            ).where(
-                DocumentSubmission.student_id.in_(eligible_ids),
-                DocumentSubmission.document_type_id == doc_type_id,
-            )
-        ).subquery()
-
-        counts = (
-            await db.execute(
-                select(
-                    latest_sub.c.status,
-                    func.count(latest_sub.c.student_id).label("cnt"),
-                ).where(latest_sub.c.rn == 1)
-                .group_by(latest_sub.c.status)
-            )
-        ).all()
-
-        status_counts: dict = {SubmissionStatus.VERIFIED: 0, SubmissionStatus.PENDING: 0}
-        for row in counts:
-            status_counts[row.status] = row.cnt
-
-        verified = status_counts[SubmissionStatus.VERIFIED]
-        pending = status_counts[SubmissionStatus.PENDING]
-        missing = eligible_count - verified - pending
-        rate = round(verified / eligible_count * 100, 1) if eligible_count else 0.0
-
+        rate = round(completed / eligible * 100, 1)
         compliance_items.append({
-            "document_type": dt.name,
-            "document_code": dt.code or "",
-            "classification_scope": applicable,
-            "verified": verified,
-            "pending": pending,
-            "missing": missing,
-            "eligible_students": eligible_count,
+            "document_type": info["display_name"],
+            "document_code": "",
+            "classification_scope": sorted(info["classifications"]),
+            "verified": completed,
+            "pending": 0,
+            "missing": eligible - completed,
+            "eligible_students": eligible,
             "verification_rate": rate,
         })
 

@@ -238,10 +238,6 @@ async def retry_job(
     if original_job.student_id != student.id:
         raise HTTPException(status_code=403, detail="You do not have permission to retry this job.")
 
-    if original_job.status.value != "finished" or original_job.result != "failed" and original_job.result != "partial_success":
-        # Allow retry of finished jobs that had failures
-        pass
-
     if not (original_job.result in ("failed", "partial_success") or original_job.status.value == "failed"):
         raise HTTPException(
             status_code=409,

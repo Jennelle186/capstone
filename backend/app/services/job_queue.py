@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 CLASSIFY_SEMAPHORE = asyncio.Semaphore(CLASSIFY_CONCURRENCY)
 EXTRACT_SEMAPHORE = asyncio.Semaphore(EXTRACT_CONCURRENCY)
 
+# Limit concurrent Gemini calls *within* a single classification job.
+# The dispatcher semaphore limits concurrent jobs; this limits concurrent
+# submissions per job so a single large job doesn’t hog all slots.
+CLASSIFY_PER_JOB_SEMAPHORE = asyncio.Semaphore(max(1, CLASSIFY_CONCURRENCY // 2))
+
 
 # ── Job Creation ─────────────────────────────────────────────────────────────
 
@@ -179,7 +184,7 @@ async def _finish_job(
     )
     items = list(items_result.scalars().all())
 
-    all_success = all(
+    all_success = len(items) > 0 and all(
         js.status in (JobSubmissionItemStatus.COMPLETED, JobSubmissionItemStatus.SKIPPED)
         for js in items
     )
@@ -237,92 +242,95 @@ async def classify_worker(job_id: UUID) -> None:
         )
         pending_sub_ids = [row[0] for row in items_result.all()]
 
-    # Process each submission in its own session
-    for sub_id in pending_sub_ids:
-        async with AsyncSessionLocal() as proc_session:
-            try:
-                # Mark job_submission as running using direct UPDATE
-                await proc_session.execute(
-                    update(JobSubmission)
-                    .where(
-                        JobSubmission.job_id == job_id,
-                        JobSubmission.submission_id == sub_id,
+    async def _process_one(sub_id: UUID) -> None:
+        async with CLASSIFY_PER_JOB_SEMAPHORE:
+            async with AsyncSessionLocal() as proc_session:
+                try:
+                    # Mark job_submission as running using direct UPDATE
+                    await proc_session.execute(
+                        update(JobSubmission)
+                        .where(
+                            JobSubmission.job_id == job_id,
+                            JobSubmission.submission_id == sub_id,
+                        )
+                        .values(status=JobSubmissionItemStatus.RUNNING)
                     )
-                    .values(status=JobSubmissionItemStatus.RUNNING)
+                    await proc_session.commit()
+
+                    # Run AI classification
+                    await process_submission(
+                        proc_session,
+                        sub_id,
+                        school_year_id=school_year_id,
+                        classification=classification,
+                    )
+
+                    # Mark completed
+                    await proc_session.execute(
+                        update(JobSubmission)
+                        .where(
+                            JobSubmission.job_id == job_id,
+                            JobSubmission.submission_id == sub_id,
+                        )
+                        .values(
+                            status=JobSubmissionItemStatus.COMPLETED,
+                            error_message=None,
+                        )
+                    )
+
+                except HTTPException as exc:
+                    logger.warning(
+                        "classify_worker: submission %s returned %d - %s",
+                        sub_id, exc.status_code, exc.detail,
+                    )
+                    await proc_session.execute(
+                        update(JobSubmission)
+                        .where(
+                            JobSubmission.job_id == job_id,
+                            JobSubmission.submission_id == sub_id,
+                        )
+                        .values(
+                            status=JobSubmissionItemStatus.COMPLETED,
+                            error_message=exc.detail,
+                        )
+                    )
+
+                except Exception as exc:
+                    logger.exception(
+                        "classify_worker: submission %s failed", sub_id
+                    )
+                    await proc_session.execute(
+                        update(JobSubmission)
+                        .where(
+                            JobSubmission.job_id == job_id,
+                            JobSubmission.submission_id == sub_id,
+                        )
+                        .values(
+                            status=JobSubmissionItemStatus.FAILED,
+                            error_message=str(exc),
+                        )
+                    )
+
+                # Update job progress (best-effort; final count is fixed by _finish_job)
+                done_result = await proc_session.execute(
+                    select(JobSubmission).where(
+                        JobSubmission.job_id == job_id,
+                        JobSubmission.status.notin_([
+                            JobSubmissionItemStatus.PENDING,
+                            JobSubmissionItemStatus.RUNNING,
+                        ]),
+                    )
+                )
+                done_count = len(list(done_result.scalars().all()))
+                await proc_session.execute(
+                    update(Job)
+                    .where(Job.id == job_id)
+                    .values(progress=done_count, last_updated_at=func_now())
                 )
                 await proc_session.commit()
 
-                # Run AI classification
-                await process_submission(
-                    proc_session,
-                    sub_id,
-                    school_year_id=school_year_id,
-                    classification=classification,
-                )
-
-                # Mark completed
-                await proc_session.execute(
-                    update(JobSubmission)
-                    .where(
-                        JobSubmission.job_id == job_id,
-                        JobSubmission.submission_id == sub_id,
-                    )
-                    .values(
-                        status=JobSubmissionItemStatus.COMPLETED,
-                        error_message=None,
-                    )
-                )
-
-            except HTTPException as exc:
-                logger.warning(
-                    "classify_worker: submission %s returned %d - %s",
-                    sub_id, exc.status_code, exc.detail,
-                )
-                await proc_session.execute(
-                    update(JobSubmission)
-                    .where(
-                        JobSubmission.job_id == job_id,
-                        JobSubmission.submission_id == sub_id,
-                    )
-                    .values(
-                        status=JobSubmissionItemStatus.COMPLETED,
-                        error_message=exc.detail,
-                    )
-                )
-
-            except Exception as exc:
-                logger.exception(
-                    "classify_worker: submission %s failed", sub_id
-                )
-                await proc_session.execute(
-                    update(JobSubmission)
-                    .where(
-                        JobSubmission.job_id == job_id,
-                        JobSubmission.submission_id == sub_id,
-                    )
-                    .values(
-                        status=JobSubmissionItemStatus.FAILED,
-                        error_message=str(exc),
-                    )
-                )
-
-            # Update job progress
-            done_result = await proc_session.execute(
-                select(JobSubmission).where(
-                    JobSubmission.job_id == job_id,
-                    JobSubmission.status.notin_([
-                        JobSubmissionItemStatus.PENDING,
-                        JobSubmissionItemStatus.RUNNING,
-                    ]),
-                )
-            )
-            done_count = len(list(done_result.scalars().all()))
-            await proc_session.execute(
-                update(Job)
-                .where(Job.id == job_id)
-                .values(progress=done_count, last_updated_at=func_now())
-            )
-            await proc_session.commit()
+    # Process submissions concurrently (up to CLASSIFY_PER_JOB_SEMAPHORE slots)
+    await asyncio.gather(*[_process_one(sub_id) for sub_id in pending_sub_ids])
 
     # Finalize job result
     async with AsyncSessionLocal() as session:

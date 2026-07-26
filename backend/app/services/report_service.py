@@ -12,17 +12,18 @@ from sqlalchemy.orm import selectinload
 from ..database import SessionDep
 from ..models import (
     Adviser,
-    DocumentSubmission,
     DocumentType,
     ExtractionSchemaStatus,
     ProgramAdviserAssignment,
+    RequirementSlot,
+    RequirementSlotItem,
     SchoolYear,
-    SchoolYearRequirement,
     Student,
     User,
     UserRole,
 )
 from .helpers import get_program_id_to_department_name_map
+from .requirements import get_bulk_student_slot_statuses, list_requirement_slots
 
 COLLEGE_NAME = "College of Computing Studies"
 
@@ -85,23 +86,20 @@ async def _build_student_sheet(db, wb: Workbook, sy: SchoolYear) -> None:
     ws = wb.create_sheet(title=_sanitize_sheet_name(sy.name))
     next_row = _write_sheet_header(ws, "Student Report", sy.name)
 
-    # ── Document types required for this school year (dynamic columns) ─
-    doc_type_result = await db.execute(
-        select(DocumentType)
-        .join(SchoolYearRequirement, SchoolYearRequirement.document_type_id == DocumentType.id)
-        .where(SchoolYearRequirement.school_year_id == sy.id)
-        .order_by(DocumentType.name)
-    )
-    doc_types = list(doc_type_result.scalars().all())
+    # ── Requirement slots for this school year (dynamic columns) ─
+    slots = await list_requirement_slots(db, sy.id)
+    slot_display_names = [
+        slot.group_name or slot.description or (
+            slot.items[0].document_type_name if slot.items else f"Slot {slot.display_order}"
+        )
+        for slot in slots
+    ]
 
     # ── Students in this school year ──────────────────────────────────
     student_result = await db.execute(
         select(User)
         .where(User.role == UserRole.STUDENT)
         .options(
-            selectinload(User.student)
-            .selectinload(Student.submissions)
-            .selectinload(DocumentSubmission.document_type),
             selectinload(User.student).selectinload(Student.program_department),
         )
         .join(User.student)
@@ -110,12 +108,18 @@ async def _build_student_sheet(db, wb: Workbook, sy: SchoolYear) -> None:
     )
     students = list(student_result.scalars().all())
 
+    if not students:
+        return
+
     # ── Header row ────────────────────────────────────────────────────
     headers = ["First Name", "Last Name", "Email", "Student Number", "Department"]
-    headers += [dt.name for dt in doc_types]
+    headers += slot_display_names
     next_row = _write_header_row(ws, next_row, headers)
 
     # ── Data rows + accumulate per-department counts ─────────────────
+    student_list = [u.student for u in students if u.student is not None]
+    statuses_map = await get_bulk_student_slot_statuses(db, student_list)
+
     dept_counts: dict[str, int] = defaultdict(int)
     for user in students:
         student = user.student
@@ -125,6 +129,9 @@ async def _build_student_sheet(db, wb: Workbook, sy: SchoolYear) -> None:
         dept_name = dept.name if dept else "Unknown"
         dept_counts[dept_name] += 1
 
+        slot_statuses = statuses_map.get(student.id, [])
+        slot_status_map = {str(s.id): s.is_complete for s in slot_statuses}
+
         row = [
             user.first_name or "",
             user.last_name or "",
@@ -132,12 +139,12 @@ async def _build_student_sheet(db, wb: Workbook, sy: SchoolYear) -> None:
             student.student_number or "",
             dept_name,
         ]
-        for dt in doc_types:
-            is_verified = any(
-                s.document_type_id == dt.id and s.verified_at is not None
-                for s in (student.submissions or [])
-            )
-            row.append("True" if is_verified else "False")
+        for slot in slots:
+            status = slot_status_map.get(str(slot.id))
+            if status is None:
+                row.append("N/A")
+            else:
+                row.append("Yes" if status else "No")
         for col_idx, val in enumerate(row, start=1):
             ws.cell(row=next_row, column=col_idx, value=val)
         next_row += 1
@@ -275,18 +282,19 @@ async def _build_document_requirements_sheet(
     ws = wb.create_sheet(title=_sanitize_sheet_name(sy.name))
     next_row = _write_sheet_header(ws, "Document Requirements Report", sy.name)
 
-    # ── Requirements for this school year with DocumentType + ExtractionSchema ─
+    # ── Requirements for this school year via slot items ───────────────
     req_result = await db.execute(
-        select(SchoolYearRequirement)
-        .join(SchoolYearRequirement.document_type)
-        .where(SchoolYearRequirement.school_year_id == sy.id)
+        select(RequirementSlot)
+        .where(RequirementSlot.school_year_id == sy.id)
         .options(
-            selectinload(SchoolYearRequirement.document_type),
-            selectinload(SchoolYearRequirement.extraction_schema),
+            selectinload(RequirementSlot.items)
+            .selectinload(RequirementSlotItem.document_type),
+            selectinload(RequirementSlot.items)
+            .selectinload(RequirementSlotItem.extraction_schema),
         )
-        .order_by(DocumentType.name)
+        .order_by(RequirementSlot.display_order)
     )
-    requirements = list(req_result.scalars().all())
+    slots = list(req_result.scalars().all())
 
     # ── Header row ────────────────────────────────────────────────────
     next_row = _write_header_row(
@@ -297,36 +305,37 @@ async def _build_document_requirements_sheet(
     structured_count = 0
     classification_only_count = 0
 
-    for req in requirements:
-        dt = req.document_type
-        schema = req.extraction_schema
+    for slot in slots:
+        for item in slot.items:
+            dt = item.document_type
+            schema = item.extraction_schema
 
-        has_schema = (
-            schema is not None
-            and schema.status == ExtractionSchemaStatus.ACTIVE
-        )
+            has_schema = (
+                schema is not None
+                and schema.status == ExtractionSchemaStatus.ACTIVE
+            )
 
-        if has_schema:
-            structured_count += 1
-            schema_name = schema.name
-            schema_version = schema.version_label or ""
-            schema_status = schema.status.value
-        else:
-            classification_only_count += 1
-            schema_name = "—"
-            schema_version = "—"
-            schema_status = "Classification-only"
+            if has_schema:
+                structured_count += 1
+                schema_name = schema.name
+                schema_version = schema.version_label or ""
+                schema_status = schema.status.value
+            else:
+                classification_only_count += 1
+                schema_name = "—"
+                schema_version = "—"
+                schema_status = "Classification-only"
 
-        row = [
-            dt.name if dt else "",
-            dt.code if dt else "",
-            schema_name,
-            schema_version,
-            schema_status,
-        ]
-        for col_idx, val in enumerate(row, start=1):
-            ws.cell(row=next_row, column=col_idx, value=val)
-        next_row += 1
+            row = [
+                dt.name if dt else "",
+                dt.code if dt else "",
+                schema_name,
+                schema_version,
+                schema_status,
+            ]
+            for col_idx, val in enumerate(row, start=1):
+                ws.cell(row=next_row, column=col_idx, value=val)
+            next_row += 1
 
     # ── Summary section ───────────────────────────────────────────────
     total = structured_count + classification_only_count

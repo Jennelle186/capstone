@@ -105,6 +105,12 @@ async def create_extraction_schema(
         source_file_name=payload.source_file_name,
         generation_prompt=payload.generation_prompt,
     )
+
+    if payload.document_type_id:
+        dt_exists = await db.get(DocumentType, payload.document_type_id)
+        if dt_exists is None:
+            raise HTTPException(status_code=404, detail="Document type not found.")
+
     db.add(schema)
     await db.flush()
 
@@ -285,6 +291,10 @@ async def update_extraction_schema(
     if "fields_json" in payload.model_fields_set:
         schema.fields_json = [field.model_dump() for field in payload.fields_json]
     if "document_type_id" in payload.model_fields_set:
+        if payload.document_type_id:
+            dt_exists = await db.get(DocumentType, payload.document_type_id)
+            if dt_exists is None:
+                raise HTTPException(status_code=404, detail="Document type not found.")
         schema.document_type_id = payload.document_type_id
     if "status" in payload.model_fields_set:
         schema.status = payload.status

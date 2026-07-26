@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select
+from sqlalchemy.exc import IntegrityError
 from typing_extensions import Annotated
 
 from ..database import SessionDep
@@ -173,7 +174,11 @@ async def update_public_metadata(payload: PublicMetadataUpdate, current_user: St
             if dept is not None:
                 student.program_id = dept.id
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="A student with this student number already exists.")
     await db.refresh(user)
 
     return {

@@ -1,14 +1,17 @@
 import asyncio
 import logging
+import zlib
 from uuid import UUID
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import desc, select
+from pydantic import BaseModel, Field
+from sqlalchemy import desc, select, text
 from sqlalchemy.orm import aliased, selectinload
 
 from ...database import SessionDep
-from ...models import DocumentSubmission, DocumentSubmissionHistory, Student, SubmissionStatus, User
+from ...models import DocumentSubmission, DocumentSubmissionHistory, DocumentType, Student, SubmissionStatus, User
 from ...services.gcp_storage import (
     delete_file as gcs_delete_file,
     generate_presigned_post as gcs_generate_presigned_post,
@@ -17,6 +20,7 @@ from ...services.gcp_storage import (
     make_staging_key,
 )
 from ...services.helpers import exclude_replaced_submissions
+from ...services.requirements import get_student_slot_statuses
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims, SubmissionDetailResponse
 
@@ -68,6 +72,21 @@ class DownloadUrlResponse(BaseModel):
     expires_in: int
 
 
+class IncompleteSlotMetadata(BaseModel):
+    id: str
+    name: str
+    min_required: int
+
+
+class SubmitBatchResponse(BaseModel):
+    status: str
+    submitted_count: int
+    skipped_count: int = 0
+    skipped: list[dict] = Field(default_factory=list)
+    application_status: Literal["SUBMITTED_COMPLETE", "PENDING_DOCUMENTS"] | None = None
+    incomplete_slots: list[IncompleteSlotMetadata] = Field(default_factory=list)
+
+
 @router.post("/api/me/documents/initiate", response_model=InitiateUploadResponse)
 async def initiate_upload(
     body: InitiateUploadRequest,
@@ -86,6 +105,8 @@ async def initiate_upload(
         raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
 
     if body.document_type_id:
+        lock_key = zlib.crc32(f"{student.id}:{body.document_type_id}".encode()) & 0x7FFFFFFF
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
         existing = await db.execute(
             select(DocumentSubmission).where(
                 DocumentSubmission.student_id == student.id,
@@ -117,6 +138,9 @@ async def initiate_upload(
     if body.document_type_id:
         try:
             doc_type_uuid = UUID(body.document_type_id)
+            dt_exists = await db.get(DocumentType, doc_type_uuid)
+            if dt_exists is None:
+                raise HTTPException(status_code=404, detail="Document type not found.")
             submission.document_type_id = doc_type_uuid
         except ValueError:
             pass
@@ -124,7 +148,12 @@ async def initiate_upload(
     if body.replace_submission_id:
         try:
             replace_uuid = UUID(body.replace_submission_id)
-            old_sub = await db.get(DocumentSubmission, replace_uuid)
+            old_sub_result = await db.execute(
+                select(DocumentSubmission)
+                .options(selectinload(DocumentSubmission.document_type))
+                .where(DocumentSubmission.id == replace_uuid)
+            )
+            old_sub = old_sub_result.scalar_one_or_none()
             if old_sub is not None and old_sub.student_id == student.id:
                 if old_sub.document_type_id is not None:
                     verified = await db.execute(
@@ -310,12 +339,12 @@ async def list_my_documents(
     ]
 
 
-@router.post("/api/me/documents/submit-batch")
+@router.post("/api/me/documents/submit-batch", response_model=SubmitBatchResponse)
 async def submit_batch(
     current_user: StudentClaims,
     db: SessionDep,
     body: SubmitBatchRequest | None = None,
-) -> dict:
+) -> SubmitBatchResponse:
     """Advance all classified/flagged submissions to SUBMITTED status.
 
     Called from the Step 4 review screen when the student clicks
@@ -360,6 +389,7 @@ async def submit_batch(
     # pass the query filter.
     latest_by_type: dict[UUID, DocumentSubmission] = {}
     dups_to_remove: list[DocumentSubmission] = []
+    gcs_keys_to_cleanup: list[str] = []
 
     for sub in submissions:
         if sub.document_type_id is None:
@@ -405,10 +435,7 @@ async def submit_batch(
 
     for dup in dups_to_remove:
         if dup.file_key:
-            try:
-                await asyncio.to_thread(gcs_delete_file, dup.file_key)
-            except Exception:
-                logger.exception("Failed to delete GCS file for type-duplicate %s", dup.id)
+            gcs_keys_to_cleanup.append(dup.file_key)
         await db.delete(dup)
 
     submissions = [v for v in latest_by_type.values() if isinstance(v, DocumentSubmission)]
@@ -444,10 +471,7 @@ async def submit_batch(
             "reason": "already verified",
         })
         if sub.file_key:
-            try:
-                await asyncio.to_thread(gcs_delete_file, sub.file_key)
-            except Exception:
-                logger.exception("Failed to delete GCS file for skipped submission %s", sub.id)
+            gcs_keys_to_cleanup.append(sub.file_key)
         await db.delete(sub)
 
     for sub in to_submit:
@@ -490,14 +514,34 @@ async def submit_batch(
                 )
             )
 
+    slot_statuses = await get_student_slot_statuses(db, student)
+    incomplete_slots = [s for s in slot_statuses if not s.is_complete]
+    student.application_status = "PENDING_DOCUMENTS" if incomplete_slots or not slot_statuses else "SUBMITTED_COMPLETE"
+    db.add(student)
+
     await db.commit()
 
-    return {
-        "status": "success",
-        "submitted_count": len(to_submit),
-        "skipped_count": len(to_skip),
-        "skipped": skipped_details,
-    }
+    for file_key in gcs_keys_to_cleanup:
+        try:
+            await asyncio.to_thread(gcs_delete_file, file_key)
+        except Exception:
+            logger.exception("Failed to delete GCS file %s after successful commit", file_key)
+
+    return SubmitBatchResponse(
+        status="success",
+        submitted_count=len(to_submit),
+        skipped_count=len(to_skip),
+        skipped=skipped_details,
+        application_status=student.application_status,
+        incomplete_slots=[
+            IncompleteSlotMetadata(
+                id=str(s.id),
+                name=s.group_name or s.description or (s.items[0].document_type_name if s.items else "Untitled slot"),
+                min_required=s.min_required,
+            )
+            for s in incomplete_slots
+        ],
+    )
 
 
 @router.delete("/api/me/documents/{submission_id}")

@@ -8,6 +8,7 @@ from ..database import SessionDep
 from ..models import UserRole
 from ..rbac import require_roles
 from ..services.adviser_core import list_adviser_departments, resolve_adviser
+from ..services.helpers import get_active_school_year_id
 from ..services.admin_analytics import (
     get_canonical_keys as svc_get_canonical_keys,
     get_enrolment_trends as svc_get_enrolment_trends,
@@ -97,7 +98,17 @@ async def adviser_trends(
     current_user: dict = CurrentAdviser,
     db: SessionDep = None,
 ):
-    del current_user
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(status_code=404, detail="Adviser not found")
+
+    active_sy_id = await get_active_school_year_id(db)
+    if active_sy_id:
+        dept_ids = await list_adviser_departments(db, adviser, active_sy_id)
+        adviser_dept_ids = [UUID(d["id"]) for d in dept_ids]
+        if department_id and department_id not in adviser_dept_ids:
+            raise HTTPException(status_code=403, detail="Department not assigned to this adviser")
+
     key_list = [k.strip() for k in keys.split(",") if k.strip()]
     result = await svc_get_trends(db, key_list, from_year, to_year, department_id=department_id)
     return TrendResponse(**result)
@@ -111,7 +122,17 @@ async def adviser_enrolment_trends(
     current_user: dict = CurrentAdviser,
     db: SessionDep = None,
 ):
-    del current_user
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(status_code=404, detail="Adviser not found")
+
+    active_sy_id = await get_active_school_year_id(db)
+    if active_sy_id:
+        dept_ids = await list_adviser_departments(db, adviser, active_sy_id)
+        adviser_dept_ids = [UUID(d["id"]) for d in dept_ids]
+        if department_id and department_id not in adviser_dept_ids:
+            raise HTTPException(status_code=403, detail="Department not assigned to this adviser")
+
     result = await svc_get_enrolment_trends(db, from_year, to_year, department_id=department_id)
     return EnrolmentResponse(**result)
 

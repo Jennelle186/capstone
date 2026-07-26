@@ -18,7 +18,7 @@ from ..models import (
 )
 from .adviser_core import get_department_ids_for_adviser
 from .helpers import compute_initials, exclude_replaced_submissions, get_active_school_year_id
-from .students import get_required_doc_counts_by_class
+from .requirements import get_bulk_student_slot_statuses, get_student_slot_statuses
 
 
 async def get_analytics(
@@ -213,41 +213,22 @@ async def get_archived(
     dept_rows = (await db.execute(dept_stmt)).all()
     dept_map = {r.id: r.name for r in dept_rows}
 
-    sub_count_stmt = exclude_replaced_submissions(
-        select(DocumentSubmission.student_id, func.count(DocumentSubmission.id))
-        .where(
-            DocumentSubmission.student_id.in_([s.id for s in students]),
-            DocumentSubmission.status != SubmissionStatus.PENDING,
-        )
-        .group_by(DocumentSubmission.student_id)
-    )
-    sub_counts = {r.student_id: r[1] for r in (await db.execute(sub_count_stmt)).all()}
-
-    verified_count_stmt = exclude_replaced_submissions(
-        select(DocumentSubmission.student_id, func.count(DocumentSubmission.id))
-        .where(
-            DocumentSubmission.student_id.in_([s.id for s in students]),
-            DocumentSubmission.status == SubmissionStatus.VERIFIED,
-        )
-        .group_by(DocumentSubmission.student_id)
-    )
-    verified_counts = {r.student_id: r[1] for r in (await db.execute(verified_count_stmt)).all()}
-
-    req_counts = await get_required_doc_counts_by_class(db, sy_id)
+    statuses_map = await get_bulk_student_slot_statuses(db, students)
 
     student_statuses: dict[str, int] = defaultdict(int)
     student_responses: list[dict] = []
     for s in students:
         u = user_map.get(s.user_id)
         classification_val = s.classification.value if s.classification else None
-        submitted = sub_counts.get(s.id, 0)
-        verified = verified_counts.get(s.id, 0)
-        total = req_counts.get(classification_val, 0) or req_counts.get(None, 0)
-        completion_pct = min(100, round(submitted / total * 100)) if total > 0 else 0
 
-        if total > 0 and verified >= total:
+        slot_statuses = statuses_map.get(s.id, [])
+        slots_total = len(slot_statuses)
+        slots_complete = sum(1 for sl in slot_statuses if sl.is_complete)
+        completion_pct = min(100, round(slots_complete / slots_total * 100)) if slots_total > 0 else 0
+
+        if slots_total > 0 and slots_complete == slots_total:
             student_statuses["Complete"] += 1
-        elif submitted > 0:
+        elif slots_complete > 0:
             student_statuses["In Progress"] += 1
         else:
             student_statuses["Not Started"] += 1
@@ -261,8 +242,8 @@ async def get_archived(
             "program": dept_map.get(s.program_id),
             "school_year": school_year.name,
             "classification": classification_val,
-            "documents_submitted": submitted,
-            "documents_total": total,
+            "documents_submitted": slots_complete,
+            "documents_total": slots_total,
             "completion_pct": completion_pct,
             "created_at": s.created_at.isoformat() if s.created_at else "",
         })

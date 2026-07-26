@@ -52,10 +52,8 @@ async def debug_db_user(current_user: CurrentUser, db: SessionDep) -> dict:
         return {"exists": False}
 
     student = None
-    if user.student:
-        # relationship may be lazy depending on session state; querying for safety 
-        result = await db.execute(select(Student).where(Student.user_id == user.id))
-        student = result.scalar_one_or_none()
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
 
     return {
         "exists": True,

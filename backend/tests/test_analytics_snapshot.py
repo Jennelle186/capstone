@@ -315,6 +315,16 @@ class TestComputeFallback:
 
     pytestmark = pytest.mark.asyncio
 
+    @pytest.fixture(autouse=True)
+    def _patch_slot_statuses(self):
+        patcher = patch(
+            "app.services.admin_analytics.snapshot.get_bulk_student_slot_statuses",
+            return_value={},
+        )
+        patcher.start()
+        yield
+        patcher.stop()
+
     def _build_sy(self, name="2024-2025"):
         sy = MagicMock()
         sy.name = name
@@ -374,9 +384,6 @@ class TestComputeFallback:
             _make_scalars_result([schema]),        # 3 schemas
             _make_scalars_result([student]),       # 4 students
             _make_scalars_result([sub]),           # 5 verified submissions
-            _make_scalars_result([]),              # 6 compliance doc types
-            _make_scalars_result([]),              # 7 compliance counts
-            _make_scalars_result([]),              # 8 fallback
         ]
 
         result = await get_extraction_analytics(db, sy_id)
@@ -446,9 +453,6 @@ class TestComputeFallback:
             _make_scalars_result([schema]),
             _make_scalars_result([student1, student2]),
             _make_scalars_result([sub1, sub2]),
-            _make_scalars_result([]),
-            _make_scalars_result([]),
-            _make_scalars_result([]),
         ]
 
         result = await get_extraction_analytics(db, sy_id)
@@ -502,9 +506,6 @@ class TestComputeFallback:
             _make_scalars_result([schema]),
             _make_scalars_result([student]),
             _make_scalars_result([sub]),
-            _make_scalars_result([]),
-            _make_scalars_result([]),
-            _make_scalars_result([]),
         ]
 
         result = await get_extraction_analytics(db, sy_id)
@@ -562,9 +563,6 @@ class TestComputeFallback:
             _make_scalars_result([schema]),
             _make_scalars_result([student]),
             _make_scalars_result([sub]),
-            _make_scalars_result([]),
-            _make_scalars_result([]),
-            _make_scalars_result([]),
         ]
 
         result = await get_extraction_analytics(db, sy_id)

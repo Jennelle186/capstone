@@ -26,6 +26,7 @@ export interface AdviserStudent {
     program: string;
     school_year: string;
     classification: AdviserStudentClassification;
+    application_status: "SUBMITTED_COMPLETE" | "PENDING_DOCUMENTS" | null;
     documents_submitted: number;
     documents_total: number;
     completion_pct: number;
@@ -37,6 +38,20 @@ export interface AdviserStudent {
     extracted_analytics?: Record<string, ExtractedAnalyticsValue>;
     unmapped_data?: UnmappedDocGroup[];
     created_at: string;
+}
+
+export interface AdviserSlotItem {
+    document_type_name: string;
+    is_primary: boolean;
+}
+
+export interface AdviserSlot {
+    id: string;
+    name: string;
+    is_complete: boolean;
+    min_required: number;
+    matched_count: number;
+    items: AdviserSlotItem[];
 }
 
 export interface AdviserStudentSubmission {

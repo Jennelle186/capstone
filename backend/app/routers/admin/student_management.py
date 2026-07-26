@@ -5,14 +5,12 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from ...database import SessionDep
 from ...models import (
     Department,
     DocumentSubmission,
-    DocumentType,
-    SchoolYearRequirement,
     Student,
     SubmissionStatus,
     User,
@@ -20,6 +18,7 @@ from ...models import (
 )
 from ...rbac import require_admin
 from ...services.helpers import exclude_replaced_submissions
+from ...services.requirements import get_bulk_student_slot_statuses
 
 router = APIRouter(prefix="/students")
 
@@ -113,23 +112,8 @@ async def list_students(
     dept_rows = (await db.execute(dept_stmt)).scalars().all()
     dept_map = {d.id: d for d in dept_rows}
 
-    # Submission counts per student (exclude replaced submissions)
-    student_ids = [s.id for s in students]
-    sub_count_stmt = exclude_replaced_submissions(
-        select(
-            DocumentSubmission.student_id,
-            func.count(DocumentSubmission.id),
-        )
-        .where(
-            DocumentSubmission.student_id.in_(student_ids),
-            DocumentSubmission.status != SubmissionStatus.PENDING,
-        )
-        .group_by(DocumentSubmission.student_id)
-    )
-    sub_counts_raw = (await db.execute(sub_count_stmt)).all()
-    sub_counts: dict[uuid.UUID, int] = {row.student_id: row[1] for row in sub_counts_raw}
-
     # Check for in-review submissions per student
+    student_ids = [s.id for s in students]
     review_stmt = exclude_replaced_submissions(
         select(DocumentSubmission.student_id)
         .where(
@@ -140,29 +124,11 @@ async def list_students(
     review_rows = (await db.execute(review_stmt)).all()
     review_student_ids: set[uuid.UUID] = {row.student_id for row in review_rows}
 
-    # Required document counts by classification
-    req_stmt = (
-        select(DocumentType.applicable_classifications)
-        .join(
-            SchoolYearRequirement,
-            SchoolYearRequirement.document_type_id == DocumentType.id,
-        )
-        .where(SchoolYearRequirement.school_year_id == sy_uuid)
-    )
-    req_rows = (await db.execute(req_stmt)).scalars().all()
-    all_classifications: list[str | None] = [
-        "freshman", "transferee", "shifter", "returning", "cross_enrollee", None,
-    ]
-    req_counts: dict[str | None, int] = defaultdict(int)
-    for applicable in req_rows:
-        applicable_set = set(applicable or [])
-        for cls in all_classifications:
-            if not applicable_set or cls in applicable_set:
-                req_counts[cls] += 1
-
     # Track per-department completion
     dept_enrolled: dict[uuid.UUID | None, int] = defaultdict(int)
     dept_completed: dict[uuid.UUID | None, int] = defaultdict(int)
+
+    statuses_map = await get_bulk_student_slot_statuses(db, students)
 
     student_responses: list[AdminStudentResponse] = []
     for s in students:
@@ -172,11 +138,13 @@ async def list_students(
 
         dept = dept_map.get(s.program_id) if s.program_id else None
         classification_val = s.classification.value if s.classification else None
-        submitted = sub_counts.get(s.id, 0)
-        total = req_counts.get(classification_val, 0) or req_counts.get(None, 0)
+
+        slot_statuses = statuses_map.get(s.id, [])
+        slots_total = len(slot_statuses)
+        slots_complete = sum(1 for sl in slot_statuses if sl.is_complete)
         has_review = s.id in review_student_ids
 
-        status = _compute_document_status(submitted, total, has_review)
+        status = _compute_document_status(slots_complete, slots_total, has_review)
 
         student_responses.append(
             AdminStudentResponse(
@@ -189,8 +157,8 @@ async def list_students(
                 department_name=dept.name if dept else "",
                 classification=classification_val or "",
                 document_status=status,
-                documents_submitted=submitted,
-                documents_total=total,
+                documents_submitted=slots_complete,
+                documents_total=slots_total,
             )
         )
 

@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections import defaultdict
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, select
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload
@@ -15,18 +14,18 @@ from ..models import (
     Adviser,
     Department,
     DocumentSubmission,
-    DocumentType,
     ExtractionSchema,
+    RequirementSlot,
+    RequirementSlotItem,
     SchoolYear,
-    SchoolYearRequirement,
     Student,
     SubmissionStatus,
     User,
 )
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .clerk import fetch_user_profile
-from .document_requirements import get_required_document_types_for_student
 from .helpers import compute_initials, exclude_replaced_submissions
+from .requirements import get_bulk_student_slot_statuses, get_student_slot_statuses
 
 _ANALYTICS_KEYWORDS: dict[str, list[str]] = {
     "gpa": ["gpa", "gwa", "grade point", "general weighted"],
@@ -71,39 +70,6 @@ def _compute_gpa_from_semesters(extracted_data: dict) -> str | None:
     return None
 
 
-async def get_required_doc_counts_by_class(
-    db: SessionDep,
-    school_year_id: uuid.UUID,
-) -> dict[str | None, int]:
-    """
-    Count required document types per classification for a given school year.
-
-    The SchoolYearRequirement join defines what was required for that year.
-    We deliberately do NOT filter by DocumentType.status here — archiving a
-    type globally should not retroactively change the required-doc count
-    for students who were in a school year that included it.
-    """
-    stmt = (
-        select(DocumentType.id, DocumentType.applicable_classifications)
-        .join(SchoolYearRequirement, SchoolYearRequirement.document_type_id == DocumentType.id)
-        .where(
-            SchoolYearRequirement.school_year_id == school_year_id,
-        )
-    )
-    rows = (await db.execute(stmt)).all()
-
-    all_classifications: set[str | None] = {
-        "freshman", "transferee", "shifter", "returning", "cross_enrollee", None
-    }
-    counts: dict[str | None, int] = defaultdict(int)
-    for dt_id, applicable in rows:
-        applicable_set = set(applicable or [])
-        for cls in all_classifications:
-            if not applicable_set or cls in applicable_set:
-                counts[cls] += 1
-    return dict(counts)
-
-
 async def list_students(
     db: SessionDep,
     adviser: Adviser,
@@ -141,6 +107,7 @@ async def list_students(
     missing_image = [
         (row.id, row.clerk_user_id) for row in user_rows
         if not row.image_url and row.clerk_user_id
+        and not row.clerk_user_id.startswith(("seed_sample_", "seed_2026_"))
     ]
     if missing_image:
         async def _fetch(uid):
@@ -169,23 +136,7 @@ async def list_students(
     dept_rows = (await db.execute(dept_stmt)).all()
     dept_map = {row.id: row.name for row in dept_rows}
 
-    sub_count_stmt = exclude_replaced_submissions(
-        select(
-            DocumentSubmission.student_id,
-            func.count(DocumentSubmission.id),
-        )
-        .where(
-            DocumentSubmission.student_id.in_(student_ids),
-            DocumentSubmission.status != SubmissionStatus.PENDING,
-        )
-        .group_by(DocumentSubmission.student_id)
-    )
-    sub_counts = {
-        row.student_id: row[1]
-        for row in (await db.execute(sub_count_stmt)).all()
-    }
-
-    req_counts = await get_required_doc_counts_by_class(db, target_sy_id)
+    statuses_map = await get_bulk_student_slot_statuses(db, students)
 
     result: list[dict] = []
     for s in students:
@@ -195,12 +146,11 @@ async def list_students(
         email = u.email if u else None
 
         classification_val = s.classification.value if s.classification else None
-        submitted = sub_counts.get(s.id, 0)
-        total = req_counts.get(classification_val, 0) or req_counts.get(None, 0)
-        if total == 0:
-            completion_pct = 0
-        else:
-            completion_pct = min(100, round(submitted / total * 100))
+
+        slot_statuses = statuses_map.get(s.id, [])
+        slots_total = len(slot_statuses)
+        slots_complete = sum(1 for sl in slot_statuses if sl.is_complete)
+        completion_pct = min(100, round(slots_complete / slots_total * 100)) if slots_total > 0 else 0
 
         result.append({
             "id": str(s.id),
@@ -212,8 +162,9 @@ async def list_students(
             "program": dept_map.get(s.program_id) if s.program_id else None,
             "school_year": school_year.name if school_year else None,
             "classification": classification_val,
-            "documents_submitted": submitted,
-            "documents_total": total,
+            "application_status": s.application_status,
+            "documents_submitted": slots_complete,
+            "documents_total": slots_total,
             "completion_pct": completion_pct,
             "created_at": s.created_at.isoformat() if s.created_at else "",
         })
@@ -241,7 +192,7 @@ async def get_student_detail(
     if student.program_id not in dept_ids:
         return None
 
-    await db.refresh(student, ["user"])
+    await db.refresh(student, ["user", "program_department"])
     school_year = await db.get(SchoolYear, student.school_year_id)
     u = student.user
     first = u.first_name if u else None
@@ -253,8 +204,12 @@ async def get_student_detail(
 
     classification_val = student.classification.value if student.classification else None
 
-    req_types = await get_required_document_types_for_student(db, student)
-    documents_total = len(req_types)
+    slot_statuses = await get_student_slot_statuses(db, student)
+    slots_total = len(slot_statuses)
+    slots_complete = sum(1 for sl in slot_statuses if sl.is_complete)
+    documents_total = slots_total
+    documents_submitted = slots_complete
+    completion_pct = min(100, round(documents_submitted / documents_total * 100)) if documents_total > 0 else 0
 
     sub_stmt = exclude_replaced_submissions(
         select(DocumentSubmission)
@@ -266,8 +221,6 @@ async def get_student_detail(
         .order_by(desc(DocumentSubmission.created_at))
     )
     submissions = (await db.execute(sub_stmt)).scalars().all()
-    documents_submitted = len(submissions)
-    completion_pct = min(100, round(documents_submitted / documents_total * 100)) if documents_total > 0 else 0
 
     sub_responses = [
         {
@@ -284,16 +237,18 @@ async def get_student_detail(
 
     # Build section_title lookup: {document_type_id -> {source_key -> section_title}}
     section_map: dict[uuid.UUID, dict[str, str]] = {}
-    syr_stmt = select(SchoolYearRequirement, ExtractionSchema).join(
-        ExtractionSchema, SchoolYearRequirement.extraction_schema_id == ExtractionSchema.id
-    ).where(SchoolYearRequirement.school_year_id == student.school_year_id)
-    for syr, schema in (await db.execute(syr_stmt)).all():
+    syr_stmt = select(RequirementSlotItem, ExtractionSchema).join(
+        RequirementSlot, RequirementSlotItem.requirement_slot_id == RequirementSlot.id
+    ).join(
+        ExtractionSchema, RequirementSlotItem.extraction_schema_id == ExtractionSchema.id
+    ).where(RequirementSlot.school_year_id == student.school_year_id)
+    for item, schema in (await db.execute(syr_stmt)).all():
         key_to_section: dict[str, str] = {}
         for field in (schema.fields_json or []):
             if isinstance(field, dict) and field.get("key"):
                 key_to_section[field["key"]] = field.get("section_title") or "General"
-        if syr.document_type_id:
-            section_map[syr.document_type_id] = key_to_section
+        if item.document_type_id:
+            section_map[item.document_type_id] = key_to_section
 
     analytics: dict[str, dict[str, str]] = {}
     unmapped: list[dict] = []
@@ -342,6 +297,7 @@ async def get_student_detail(
         "program": program_name,
         "school_year": school_year.name if school_year else None,
         "classification": classification_val,
+        "application_status": student.application_status,
         "documents_submitted": documents_submitted,
         "documents_total": documents_total,
         "completion_pct": completion_pct,
@@ -349,4 +305,21 @@ async def get_student_detail(
         "unmapped_data": unmapped,
         "created_at": student.created_at.isoformat() if student.created_at else "",
         "submissions": sub_responses,
+        "slots": [
+            {
+                "id": str(s.id),
+                "name": s.group_name or s.description or (s.items[0].document_type_name if s.items else "Untitled slot"),
+                "is_complete": s.is_complete,
+                "min_required": s.min_required,
+                "matched_count": s.matched_count,
+                "items": [
+                    {
+                        "document_type_name": item.document_type_name,
+                        "is_primary": item.is_primary,
+                    }
+                    for item in s.items
+                ],
+            }
+            for s in slot_statuses
+        ],
     }

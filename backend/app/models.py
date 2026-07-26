@@ -117,6 +117,8 @@ class Student(Base):
         default=StudentClassification.FRESHMAN,
     )
 
+    application_status = Column(String(30), nullable=True, index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -328,6 +330,102 @@ class SchoolYearRequirement(Base):
 
     school_year = relationship("SchoolYear", back_populates="school_year_requirements")
     document_type = relationship("DocumentType", back_populates="school_year_requirements")
+    extraction_schema = relationship("ExtractionSchema")
+
+
+class RequirementSlot(Base):
+    """
+    A named logical requirement for a school year that can be satisfied by one
+    or more document types.
+
+    Slots replace the flat ``SchoolYearRequirement`` model with a polymorphic
+    design:
+
+    - **solo** — requires exactly one document type (mirrors legacy flat rows).
+    - **group** — accepts any ``min_required`` out of N alternative document
+      types (e.g. "Proof of Financial Status" = ITR OR Certificate of Tax
+      Exemption OR Affidavit).
+
+    A single verified submission can satisfy *multiple* slots when the
+    submission's ``document_type_id`` appears in more than one slot's items
+    list (inventory-based resolution).
+    """
+    __tablename__ = "requirement_slots"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "school_year_id",
+            "display_order",
+            name="uq_requirement_slots_school_year_display_order",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    school_year_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("school_years.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    slot_type = Column(String(20), nullable=False)  # 'solo' | 'group'
+    group_name = Column(String(120), nullable=True)
+    description = Column(Text, nullable=True)
+    min_required = Column(Integer, nullable=False, default=1)
+    display_order = Column(Integer, nullable=False, default=0)
+    snapshot_fields_json = Column(JSONB, nullable=True, default=None)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    school_year = relationship("SchoolYear")
+    items = relationship(
+        "RequirementSlotItem",
+        back_populates="slot",
+        cascade="all, delete-orphan",
+    )
+
+
+class RequirementSlotItem(Base):
+    """
+    Bridge table linking a ``RequirementSlot`` to the ``DocumentType`` s that
+    can satisfy it, along with an optional ``ExtractionSchema`` to use when
+    extracting structured data from submissions of that type within the slot.
+    """
+    __tablename__ = "requirement_slot_items"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "requirement_slot_id",
+            "document_type_id",
+            name="uq_slot_items_slot_document_type",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    requirement_slot_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("requirement_slots.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_type_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    extraction_schema_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("extraction_schemas.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    is_primary = Column(Boolean, nullable=False, default=False)
+    display_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    slot = relationship("RequirementSlot", back_populates="items")
+    document_type = relationship("DocumentType")
     extraction_schema = relationship("ExtractionSchema")
 
 

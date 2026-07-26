@@ -286,15 +286,27 @@ export default function ArchivedPage() {
                           <p className="text-[10px] text-slate-400 font-mono mt-0.5">{s.student_number}</p>
                         </div>
                       </div>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {CLASSIFICATION_LABELS[s.classification as keyof typeof CLASSIFICATION_LABELS] || s.classification}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {CLASSIFICATION_LABELS[s.classification as keyof typeof CLASSIFICATION_LABELS] || s.classification}
+                        </Badge>
+                        {s.application_status === "PENDING_DOCUMENTS" && (
+                          <Badge className="bg-amber-100 text-amber-700 text-[10px] font-semibold">
+                            Pending Docs
+                          </Badge>
+                        )}
+                        {s.application_status === "SUBMITTED_COMPLETE" && (
+                          <Badge className="bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
+                            Complete
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-4 flex items-center justify-between text-[10px] text-slate-500 bg-slate-50/50 p-2 rounded-lg border border-slate-100">
                       <span>
-                        Submitted: <b>{s.documents_submitted}/{s.documents_total}</b>
+                        Requirements: <b>{s.documents_submitted}/{s.documents_total}</b>
                       </span>
-                      <span className="font-bold text-slate-700">{s.completion_pct}% Compiled</span>
+                      <span className="font-bold text-slate-700">{s.completion_pct}% Satisfied</span>
                     </div>
                     <div className="mt-3 flex items-center justify-between text-[10px] font-extrabold text-slate-500 uppercase">
                       <span>Audit Record</span>

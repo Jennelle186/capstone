@@ -8,6 +8,8 @@ import {
   Calendar,
   FileText,
   User,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { type ColumnDef } from "@tanstack/react-table";
 
@@ -69,7 +71,7 @@ interface TableSubmission {
 export default function StudentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { student, submissions, loading, error } = useStudentDetail(id);
+  const { student, submissions, slots, loading, error } = useStudentDetail(id);
 
   const tableData: TableSubmission[] = useMemo(
     () =>
@@ -380,6 +382,61 @@ export default function StudentDetailPage() {
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+      )}
+
+      {/* Requirement Slots */}
+      {slots && slots.length > 0 && (
+        <motion.div variants={fadeInUp} initial="hidden" animate="visible">
+          <Card className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/50 px-5 py-4">
+              <h4 className="text-base font-semibold text-slate-900">Requirements</h4>
+              {student?.application_status === "PENDING_DOCUMENTS" && (
+                <Badge className="bg-amber-100 text-amber-700 text-xs font-semibold">
+                  Pending Documents
+                </Badge>
+              )}
+              {student?.application_status === "SUBMITTED_COMPLETE" && (
+                <Badge className="bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                  Complete
+                </Badge>
+              )}
+            </div>
+            <CardContent className="p-5">
+              <div className="space-y-3">
+                {slots.map((slot) => (
+                  <div key={slot.id} className="flex items-start gap-3 text-sm">
+                    {slot.is_complete ? (
+                      <CheckCircle className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`font-medium ${slot.is_complete ? "text-slate-600" : "text-slate-900"}`}
+                      >
+                        {slot.name}
+                      </p>
+                      {slot.min_required > 1 && (
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Accepts: {slot.items.map((i) => i.document_type_name).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      {slot.is_complete ? (
+                        <span className="text-xs text-emerald-600 font-medium">Complete</span>
+                      ) : (
+                        <span className="text-xs text-amber-600 font-medium">
+                          {slot.matched_count}/{slot.min_required}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       )}
 
       {/* Document Submissions */}

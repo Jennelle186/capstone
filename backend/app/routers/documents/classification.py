@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import attributes, selectinload
 
 from ...database import SessionDep
-from ...models import DocumentSubmission, SchoolYearRequirement, Student, SubmissionStatus
+from ...models import DocumentSubmission, DocumentType, SchoolYearRequirement, Student, SubmissionStatus
 from ...services.gcp_storage import delete_file as gcs_delete_file
 from ...services.job_queue import create_job, duplicate_check
 from ...services.processor import process_submission
@@ -192,10 +192,10 @@ async def confirm_classification(
     if submission.student_id != student.id:
         raise HTTPException(status_code=403, detail="You do not have permission to confirm this document.")
 
-    if submission.status not in (SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED):
+    if submission.status not in (SubmissionStatus.CLASSIFIED,):
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot confirm a document with status '{submission.status.value}'. Only CLASSIFIED or FLAGGED documents can be confirmed.",
+            detail=f"Cannot confirm a document with status '{submission.status.value}'. Only CLASSIFIED documents can be confirmed.",
         )
 
     if body.document_type_id:
@@ -203,6 +203,9 @@ async def confirm_classification(
             dt_uuid = UUID(body.document_type_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid document_type_id.")
+        dt_exists = await db.get(DocumentType, dt_uuid)
+        if dt_exists is None:
+            raise HTTPException(status_code=404, detail="Document type not found.")
         submission.document_type_id = dt_uuid
 
     if submission.classification_result and isinstance(submission.classification_result, dict):

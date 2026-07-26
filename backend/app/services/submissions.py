@@ -16,13 +16,15 @@ from ..models import (
     ExtractionSchema,
     ExtractionSchemaStatus,
     Notification,
-    SchoolYearRequirement,
+    RequirementSlot,
+    RequirementSlotItem,
     Student,
     SubmissionStatus,
     User,
 )
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .gcp_storage import generate_presigned_url as gcs_generate_presigned_url
+from .requirements import get_student_slot_statuses
 from ..utils.computation import apply_computed_fields
 from .helpers import compute_initials, exclude_replaced_submissions, relative_time
 
@@ -173,11 +175,12 @@ async def get_submission_extractions(
         }
 
     req_result = await db.execute(
-        select(SchoolYearRequirement)
-        .where(
-            SchoolYearRequirement.school_year_id == student.school_year_id,
-            SchoolYearRequirement.document_type_id == submission.document_type_id,
-            SchoolYearRequirement.extraction_schema_id.isnot(None),
+        select(RequirementSlotItem).join(
+            RequirementSlot, RequirementSlotItem.requirement_slot_id == RequirementSlot.id
+        ).where(
+            RequirementSlot.school_year_id == student.school_year_id,
+            RequirementSlotItem.document_type_id == submission.document_type_id,
+            RequirementSlotItem.extraction_schema_id.isnot(None),
         )
     )
     req = req_result.scalar_one_or_none()
@@ -284,10 +287,12 @@ async def save_submission_extraction_field(
     # Recompute any computed fields that depend on the just-saved field.
     if submission.document_type_id:
         syr_result = await db.execute(
-            select(SchoolYearRequirement).where(
-                SchoolYearRequirement.school_year_id == student.school_year_id,
-                SchoolYearRequirement.document_type_id == submission.document_type_id,
-                SchoolYearRequirement.extraction_schema_id.isnot(None),
+            select(RequirementSlotItem).join(
+                RequirementSlot, RequirementSlotItem.requirement_slot_id == RequirementSlot.id
+            ).where(
+                RequirementSlot.school_year_id == student.school_year_id,
+                RequirementSlotItem.document_type_id == submission.document_type_id,
+                RequirementSlotItem.extraction_schema_id.isnot(None),
             )
         )
         syr = syr_result.scalar_one_or_none()
@@ -327,11 +332,19 @@ async def verify_submission(
     except ValueError:
         return None
 
-    submission = await db.get(DocumentSubmission, sub_uuid)
+    submission_result = await db.execute(
+        select(DocumentSubmission)
+        .where(DocumentSubmission.id == sub_uuid)
+        .with_for_update()
+    )
+    submission = submission_result.scalar_one_or_none()
     if submission is None:
         return None
 
-    student = await db.get(Student, submission.student_id)
+    student_result = await db.execute(
+        select(Student).where(Student.id == submission.student_id).with_for_update()
+    )
+    student = student_result.scalar_one_or_none()
     if student is None:
         return None
 
@@ -341,6 +354,23 @@ async def verify_submission(
     dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
     if student.program_id not in dept_ids:
         return None
+
+    # Idempotent: already verified → no-op
+    if submission.status == SubmissionStatus.VERIFIED:
+        return {
+            "status": "verified",
+            "submission_id": str(submission.id),
+        }
+
+    if submission.status not in (
+        SubmissionStatus.SUBMITTED,
+        SubmissionStatus.IN_REVIEW,
+        SubmissionStatus.FLAGGED,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot verify a submission with status '{submission.status.value}'. Only submitted, in-review, or previously-flagged submissions can be verified.",
+        )
 
     now = datetime.now(timezone.utc)
     previous_status = submission.status.value
@@ -370,12 +400,25 @@ async def verify_submission(
     )
     db.add(notification)
 
+    if student.application_status != "SUBMITTED_COMPLETE":
+        slot_statuses = await get_student_slot_statuses(db, student)
+        if slot_statuses and all(s.is_complete for s in slot_statuses):
+            student.application_status = "SUBMITTED_COMPLETE"
+            db.add(Notification(
+                recipient_id=student.user_id,
+                title="Enrollment Complete",
+                message="All your required documents have been verified. Your enrollment file is now complete.",
+                notification_type="ENROLLMENT_COMPLETE",
+                reference_id=student.id,
+            ))
+
     await db.commit()
 
     return {
         "status": "verified",
         "submission_id": str(submission.id),
     }
+
 
 
 async def flag_submission(
@@ -398,11 +441,19 @@ async def flag_submission(
     except ValueError:
         return None
 
-    submission = await db.get(DocumentSubmission, sub_uuid)
+    submission_result = await db.execute(
+        select(DocumentSubmission)
+        .where(DocumentSubmission.id == sub_uuid)
+        .with_for_update()
+    )
+    submission = submission_result.scalar_one_or_none()
     if submission is None:
         return None
 
-    student = await db.get(Student, submission.student_id)
+    student_result = await db.execute(
+        select(Student).where(Student.id == submission.student_id).with_for_update()
+    )
+    student = student_result.scalar_one_or_none()
     if student is None:
         return None
 
@@ -412,6 +463,33 @@ async def flag_submission(
     dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
     if student.program_id not in dept_ids:
         return None
+
+    # Idempotent: already flagged → update reason and return
+    if submission.status == SubmissionStatus.FLAGGED:
+        submission.rejection_reason = clean_reason
+        submission.flagged_at = datetime.now(timezone.utc)
+        submission.flagged_by = adviser.user_id
+        await log_submission_event(
+            db,
+            sub_uuid,
+            action="FLAGGED",
+            actor_user_id=adviser.user_id,
+            previous_status=SubmissionStatus.FLAGGED.value,
+            new_status=SubmissionStatus.FLAGGED.value,
+            reason=clean_reason,
+        )
+        await db.commit()
+        return {
+            "status": "flagged",
+            "submission_id": str(submission.id),
+            "reason": clean_reason,
+        }
+
+    if submission.status not in (SubmissionStatus.SUBMITTED, SubmissionStatus.IN_REVIEW):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot flag a submission with status '{submission.status.value}'. Only submitted or in-review submissions can be flagged.",
+        )
 
     now = datetime.now(timezone.utc)
     previous_status = submission.status.value
@@ -441,6 +519,10 @@ async def flag_submission(
         reference_id=submission.id,
     )
     db.add(notification)
+
+    slot_statuses = await get_student_slot_statuses(db, student)
+    if any(not s.is_complete for s in slot_statuses) and student.application_status == "SUBMITTED_COMPLETE":
+        student.application_status = "PENDING_DOCUMENTS"
 
     await db.commit()
 

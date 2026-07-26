@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle, Lock } from "lucide-react";
+import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,14 @@ import SubmissionChecklist from "@/components/student/UploadDocuments/classify/S
 import JobProgress from "@/components/student/UploadDocuments/JobProgress";
 import type { ClassificationItem, ClassificationStatus } from "@/types/classification";
 import type { RequiredDocument } from "@/types/student";
+import type { SlotStatusResponse } from "@/types/requirement";
 import type { SubmissionDetail } from "@/types/submission";
 
 type FilterTab = "all" | "needs-review" | "ready";
 
 interface StepClassifyProps {
-  allVerified?: boolean;
   requiredDocuments: RequiredDocument[];
+  requiredSlots: SlotStatusResponse[];
   submissions: SubmissionDetail[];
   onClassificationChange?: (complete: boolean) => void;
   onSubmissionsUpdate?: (submissions: SubmissionDetail[]) => void;
@@ -94,8 +95,8 @@ const TABS: { key: FilterTab; label: string }[] = [
 ];
 
 export default function StepClassify({
-  allVerified,
   requiredDocuments,
+  requiredSlots,
   submissions,
   onClassificationChange,
   onSubmissionsUpdate,
@@ -433,26 +434,11 @@ export default function StepClassify({
   const processingItems = visibleItems.filter((i) => i.status === "processing");
   const interactiveItems = visibleItems.filter((i) => i.status !== "processing");
 
-  if (allVerified) {
-    return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-        <Lock className="mx-auto h-8 w-8 text-emerald-500" />
-        <h3 className="mt-4 text-lg font-semibold text-emerald-800">
-          All Required Documents Verified
-        </h3>
-        <p className="mx-auto mt-2 max-w-md text-sm text-emerald-600">
-          Every required document has been reviewed and verified. Classification
-          is complete.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Left: Required Documents Checklist */}
       <div className="lg:col-span-4 lg:sticky lg:top-6 self-start">
-        <SubmissionChecklist requiredDocuments={requiredDocuments} items={items} />
+        <SubmissionChecklist requiredSlots={requiredSlots} items={items} />
       </div>
 
       {/* Right: Classification Cards */}
