@@ -192,10 +192,10 @@ async def confirm_classification(
     if submission.student_id != student.id:
         raise HTTPException(status_code=403, detail="You do not have permission to confirm this document.")
 
-    if submission.status not in (SubmissionStatus.CLASSIFIED,):
+    if submission.status not in (SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED):
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot confirm a document with status '{submission.status.value}'. Only CLASSIFIED documents can be confirmed.",
+            detail=f"Cannot confirm a document with status '{submission.status.value}'. Only CLASSIFIED or FLAGGED documents can be confirmed.",
         )
 
     if body.document_type_id:
