@@ -148,11 +148,7 @@ async def extract_all_documents(
                 SchoolYearRequirement.extraction_schema_id.isnot(None),
             )
         )
-        for req in req_result.scalars().all():
-            if req.document_type_id:
-                schema = await db.get(ExtractionSchema, req.extraction_schema_id)
-                if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
-                    schema_doc_types.add(req.document_type_id)
+        reqs = list(req_result.scalars().all())
 
         slot_item_result = await db.execute(
             select(RequirementSlotItem)
@@ -162,11 +158,33 @@ async def extract_all_documents(
                 RequirementSlotItem.extraction_schema_id.isnot(None),
             )
         )
-        for item in slot_item_result.scalars().all():
-            if item.document_type_id:
-                schema = await db.get(ExtractionSchema, item.extraction_schema_id)
-                if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
-                    schema_doc_types.add(item.document_type_id)
+        slot_items = list(slot_item_result.scalars().all())
+
+        schema_ids: set[UUID] = set()
+        for r in reqs:
+            if r.extraction_schema_id:
+                schema_ids.add(r.extraction_schema_id)
+        for item in slot_items:
+            if item.extraction_schema_id:
+                schema_ids.add(item.extraction_schema_id)
+
+        active_schema_ids: set[UUID] = set()
+        if schema_ids:
+            schemas_result = await db.execute(
+                select(ExtractionSchema.id).where(
+                    ExtractionSchema.id.in_(schema_ids),
+                    ExtractionSchema.status != ExtractionSchemaStatus.ARCHIVED,
+                )
+            )
+            for schema_id in schemas_result.scalars().all():
+                active_schema_ids.add(schema_id)
+
+        for req in reqs:
+            if req.document_type_id and req.extraction_schema_id in active_schema_ids:
+                schema_doc_types.add(req.document_type_id)
+        for item in slot_items:
+            if item.document_type_id and item.extraction_schema_id in active_schema_ids:
+                schema_doc_types.add(item.document_type_id)
 
         for sub in submissions:
             if sub.extracted_data:
@@ -279,12 +297,7 @@ async def list_extractions(
                 SchoolYearRequirement.extraction_schema_id.isnot(None),
             )
         )
-        for req in req_result.scalars().all():
-            if not req.document_type_id:
-                continue
-            schema = await db.get(ExtractionSchema, req.extraction_schema_id)
-            if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
-                schemas_by_type[req.document_type_id] = schema
+        reqs = list(req_result.scalars().all())
 
         slot_item_result = await db.execute(
             select(RequirementSlotItem)
@@ -294,14 +307,42 @@ async def list_extractions(
                 RequirementSlotItem.extraction_schema_id.isnot(None),
             )
         )
-        for item in slot_item_result.scalars().all():
+        slot_items = list(slot_item_result.scalars().all())
+
+        schema_ids: set[UUID] = set()
+        for r in reqs:
+            if r.extraction_schema_id:
+                schema_ids.add(r.extraction_schema_id)
+        for item in slot_items:
+            if item.extraction_schema_id:
+                schema_ids.add(item.extraction_schema_id)
+
+        schemas_map: dict[UUID, ExtractionSchema] = {}
+        if schema_ids:
+            schemas_result = await db.execute(
+                select(ExtractionSchema).where(
+                    ExtractionSchema.id.in_(schema_ids),
+                    ExtractionSchema.status != ExtractionSchemaStatus.ARCHIVED,
+                )
+            )
+            for s in schemas_result.scalars().all():
+                schemas_map[s.id] = s
+
+        for req in reqs:
+            if not req.document_type_id:
+                continue
+            s = schemas_map.get(req.extraction_schema_id)
+            if s:
+                schemas_by_type[req.document_type_id] = s
+
+        for item in slot_items:
             if not item.document_type_id:
                 continue
             if item.document_type_id in schemas_by_type:
                 continue
-            schema = await db.get(ExtractionSchema, item.extraction_schema_id)
-            if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
-                schemas_by_type[item.document_type_id] = schema
+            s = schemas_map.get(item.extraction_schema_id)
+            if s:
+                schemas_by_type[item.document_type_id] = s
 
     items: list[ExtractionItemResponse] = []
     for sub in submissions:
@@ -431,6 +472,7 @@ async def save_extraction_field(
 
     # Recompute computed fields that depend on the just-saved field.
     if submission.document_type_id and student.school_year_id:
+        schema = None
         syr_result = await db.execute(
             select(SchoolYearRequirement).where(
                 SchoolYearRequirement.school_year_id == student.school_year_id,
@@ -439,16 +481,35 @@ async def save_extraction_field(
             )
         )
         syr = syr_result.scalar_one_or_none()
-        if syr:
+        if syr and syr.extraction_schema_id:
             schema = await db.get(ExtractionSchema, syr.extraction_schema_id)
-            if schema and schema.fields_json:
-                affected = [
-                    f for f in schema.fields_json
-                    if f.get("is_computed")
-                    and body.field_id in (f.get("computation") or {}).get("dependencies", [])
-                ]
-                if affected:
-                    extracted = apply_computed_fields(schema.fields_json, extracted)
+            if schema and schema.status == ExtractionSchemaStatus.ARCHIVED:
+                schema = None
+
+        if not schema:
+            slot_item_result = await db.execute(
+                select(RequirementSlotItem)
+                .join(RequirementSlot, RequirementSlotItem.requirement_slot_id == RequirementSlot.id)
+                .where(
+                    RequirementSlot.school_year_id == student.school_year_id,
+                    RequirementSlotItem.document_type_id == submission.document_type_id,
+                    RequirementSlotItem.extraction_schema_id.isnot(None),
+                )
+            )
+            slot_item = slot_item_result.scalar_one_or_none()
+            if slot_item and slot_item.extraction_schema_id:
+                schema = await db.get(ExtractionSchema, slot_item.extraction_schema_id)
+                if schema and schema.status == ExtractionSchemaStatus.ARCHIVED:
+                    schema = None
+
+        if schema and schema.fields_json:
+            affected = [
+                f for f in schema.fields_json
+                if f.get("is_computed")
+                and body.field_id in (f.get("computation") or {}).get("dependencies", [])
+            ]
+            if affected:
+                extracted = apply_computed_fields(schema.fields_json, extracted)
 
     submission.extracted_data = extracted
     attributes.flag_modified(submission, "extracted_data")

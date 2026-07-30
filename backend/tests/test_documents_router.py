@@ -311,6 +311,11 @@ def test_list_extractions_includes_verified_submission(client, mock_user, mock_s
         return_value=MagicMock(all=MagicMock(return_value=[]))
     )
 
+    schemas_batch_result = MagicMock()
+    schemas_batch_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[schema_obj]))
+    )
+
     async def override_get_db_session():
         session = AsyncMock()
         session.add = MagicMock()
@@ -320,8 +325,8 @@ def test_list_extractions_includes_verified_submission(client, mock_user, mock_s
             verified_ids_result,
             requirements_result,
             slot_items_result,
+            schemas_batch_result,
         ])
-        session.get = AsyncMock(return_value=schema_obj)
         yield session
 
     app.dependency_overrides[get_db_session] = override_get_db_session
@@ -395,6 +400,11 @@ def test_list_extractions_excludes_nonverified_of_verified_type(client, mock_use
         return_value=MagicMock(all=MagicMock(return_value=[]))
     )
 
+    schemas_batch_result = MagicMock()
+    schemas_batch_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[schema_obj]))
+    )
+
     async def override_get_db_session():
         session = AsyncMock()
         session.add = MagicMock()
@@ -404,8 +414,8 @@ def test_list_extractions_excludes_nonverified_of_verified_type(client, mock_use
             verified_ids_result,
             requirements_result,
             slot_items_result,
+            schemas_batch_result,
         ])
-        session.get = AsyncMock(return_value=schema_obj)
         yield session
 
     app.dependency_overrides[get_db_session] = override_get_db_session
@@ -499,6 +509,11 @@ def test_list_extractions_finds_schemas_in_slot_items(client, mock_user, mock_st
         return_value=MagicMock(all=MagicMock(return_value=[slot_item]))
     )
 
+    schemas_batch_result = MagicMock()
+    schemas_batch_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[schema_obj]))
+    )
+
     async def override_get_db_session():
         session = AsyncMock()
         session.add = MagicMock()
@@ -508,8 +523,8 @@ def test_list_extractions_finds_schemas_in_slot_items(client, mock_user, mock_st
             verified_ids_result,
             requirements_result,
             slot_items_result,
+            schemas_batch_result,
         ])
-        session.get = AsyncMock(return_value=schema_obj)
         yield session
 
     app.dependency_overrides[get_db_session] = override_get_db_session
@@ -579,6 +594,11 @@ def test_list_extractions_merges_legacy_and_slot_schemas(client, mock_user, mock
         return_value=MagicMock(all=MagicMock(return_value=[slot_item]))
     )
 
+    schemas_batch_result = MagicMock()
+    schemas_batch_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[schema_obj]))
+    )
+
     async def override_get_db_session():
         session = AsyncMock()
         session.add = MagicMock()
@@ -588,8 +608,8 @@ def test_list_extractions_merges_legacy_and_slot_schemas(client, mock_user, mock
             verified_ids_result,
             requirements_result,
             slot_items_result,
+            schemas_batch_result,
         ])
-        session.get = AsyncMock(return_value=schema_obj)
         yield session
 
     app.dependency_overrides[get_db_session] = override_get_db_session
