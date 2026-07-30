@@ -1,4 +1,4 @@
-export type AdviserStudentClassification = "freshman" | "transferee" | "shifter" | "returning" | "cross_enrollee";
+export type AdviserStudentClassification = "freshman" | "transferee" | "shifter" | "returning" | "cross_enrollee" | "second_courser";
 
 export interface ExtractedAnalyticsValue {
     value: string;
@@ -78,6 +78,7 @@ export const CLASSIFICATION_LABELS: Record<AdviserStudentClassification, string>
     shifter: "Shifter",
     returning: "Returning / Continuing",
     cross_enrollee: "Cross-Enrolee",
+    second_courser: "Second Courser",
 };
 
 export const CLASSIFICATION_BADGE_CLASSES: Record<AdviserStudentClassification, string> = {
@@ -86,4 +87,5 @@ export const CLASSIFICATION_BADGE_CLASSES: Record<AdviserStudentClassification, 
     shifter: "bg-amber-100 text-amber-700",
     returning: "bg-emerald-100 text-emerald-700",
     cross_enrollee: "bg-rose-100 text-rose-700",
+    second_courser: "bg-slate-100 text-slate-700",
 };

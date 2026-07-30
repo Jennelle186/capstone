@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 import { motion } from "framer-motion";
-import { Users, ChevronRight } from "lucide-react";
+import { Users, ChevronRight, Loader2 } from "lucide-react";
 import { type ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown } from "lucide-react";
 
@@ -9,6 +9,13 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -21,6 +28,7 @@ import PageHeader from "@/components/adviser/ui/PageHeader";
 import DataTable from "@/components/common/data-table/DataTable";
 import { useAdviserStudents } from "@/hooks/useAdviserStudents";
 import { useAdviserProfile } from "@/hooks/useAdviserProfile";
+import { useUpdateStudentClassification } from "@/hooks/useUpdateStudentClassification";
 import {
   type AdviserStudent,
   CLASSIFICATION_LABELS,
@@ -39,12 +47,14 @@ const classificationOptions = [
   { label: "Shifter", value: "shifter" },
   { label: "Returning / Continuing", value: "returning" },
   { label: "Cross-Enrolee", value: "cross_enrollee" },
+  { label: "Second Courser", value: "second_courser" },
 ];
 
 export default function AdviseesPage() {
   const navigate = useNavigate();
   const { students, loading } = useAdviserStudents();
   const { profile } = useAdviserProfile();
+  const { updateClassification, isUpdating } = useUpdateStudentClassification();
 
   const columns: ColumnDef<AdviserStudent>[] = [
     {
@@ -94,11 +104,40 @@ export default function AdviseesPage() {
       cell: ({ row }) => {
         const classification = row.getValue("classification") as AdviserStudent["classification"];
         return (
-          <span
-            className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[classification]}`}
-          >
-            {CLASSIFICATION_LABELS[classification]}
-          </span>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Select
+              value={classification}
+              onValueChange={async (value) => {
+                const ok = await updateClassification(row.original.id, value);
+                if (ok) window.location.reload();
+              }}
+              disabled={isUpdating}
+            >
+              <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 pr-1 [&>svg]:hidden">
+                <div className="flex items-center gap-1">
+                  <SelectValue>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[classification]}`}
+                    >
+                      {CLASSIFICATION_LABELS[classification]}
+                    </span>
+                  </SelectValue>
+                  {isUpdating ? (
+                    <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><path d="m6 9 6 6 6-6"/></svg>
+                  )}
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(CLASSIFICATION_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value} className="text-xs">
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         );
       },
       filterFn: "equals",
@@ -148,7 +187,7 @@ export default function AdviseesPage() {
           className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
-          Clearance Progress
+          Document Progress
           <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
         </Button>
       ),
@@ -217,7 +256,7 @@ export default function AdviseesPage() {
                     Classification
                   </TableHead>
                   <TableHead className="px-6 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Clearance Progress
+                    Document Progress
                   </TableHead>
                   <TableHead className="px-6 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right">
                     Actions

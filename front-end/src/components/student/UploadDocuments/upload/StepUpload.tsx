@@ -27,17 +27,19 @@ interface StepUploadProps {
   onDeleted?: () => void;
   existingSubmissions?: SubmissionDetail[];
   replaceSubmissionId?: string | null;
+  isSchoolYearClosed?: boolean;
 }
 
 export default function StepUpload({
-  requiredDocuments,
-  requiredSlots,
+  requiredDocuments = [],
+  requiredSlots = [],
   getToken,
   onUploadComplete,
   onDeleteSubmission,
   onDeleted,
-  existingSubmissions,
+  existingSubmissions = [],
   replaceSubmissionId,
+  isSchoolYearClosed = false,
 }: StepUploadProps) {
   // Tracks files the user has selected but not yet uploaded
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -292,6 +294,11 @@ export default function StepUpload({
 
   return (
     <div className="grid grid-cols-12 gap-4">
+      {isSchoolYearClosed && (
+        <div className="col-span-12 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-sm font-medium text-red-800">
+          The school year is closed. Your documents are archived and read-only. Uploads and edits are no longer allowed.
+        </div>
+      )}
       {/* Left column: upload controls and file lists */}
       <div className="col-span-12 lg:col-span-8 space-y-4">
         {verifiedTypes.length > 0 && (
@@ -318,9 +325,13 @@ export default function StepUpload({
           onDeleteSubmission={handleDeleteSubmission}
           onDeleted={onDeleted}
           getToken={getToken}
+          isReadOnly={isSchoolYearClosed}
         />
-        <DropZone onFilesAdded={addFiles} />
-        <NewFileList
+        {!isSchoolYearClosed && (
+          <DropZone onFilesAdded={addFiles} />
+        )}
+        {!isSchoolYearClosed && (
+          <NewFileList
           files={files}
           uploadingIds={uploadingIds}
           uploadedIds={uploadedIds}
@@ -332,6 +343,7 @@ export default function StepUpload({
           onRemove={removeFile}
           onClearAll={clearAllFiles}
         />
+        )}
       </div>
       {/* Right sidebar: required documents and tips */}
       <UploadSidebar slots={requiredSlots} legacyDocuments={requiredDocuments} />

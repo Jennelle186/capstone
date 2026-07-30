@@ -39,6 +39,8 @@ interface PreviouslyUploadedSectionProps {
   onDeleted?: () => void;
   // Clerk auth token provider used for the DELETE API call
   getToken: () => Promise<string | null>;
+  // When true, hides delete buttons (school year closed)
+  isReadOnly?: boolean;
 }
 
 // Section displaying documents the student has previously uploaded.
@@ -51,6 +53,7 @@ export default function PreviouslyUploadedSection({
   onDeleteSubmission,
   onDeleted,
   getToken,
+  isReadOnly = false,
 }: PreviouslyUploadedSectionProps) {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [activeRetryId, setActiveRetryId] = useState<string | null>(null);
@@ -184,6 +187,7 @@ export default function PreviouslyUploadedSection({
             >
               <FileText className="size-4 text-slate-500" />
             </button>
+            {!isReadOnly && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
@@ -209,6 +213,7 @@ export default function PreviouslyUploadedSection({
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            )}
           </div>
         ))}
         <input

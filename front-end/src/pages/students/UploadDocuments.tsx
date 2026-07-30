@@ -25,6 +25,7 @@ export default function UploadDocuments() {
   const [existingSubmissions, setExistingSubmissions] = useState<SubmissionDetail[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionUploadIds, setSessionUploadIds] = useState<Set<string>>(new Set());
+  const [schoolYearClosed, setSchoolYearClosed] = useState(false);
 
   const replaceSubmissionId = searchParams.get("replace");
 
@@ -86,8 +87,9 @@ export default function UploadDocuments() {
       try {
         const token = await getToken();
         if (!token) return;
-        const [reqRes, docsRes] = await Promise.all([
+        const [reqRes, reqdRes, docsRes] = await Promise.all([
           fetchWithClerkAuth("/api/me/required-slots", token),
+          fetchWithClerkAuth("/api/me/required-documents", token),
           fetchWithClerkAuth("/api/me/documents", token),
         ]);
         if (reqRes.ok) {
@@ -110,6 +112,12 @@ export default function UploadDocuments() {
               }
             }
             setRequiredDocs(flatDocs);
+          }
+        }
+        if (reqdRes.ok) {
+          const reqd = (await reqdRes.json()) as { school_year_status: string | null };
+          if (!cancelled && reqd.school_year_status === "closed") {
+            setSchoolYearClosed(true);
           }
         }
         if (docsRes.ok) {
@@ -249,6 +257,7 @@ export default function UploadDocuments() {
           onDeleted={handleDeleted}
           existingSubmissions={existingSubmissions}
           replaceSubmissionId={replaceSubmissionId}
+          isSchoolYearClosed={schoolYearClosed}
         />
       )}
       {step === 2 && (
@@ -261,13 +270,14 @@ export default function UploadDocuments() {
           getToken={getToken}
         />
       )}
-      {step === 3 && (
+        {step === 3 && (
         <StepExtract
           onExtractionChange={setExtractionComplete}
           getToken={getToken}
+          isSchoolYearClosed={schoolYearClosed}
         />
       )}
-      {step === 4 && <StepSubmit requiredSlots={requiredSlots} submissions={sessionSubmissions} getToken={getToken} onSubmitted={handleSubmitted} />}
+      {step === 4 && <StepSubmit requiredSlots={requiredSlots} submissions={sessionSubmissions} getToken={getToken} onSubmitted={handleSubmitted} isSchoolYearClosed={schoolYearClosed} />}
     </UploadWizard>
   );
 }

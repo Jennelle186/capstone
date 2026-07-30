@@ -10,6 +10,7 @@ import {
   User,
   CheckCircle,
   XCircle,
+  Loader2,
 } from "lucide-react";
 import { type ColumnDef } from "@tanstack/react-table";
 
@@ -24,10 +25,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import DataTable from "@/components/common/data-table/DataTable";
 import PageHeader from "@/components/adviser/ui/PageHeader";
 import SubmissionStatusBadge from "@/components/adviser/ui/SubmissionStatusBadge";
 import { useStudentDetail } from "@/hooks/useStudentDetail";
+import { useUpdateStudentClassification } from "@/hooks/useUpdateStudentClassification";
 import type { AdviserSubmissionStatus } from "@/types/adviser-dashboard";
 import {
   CLASSIFICATION_LABELS,
@@ -72,6 +81,7 @@ export default function StudentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { student, submissions, slots, loading, error } = useStudentDetail(id);
+  const { updateClassification, isUpdating } = useUpdateStudentClassification();
 
   const tableData: TableSubmission[] = useMemo(
     () =>
@@ -243,9 +253,36 @@ export default function StudentDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-xl font-bold text-slate-900">{student.name}</h2>
-                    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[student.classification]}`}>
-                      {CLASSIFICATION_LABELS[student.classification]}
-                    </span>
+                    <Select
+                      value={student.classification}
+                      onValueChange={async (value) => {
+                        const ok = await updateClassification(student.id, value);
+                        if (ok) window.location.reload();
+                      }}
+                      disabled={isUpdating}
+                    >
+                      <SelectTrigger className="h-auto w-auto border-0 bg-transparent p-0 pr-1 [&>svg]:hidden">
+                        <div className="flex items-center gap-1">
+                          <SelectValue>
+                            <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[student.classification]}`}>
+                              {CLASSIFICATION_LABELS[student.classification]}
+                            </span>
+                          </SelectValue>
+                          {isUpdating ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><path d="m6 9 6 6 6-6"/></svg>
+                          )}
+                        </div>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(CLASSIFICATION_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value} className="text-xs">
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-extrabold text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100">

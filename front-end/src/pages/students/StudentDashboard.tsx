@@ -44,6 +44,7 @@ interface MeResponse {
 interface RequiredDocumentsData {
   school_year_id: string | null;
   school_year_name: string | null;
+  school_year_status: string | null;
   classification: string | null;
 }
 
@@ -99,7 +100,7 @@ export default function StudentDashboard() {
   const [firstName, setFirstName] = React.useState<string | null>(null);
   const [lastName, setLastName] = React.useState<string | null>(null);
   const [schoolYear, setSchoolYear] = React.useState<string | null>(null);
-  const [classification, setClassification] = React.useState<string | null>(null);
+  const [schoolYearStatus, setSchoolYearStatus] = React.useState<string | null>(null);
   const [studentNumber, setStudentNumber] = React.useState<string | null>(null);
   const [programId, setProgramId] = React.useState<string | null>(null);
   const [departments, setDepartments] = React.useState<DepartmentOption[]>([]);
@@ -144,7 +145,7 @@ export default function StudentDashboard() {
         setLastName(me.lastName);
         setStudentNumber(me.student_number);
         setSchoolYear(req.school_year_name);
-        setClassification(req.classification);
+        setSchoolYearStatus(req.school_year_status);
         setProgramId(me.program_id);
 
         if (me.program_id) {
@@ -249,6 +250,16 @@ export default function StudentDashboard() {
 
   return (
     <main className="flex flex-1 flex-col gap-6">
+      {/* Archived School Year Banner */}
+      {schoolYearStatus === "closed" && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+          <div className="text-sm font-medium text-red-800">
+            The {schoolYear ?? "current"} school year is closed. Your documents are archived and read-only.
+          </div>
+        </div>
+      )}
+
       {/* Program Selection Warning */}
       {!programId && (
         <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4">
@@ -352,12 +363,6 @@ export default function StudentDashboard() {
               <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 rounded-full border-0 gap-1 text-xs font-semibold">
                 <GraduationCap className="h-3 w-3" />
                 School Year: {schoolYear}
-              </Badge>
-            )}
-            {classification && (
-              <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 rounded-full border-0 gap-1 text-xs font-semibold capitalize">
-                <User className="h-3 w-3" />
-                Classification: {classification}
               </Badge>
             )}
             {studentNumber && (

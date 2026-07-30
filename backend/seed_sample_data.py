@@ -214,6 +214,8 @@ def build_file_key(student_id: uuid.UUID, doc_code: str, filename: str) -> str:
 def doc_types_for_classification(classification: StudentClassification) -> list[str]:
     if classification == StudentClassification.FRESHMAN:
         return FRESHMAN_DOCS
+    if classification == StudentClassification.SECOND_COURSER:
+        return TRANSFEREE_DOCS
     return TRANSFEREE_DOCS
 
 

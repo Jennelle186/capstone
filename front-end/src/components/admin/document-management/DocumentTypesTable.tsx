@@ -31,6 +31,7 @@ const CLASSIFICATION_LABELS: Record<StudentClassification, string> = {
     shifter: "Shifter",
     returning: "Returning / Continuing",
     cross_enrollee: "Cross-Enrolee",
+    second_courser: "Second Courser",
 };
 
 export default function DocumentTypesTable({

@@ -21,6 +21,7 @@ from ...services.job_queue import create_job, duplicate_check
 from ...services.user_sync import ensure_user_row
 from ...utils.computation import apply_computed_fields
 from .schemas import StudentClaims, SubmissionDetailResponse
+from .uploads import _require_student_onboarded, _ensure_school_year_not_closed
 
 router = APIRouter(tags=["documents"])
 
@@ -76,11 +77,8 @@ async def extract_all_documents(
     body: ExtractAllRequest | None = None,
 ):
     """Extract field data for classified document submissions. Delegates to the async job system."""
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     body = body or ExtractAllRequest()
     eligible_statuses = (SubmissionStatus.CLASSIFIED, SubmissionStatus.FLAGGED, SubmissionStatus.UPLOADED)
@@ -175,7 +173,7 @@ async def extract_all_documents(
         student_id=student.id,
         operation="extract",
         submission_ids=eligible_ids,
-        requested_by=user.id,
+        requested_by=student.user_id,
     )
 
     return {
@@ -377,11 +375,8 @@ async def save_extraction_field(
     Stores the field value in `extracted_data` JSONB, keyed by field_id.
     Also sets `needs_review` to False once the user has touched the field.
     """
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     submission = await db.get(DocumentSubmission, submission_id)
     if submission is None:

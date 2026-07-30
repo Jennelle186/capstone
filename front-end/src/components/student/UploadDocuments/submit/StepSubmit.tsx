@@ -20,9 +20,10 @@ interface StepSubmitProps {
   submissions: SubmissionDetail[];
   getToken: () => Promise<string | null>;
   onSubmitted?: () => void;
+  isSchoolYearClosed?: boolean;
 }
 
-export default function StepSubmit({ requiredSlots, submissions, getToken, onSubmitted }: StepSubmitProps) {
+export default function StepSubmit({ requiredSlots, submissions, getToken, onSubmitted, isSchoolYearClosed = false }: StepSubmitProps) {
   const navigate = useNavigate();
   const [showConfirm, setShowConfirm] = React.useState(false);
   const [showConditional, setShowConditional] = React.useState(false);
@@ -268,6 +269,11 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
 
   return (
     <>
+      {isSchoolYearClosed && (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-sm font-medium text-red-800">
+          The school year is closed. Your documents are archived and read-only. Submissions are no longer allowed.
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:items-start">
         {/* Left: Document list */}
         <div className="lg:col-span-8">

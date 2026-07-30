@@ -23,6 +23,7 @@ const CLASSIFICATION_OPTIONS: { value: StudentClassification; label: string }[] 
     { value: "shifter", label: "Shifters" },
     { value: "returning", label: "Returning / Continuing" },
     { value: "cross_enrollee", label: "Cross-Enrolees" },
+    { value: "second_courser", label: "Second Coursers" },
 ];
 
 interface DocumentTypeFormProps {

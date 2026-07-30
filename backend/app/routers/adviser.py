@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from ..database import SessionDep
-from ..models import DocumentSubmission, DocumentSubmissionHistory, Student, User, UserRole
+from ..models import DocumentSubmission, DocumentSubmissionHistory, Student, StudentClassification, User, UserRole
 from ..rbac import require_roles
 from ..services.adviser_core import get_department_ids_for_adviser, resolve_adviser
 from ..services.analytics import get_analytics as svc_get_analytics, get_archived as svc_get_archived
@@ -288,6 +288,43 @@ async def get_adviser_student_detail(
         **{k: v for k, v in result.items() if k != "submissions"},
         submissions=[AdviserStudentSubmissionResponse(**s) for s in result["submissions"]],
     )
+
+
+# ─── PATCH /api/adviser/students/{student_id}/classification ──────────────
+
+
+class ClassificationUpdateRequest(BaseModel):
+    classification: str
+
+
+@router.patch("/api/adviser/students/{student_id}/classification")
+async def update_student_classification(
+    student_id: str,
+    body: ClassificationUpdateRequest,
+    current_user: dict = CurrentAdviser,
+    db: SessionDep = None,
+) -> dict:
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(404, "Adviser not found.")
+    try:
+        uid = UUID(student_id)
+    except ValueError:
+        raise HTTPException(404, "Student not found.")
+    student = await db.get(Student, uid)
+    if student is None:
+        raise HTTPException(404, "Student not found.")
+    if student.program_id is not None and student.school_year_id is not None:
+        dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+        if student.program_id not in dept_ids:
+            raise HTTPException(404, "Student not found.")
+    try:
+        classification_value = StudentClassification(body.classification)
+    except ValueError:
+        raise HTTPException(400, f"Invalid classification: {body.classification}")
+    student.classification = classification_value
+    await db.commit()
+    return {"classification": student.classification.value}
 
 
 # ─── GET /api/adviser/analytics ─────────────────────────────────────────────

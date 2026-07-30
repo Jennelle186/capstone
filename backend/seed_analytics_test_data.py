@@ -557,8 +557,8 @@ async def main():
                 classification = random.choices(
                     [StudentClassification.FRESHMAN, StudentClassification.TRANSFEREE,
                      StudentClassification.SHIFTER, StudentClassification.RETURNING,
-                     StudentClassification.CROSS_ENROLLEE],
-                    weights=[55, 15, 10, 15, 5], k=1,
+                     StudentClassification.CROSS_ENROLLEE, StudentClassification.SECOND_COURSER],
+                    weights=[55, 15, 10, 15, 5, 3], k=1,
                 )[0]
 
                 student = Student(
