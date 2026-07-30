@@ -196,6 +196,8 @@ def build_file_key(student_id: uuid.UUID, doc_code: str, filename: str) -> str:
 def all_doc_codes_for_student(classification: StudentClassification) -> list[str]:
     if classification == StudentClassification.FRESHMAN:
         docs = list(FRESHMAN_DOCS)
+    elif classification == StudentClassification.SECOND_COURSER:
+        docs = list(TRANSFEREE_DOCS)
     else:
         docs = list(TRANSFEREE_DOCS)
     docs.append(random.choice(FINANCIAL_DOCS))

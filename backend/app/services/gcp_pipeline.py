@@ -766,6 +766,7 @@ def generate_classification_settings(
         "shifter": "Shifter",
         "returning": "Returning / Continuing",
         "cross_enrollee": "Cross-Enrollee",
+        "second_courser": "Second Courser",
     }
     for cls in applicable_classifications:
         classification_labels.append(label_map.get(cls, cls))

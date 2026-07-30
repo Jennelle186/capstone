@@ -1,6 +1,6 @@
 export type DocumentTypeStatus = "active" | "archived";
 
-export type StudentClassification = "freshman" | "transferee" | "shifter" | "returning" | "cross_enrollee";
+export type StudentClassification = "freshman" | "transferee" | "shifter" | "returning" | "cross_enrollee" | "second_courser";
 
 export interface DocumentTypeItem {
     id: string;

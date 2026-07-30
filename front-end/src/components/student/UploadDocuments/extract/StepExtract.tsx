@@ -19,11 +19,13 @@ const EXTRACTIONS_ENDPOINT = "/api/me/documents/extractions?status=classified,pr
 interface StepExtractProps {
   onExtractionChange?: (complete: boolean) => void;
   getToken: () => Promise<string | null>;
+  isSchoolYearClosed?: boolean;
 }
 
 export default function StepExtract({
   onExtractionChange,
   getToken,
+  isSchoolYearClosed = false,
 }: StepExtractProps) {
   const [items, setItems] = useState<ExtractionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,6 +274,11 @@ export default function StepExtract({
 
   return (
     <div className="space-y-4">
+      {isSchoolYearClosed && (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-sm font-medium text-red-800">
+          The school year is closed. Your documents are archived and read-only. Extraction is no longer allowed.
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="text-[28px] font-semibold tracking-tight text-slate-900">

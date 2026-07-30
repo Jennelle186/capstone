@@ -14,6 +14,7 @@ from ...services.job_queue import create_job, duplicate_check
 from ...services.processor import process_submission
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims, SubmissionDetailResponse
+from .uploads import _require_student_onboarded, _ensure_school_year_not_closed
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,8 @@ async def classify_document(
     db: SessionDep,
 ):
     """Classify a single document. Delegates to the async job system."""
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     submission = await db.get(DocumentSubmission, submission_id)
     if submission is None:
@@ -67,7 +65,7 @@ async def classify_document(
         student_id=student.id,
         operation="classify",
         submission_ids=[submission.id],
-        requested_by=user.id,
+        requested_by=student.user_id,
     )
 
     return {
@@ -86,11 +84,8 @@ async def classify_all_documents(
     body: ClassifyAllRequest | None = None,
 ):
     """Classify multiple document submissions. Delegates to the async job system."""
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     body = body or ClassifyAllRequest()
     eligible_statuses = (
@@ -159,7 +154,7 @@ async def classify_all_documents(
         student_id=student.id,
         operation="classify",
         submission_ids=[sub.id for sub in submissions],
-        requested_by=user.id,
+        requested_by=student.user_id,
     )
 
     return {

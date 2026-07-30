@@ -16,6 +16,7 @@ class StudentClassificationSchema(str, Enum):
     SHIFTER = "shifter"
     RETURNING = "returning"
     CROSS_ENROLLEE = "cross_enrollee"
+    SECOND_COURSER = "second_courser"
 
 
 class GenerateClassificationRequest(BaseModel):

@@ -11,7 +11,7 @@ from sqlalchemy import desc, select, text
 from sqlalchemy.orm import aliased, selectinload
 
 from ...database import SessionDep
-from ...models import DocumentSubmission, DocumentSubmissionHistory, DocumentType, Student, SubmissionStatus, User
+from ...models import DocumentSubmission, DocumentSubmissionHistory, DocumentType, SchoolYear, SchoolYearStatus, Student, SubmissionStatus, User
 from ...services.gcp_storage import (
     delete_file as gcs_delete_file,
     generate_presigned_post as gcs_generate_presigned_post,
@@ -27,6 +27,28 @@ from .schemas import StudentClaims, SubmissionDetailResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
+
+
+async def _ensure_school_year_not_closed(db: SessionDep, student: Student) -> None:
+    if student.school_year_id is None:
+        return
+    sy = await db.get(SchoolYear, student.school_year_id)
+    if sy is not None and sy.status == SchoolYearStatus.CLOSED:
+        raise HTTPException(
+            status_code=409,
+            detail="Your school year is closed and archived. Document uploads and edits are no longer allowed.",
+        )
+
+
+async def _require_student_onboarded(db: SessionDep, current_user: StudentClaims) -> Student:
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
+    if student.program_id is None:
+        raise HTTPException(status_code=400, detail="Please select your program before uploading.")
+    return student
 
 
 class SubmitBatchRequest(BaseModel):
@@ -98,11 +120,8 @@ async def initiate_upload(
     The browser uploads the file directly to S3 using the returned URL and fields,
     then calls POST /api/me/documents/confirm to mark the submission as UPLOADED.
     """
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     if body.document_type_id:
         lock_key = zlib.crc32(f"{student.id}:{body.document_type_id}".encode()) & 0x7FFFFFFF
@@ -200,11 +219,8 @@ async def retry_upload(
     (e.g., user closed the tab, network failed). The file_key stays the same;
     only the presigned URL is refreshed so the browser can retry the upload.
     """
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     submission = await db.get(DocumentSubmission, submission_id)
     if submission is None:
@@ -255,11 +271,8 @@ async def confirm_upload(
     file to the presigned S3 URL returned by /api/me/documents/initiate.
     Classification is triggered separately via the /classify endpoint.
     """
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     try:
         submission_id = UUID(body.submission_id)
@@ -355,11 +368,8 @@ async def submit_batch(
     another active submission, cleaning up the transient DB row and
     GCS file to prevent duplicates.
     """
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     stmt = exclude_replaced_submissions(
         select(DocumentSubmission)
@@ -408,7 +418,7 @@ async def submit_batch(
             # exclude_replaced_submissions will hide it from adviser views.
             new_sub.parent_submission_id = old_sub.id
             flag_reason = old_sub.rejection_reason
-            flag_actor = old_sub.flagged_by if old_sub.flagged_by else user.id
+            flag_actor = old_sub.flagged_by if old_sub.flagged_by else student.user_id
             db.add(DocumentSubmissionHistory(
                 submission_id=old_sub.id,
                 actor_user_id=flag_actor,
@@ -480,7 +490,7 @@ async def submit_batch(
         db.add(
             DocumentSubmissionHistory(
                 submission_id=sub.id,
-                actor_user_id=user.id,
+                actor_user_id=student.user_id,
                 action="SUBMITTED",
                 previous_status=previous_status,
                 new_status=SubmissionStatus.SUBMITTED.value,
@@ -555,17 +565,15 @@ async def delete_document(
     Only allows deletion of non-verified documents (uploaded, processing, flagged, etc.).
     Verified documents are protected from deletion to preserve audit integrity.
     """
-    user = await ensure_user_row(db, current_user)
-    result = await db.execute(select(Student).where(Student.user_id == user.id))
-    student = result.scalar_one_or_none()
-    if student is None:
-        raise HTTPException(status_code=400, detail="Student profile not found.")
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
 
     submission = await db.get(DocumentSubmission, submission_id)
     if submission is None:
         raise HTTPException(status_code=404, detail="Document not found.")
 
     if submission.student_id != student.id:
+
         raise HTTPException(status_code=403, detail="You do not have permission to delete this document.")
 
     if submission.status in (
