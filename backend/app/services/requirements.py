@@ -217,6 +217,7 @@ async def get_student_slot_statuses(
     for slot in slots:
         matched_sub_ids: list[UUID] = []
         matched_count = 0
+        matched_doc_names: list[str] = []
         slot_item_dtos: list[SlotItemStatus] = []
 
         for item in slot.items:
@@ -236,6 +237,7 @@ async def get_student_slot_statuses(
             ]
             if approved_for_type:
                 matched_count += 1
+                matched_doc_names.append(dt.name if dt else "Unknown")
                 seen_ids: set[UUID] = set()
                 for sub in submissions:
                     if str(sub.document_type_id) == str(item.document_type_id):
@@ -255,6 +257,7 @@ async def get_student_slot_statuses(
                 is_complete=matched_count >= slot.min_required,
                 matched_submission_ids=matched_sub_ids,
                 matched_count=matched_count,
+                matched_document_type_names=matched_doc_names,
             )
         )
 

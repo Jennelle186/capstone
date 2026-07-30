@@ -312,6 +312,7 @@ async def get_student_detail(
                 "is_complete": s.is_complete,
                 "min_required": s.min_required,
                 "matched_count": s.matched_count,
+                "matched_document_type_names": s.matched_document_type_names,
                 "items": [
                     {
                         "document_type_name": item.document_type_name,

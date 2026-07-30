@@ -51,6 +51,7 @@ export interface AdviserSlot {
     is_complete: boolean;
     min_required: number;
     matched_count: number;
+    matched_document_type_names: string[];
     items: AdviserSlotItem[];
 }
 

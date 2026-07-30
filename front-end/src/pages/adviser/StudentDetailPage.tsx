@@ -453,9 +453,14 @@ export default function StudentDetailPage() {
                       >
                         {slot.name}
                       </p>
-                      {slot.min_required > 1 && (
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Accepts: {slot.items.map((i) => i.document_type_name).join(", ")}
+                      {slot.items.length > 1 && slot.matched_document_type_names.length > 0 && (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Uploaded: {slot.matched_document_type_names.join(", ")}
+                        </p>
+                      )}
+                      {slot.items.length > 1 && slot.matched_document_type_names.length === 0 && (
+                        <p className="text-xs text-slate-400 mt-0.5 italic">
+                          None uploaded yet
                         </p>
                       )}
                     </div>
