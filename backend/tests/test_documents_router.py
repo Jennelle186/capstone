@@ -306,6 +306,11 @@ def test_list_extractions_includes_verified_submission(client, mock_user, mock_s
         return_value=MagicMock(all=MagicMock(return_value=[schema_req]))
     )
 
+    slot_items_result = MagicMock()
+    slot_items_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[]))
+    )
+
     async def override_get_db_session():
         session = AsyncMock()
         session.add = MagicMock()
@@ -314,6 +319,7 @@ def test_list_extractions_includes_verified_submission(client, mock_user, mock_s
             submissions_result,
             verified_ids_result,
             requirements_result,
+            slot_items_result,
         ])
         session.get = AsyncMock(return_value=schema_obj)
         yield session
@@ -384,6 +390,11 @@ def test_list_extractions_excludes_nonverified_of_verified_type(client, mock_use
         return_value=MagicMock(all=MagicMock(return_value=[schema_req]))
     )
 
+    slot_items_result = MagicMock()
+    slot_items_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[]))
+    )
+
     async def override_get_db_session():
         session = AsyncMock()
         session.add = MagicMock()
@@ -392,6 +403,7 @@ def test_list_extractions_excludes_nonverified_of_verified_type(client, mock_use
             submissions_result,
             verified_ids_result,
             requirements_result,
+            slot_items_result,
         ])
         session.get = AsyncMock(return_value=schema_obj)
         yield session
@@ -434,3 +446,158 @@ def test_retry_upload_rejects_non_pending_status(client, mock_user, mock_student
 
     assert response.status_code == 409
     assert "Only PENDING submissions can be retried" in response.json()["detail"]
+
+
+def test_list_extractions_finds_schemas_in_slot_items(client, mock_user, mock_student):
+    """Bug 5G: Extraction discovers schemas from requirement_slot_items (new system)."""
+    submission_id = uuid4()
+    doc_type = SimpleNamespace(id=uuid4(), name="Slot Doc", code="SLOT_DOC")
+    schema_id = uuid4()
+    slot_id = uuid4()
+
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        status=SubmissionStatus.CLASSIFIED,
+        original_filename="slot_doc.pdf",
+        extracted_data={},
+    )
+
+    slot_item = SimpleNamespace(
+        id=uuid4(),
+        requirement_slot_id=slot_id,
+        document_type_id=doc_type.id,
+        extraction_schema_id=schema_id,
+        is_primary=True,
+    )
+
+    schema_obj = SimpleNamespace(
+        id=schema_id,
+        status="active",
+        fields_json=[{"id": "f1", "key": "name", "type": "string"}],
+    )
+
+    submissions_result = MagicMock()
+    submissions_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[submission]))
+    )
+
+    verified_ids_result = MagicMock()
+    verified_ids_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[]))
+    )
+
+    requirements_result = MagicMock()
+    requirements_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[]))
+    )
+
+    slot_items_result = MagicMock()
+    slot_items_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[slot_item]))
+    )
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(side_effect=[
+            _student_execute_result(mock_student),
+            submissions_result,
+            verified_ids_result,
+            requirements_result,
+            slot_items_result,
+        ])
+        session.get = AsyncMock(return_value=schema_obj)
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.extractions.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.get("/api/me/documents/extractions")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1, f"Expected 1 extraction item (slot-only), got {len(data)}"
+    assert data[0]["submission_id"] == str(submission_id)
+
+
+def test_list_extractions_merges_legacy_and_slot_schemas(client, mock_user, mock_student):
+    """Bug 5G: Legacy + slot schemas merge without duplicating documents."""
+    submission_id = uuid4()
+    doc_type = SimpleNamespace(id=uuid4(), name="Dual Doc", code="DUAL_DOC")
+    schema_id = uuid4()
+    slot_id = uuid4()
+
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        status=SubmissionStatus.CLASSIFIED,
+        original_filename="dual.pdf",
+        extracted_data={},
+    )
+
+    schema_req = SimpleNamespace(
+        document_type_id=doc_type.id,
+        extraction_schema_id=schema_id,
+    )
+
+    slot_item = SimpleNamespace(
+        id=uuid4(),
+        requirement_slot_id=slot_id,
+        document_type_id=doc_type.id,
+        extraction_schema_id=schema_id,
+        is_primary=True,
+    )
+
+    schema_obj = SimpleNamespace(
+        id=schema_id,
+        status="active",
+        fields_json=[{"id": "f1", "key": "name", "type": "string"}],
+    )
+
+    submissions_result = MagicMock()
+    submissions_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[submission]))
+    )
+
+    verified_ids_result = MagicMock()
+    verified_ids_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[]))
+    )
+
+    requirements_result = MagicMock()
+    requirements_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[schema_req]))
+    )
+
+    slot_items_result = MagicMock()
+    slot_items_result.scalars = MagicMock(
+        return_value=MagicMock(all=MagicMock(return_value=[slot_item]))
+    )
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(side_effect=[
+            _student_execute_result(mock_student),
+            submissions_result,
+            verified_ids_result,
+            requirements_result,
+            slot_items_result,
+        ])
+        session.get = AsyncMock(return_value=schema_obj)
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.extractions.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.get("/api/me/documents/extractions")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1, f"Expected 1 item (merged not duplicated), got {len(data)}"
+    assert data[0]["submission_id"] == str(submission_id)

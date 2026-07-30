@@ -13,6 +13,8 @@ from ...models import (
     DocumentSubmission,
     ExtractionSchema,
     ExtractionSchemaStatus,
+    RequirementSlot,
+    RequirementSlotItem,
     SchoolYearRequirement,
     Student,
     SubmissionStatus,
@@ -138,18 +140,33 @@ async def extract_all_documents(
     # Filter: only submissions that have extraction schemas and no existing extracted_data
     eligible_ids: list[UUID] = []
     if student.school_year_id:
+        schema_doc_types = set()
+
         req_result = await db.execute(
             select(SchoolYearRequirement).where(
                 SchoolYearRequirement.school_year_id == student.school_year_id,
                 SchoolYearRequirement.extraction_schema_id.isnot(None),
             )
         )
-        schema_doc_types = set()
         for req in req_result.scalars().all():
             if req.document_type_id:
                 schema = await db.get(ExtractionSchema, req.extraction_schema_id)
                 if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
                     schema_doc_types.add(req.document_type_id)
+
+        slot_item_result = await db.execute(
+            select(RequirementSlotItem)
+            .join(RequirementSlot, RequirementSlotItem.requirement_slot_id == RequirementSlot.id)
+            .where(
+                RequirementSlot.school_year_id == student.school_year_id,
+                RequirementSlotItem.extraction_schema_id.isnot(None),
+            )
+        )
+        for item in slot_item_result.scalars().all():
+            if item.document_type_id:
+                schema = await db.get(ExtractionSchema, item.extraction_schema_id)
+                if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
+                    schema_doc_types.add(item.document_type_id)
 
         for sub in submissions:
             if sub.extracted_data:
@@ -268,6 +285,23 @@ async def list_extractions(
             schema = await db.get(ExtractionSchema, req.extraction_schema_id)
             if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
                 schemas_by_type[req.document_type_id] = schema
+
+        slot_item_result = await db.execute(
+            select(RequirementSlotItem)
+            .join(RequirementSlot, RequirementSlotItem.requirement_slot_id == RequirementSlot.id)
+            .where(
+                RequirementSlot.school_year_id == student.school_year_id,
+                RequirementSlotItem.extraction_schema_id.isnot(None),
+            )
+        )
+        for item in slot_item_result.scalars().all():
+            if not item.document_type_id:
+                continue
+            if item.document_type_id in schemas_by_type:
+                continue
+            schema = await db.get(ExtractionSchema, item.extraction_schema_id)
+            if schema and schema.status != ExtractionSchemaStatus.ARCHIVED:
+                schemas_by_type[item.document_type_id] = schema
 
     items: list[ExtractionItemResponse] = []
     for sub in submissions:
