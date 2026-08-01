@@ -355,7 +355,8 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
             onSaveLater={handleSaveLater}
             onSubmit={() => handleSubmitClick()}
             isSubmitting={isSubmitting}
-            hideActions={readOnly}
+            hideActions={readOnly || isSchoolYearClosed}
+            lockedReason={isSchoolYearClosed ? "school-year-closed" : "submitted"}
           />
         </div>
       </div>

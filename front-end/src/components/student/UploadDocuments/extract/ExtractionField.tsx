@@ -104,10 +104,11 @@ export default function ExtractionField({ field, onAutoSave }: ExtractionFieldPr
   }, [field.readOnly, field.is_computed]);
 
   const handleSave = useCallback(() => {
+    if (field.readOnly) return;
     const val = form.getValues(field.key) ?? "";
     onAutoSave(field.id, val);
     setEditing(false);
-  }, [field.id, field.key, form, onAutoSave]);
+  }, [field.id, field.key, field.readOnly, form, onAutoSave]);
 
   const handleCancel = useCallback(() => {
     form.setValue(field.key, field.value, { shouldValidate: false });

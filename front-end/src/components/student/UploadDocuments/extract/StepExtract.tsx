@@ -166,6 +166,7 @@ export default function StepExtract({
 
   // ── Extract All handler ─────────────────────────────────────
   const handleExtractAll = useCallback(async () => {
+    if (isSchoolYearClosed) return;
     const token = await getTokenRef.current();
     if (!token) return;
 
@@ -180,10 +181,11 @@ export default function StepExtract({
         if (existing) setTrackedJob(existing);
       }
     }
-  }, []);
+  }, [isSchoolYearClosed]);
 
   // ── Retry handler ───────────────────────────────────────────
   const handleRetry = useCallback(async (submissionId: string) => {
+    if (isSchoolYearClosed) return;
     const token = await getTokenRef.current();
     if (!token) return;
     setRetrying((prev) => new Set(prev).add(submissionId));
@@ -202,7 +204,7 @@ export default function StepExtract({
         return next;
       });
     }
-  }, []);
+  }, [isSchoolYearClosed]);
 
   // ── Auto-save handler ───────────────────────────────────────
   const handleAutoSave = useCallback(async (itemId: string, fieldKey: string, value: string) => {
@@ -290,7 +292,7 @@ export default function StepExtract({
         </div>
 
         {/* Extract All button — only show when no active job and there are documents to extract */}
-        {!loading && items.length > 0 && !hasActiveJob && (
+        {!loading && items.length > 0 && !hasActiveJob && !isSchoolYearClosed && (
           <button
             type="button"
             disabled={hasActiveJob}
@@ -334,7 +336,9 @@ export default function StepExtract({
           <Database className="h-12 w-12" />
           <p className="text-sm font-medium">No extracted data available.</p>
           <p className="text-xs text-slate-500">
-            Classify your documents first, then click "Extract All" to begin extraction.
+            {isSchoolYearClosed
+              ? "The school year is closed. Extraction is no longer available."
+              : "Classify your documents first, then click \"Extract All\" to begin extraction."}
           </p>
         </div>
       )}
@@ -383,14 +387,15 @@ export default function StepExtract({
                       {item.fileName}
                     </p>
                     <p className="mt-0.5 text-xs text-red-700">
-                      Extraction failed for this document. You can retry or
-                      re-upload the document.
+                      {isSchoolYearClosed
+                        ? "Extraction failed for this document. The school year is closed and retries are not allowed."
+                        : "Extraction failed for this document. You can retry or re-upload the document."}
                     </p>
                     <Button
                       variant="outline"
                       size="sm"
                       className="mt-3 gap-1.5 border-red-300 bg-white text-red-700 hover:bg-red-100"
-                      disabled={isRetrying}
+                      disabled={isRetrying || isSchoolYearClosed}
                       onClick={() => handleRetry(item.id)}
                     >
                       {isRetrying ? (
@@ -416,6 +421,7 @@ export default function StepExtract({
               key={item.id}
               item={item}
               onAutoSave={handleAutoSave}
+              readOnly={isSchoolYearClosed}
             />
           ))}
         </div>

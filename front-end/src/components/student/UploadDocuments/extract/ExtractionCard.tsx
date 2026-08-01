@@ -31,6 +31,7 @@ import type { ExtractionItem, ExtractedField } from "@/types/extraction";
 interface ExtractionCardProps {
   item: ExtractionItem;
   onAutoSave: (itemId: string, fieldKey: string, value: string) => void;
+  readOnly?: boolean;
 }
 
 interface SectionGroup {
@@ -88,11 +89,16 @@ function DocumentIcon({ fileName, needsReview }: { fileName: string; needsReview
   return <FileText className="h-5 w-5 text-primary" />;
 }
 
-export default function ExtractionCard({ item, onAutoSave }: ExtractionCardProps) {
+export default function ExtractionCard({ item, onAutoSave, readOnly = false }: ExtractionCardProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isMaximized, setIsMaximized] = useState(false);
 
-  const sections = useMemo(() => groupBySection(item.fields), [item.fields]);
+  const fields = useMemo(
+    () => (readOnly ? item.fields.map((f) => ({ ...f, readOnly: true })) : item.fields),
+    [item.fields, readOnly],
+  );
+
+  const sections = useMemo(() => groupBySection(fields), [fields]);
 
   const zodSchema = useMemo(() => buildZodSchema(item.fields), [item.fields]);
   const defaultValues = useMemo(() => buildDefaultValues(item.fields), [item.fields]);

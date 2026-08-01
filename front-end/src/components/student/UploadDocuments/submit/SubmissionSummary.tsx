@@ -11,6 +11,7 @@ interface SubmissionSummaryProps {
   extractionAccuracy: number | null;
   isSubmitting?: boolean;
   hideActions?: boolean;
+  lockedReason?: "submitted" | "school-year-closed";
 }
 
 function formatAccuracy(value: number | null) {
@@ -26,6 +27,7 @@ export default function SubmissionSummary({
   extractionAccuracy,
   isSubmitting,
   hideActions,
+  lockedReason,
 }: SubmissionSummaryProps) {
   const total = items.length;
   const submittedCount = items.filter((i) => i.status === "submitted").length;
@@ -76,7 +78,9 @@ export default function SubmissionSummary({
           <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <Lock className="h-4 w-4 flex-shrink-0 text-slate-400" />
             <p className="text-xs leading-tight text-slate-500">
-              These documents have been submitted and locked for adviser review.
+              {lockedReason === "school-year-closed"
+                ? "The school year is closed. Submissions are no longer allowed."
+                : "These documents have been submitted and locked for adviser review."}
             </p>
           </div>
         ) : (

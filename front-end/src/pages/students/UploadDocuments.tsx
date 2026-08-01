@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useSearchParams, useNavigate } from "react-router";
 import { useAuth } from "@clerk/clerk-react";
 import UploadWizard from "@/components/student/UploadDocuments/UploadWizard";
 import StepUpload from "@/components/student/UploadDocuments/upload/StepUpload";
@@ -26,6 +26,13 @@ export default function UploadDocuments() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionUploadIds, setSessionUploadIds] = useState<Set<string>>(new Set());
   const [schoolYearClosed, setSchoolYearClosed] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (schoolYearClosed) {
+      navigate("/student/dashboard", { replace: true });
+    }
+  }, [schoolYearClosed, navigate]);
 
   const replaceSubmissionId = searchParams.get("replace");
 

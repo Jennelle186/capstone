@@ -248,10 +248,12 @@ export default function StudentDashboard() {
     setCurrentIndex(index);
   };
 
+  const isSchoolYearClosed = schoolYearStatus?.toLowerCase() === "closed";
+
   return (
     <main className="flex flex-1 flex-col gap-6">
       {/* Archived School Year Banner */}
-      {schoolYearStatus === "closed" && (
+      {isSchoolYearClosed && (
         <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
           <div className="text-sm font-medium text-red-800">
@@ -385,12 +387,14 @@ export default function StudentDashboard() {
             )}
           </div>
         </div>
-        <Link to="/student/upload">
-          <Button className="bg-primary text-white hover:bg-primary/90 rounded-xl gap-2">
-            <PlusCircle className="h-4 w-4 fill-current" />
-            Upload New Document
-          </Button>
-        </Link>
+        {!isSchoolYearClosed && (
+          <Link to="/student/upload">
+            <Button className="bg-primary text-white hover:bg-primary/90 rounded-xl gap-2">
+              <PlusCircle className="h-4 w-4 fill-current" />
+              Upload New Document
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Stat Cards */}
