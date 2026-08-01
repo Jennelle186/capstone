@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router";
+import { useSearchParams } from "react-router";
 import { useAuth } from "@clerk/clerk-react";
+import { AlertTriangle } from "lucide-react";
 import UploadWizard from "@/components/student/UploadDocuments/UploadWizard";
 import StepUpload from "@/components/student/UploadDocuments/upload/StepUpload";
 import StepClassify from "@/components/student/UploadDocuments/classify/StepClassify";
@@ -26,13 +27,7 @@ export default function UploadDocuments() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionUploadIds, setSessionUploadIds] = useState<Set<string>>(new Set());
   const [schoolYearClosed, setSchoolYearClosed] = useState(false);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (schoolYearClosed) {
-      navigate("/student/dashboard", { replace: true });
-    }
-  }, [schoolYearClosed, navigate]);
+  const [schoolYearName, setSchoolYearName] = useState<string | null>(null);
 
   const replaceSubmissionId = searchParams.get("replace");
 
@@ -122,9 +117,12 @@ export default function UploadDocuments() {
           }
         }
         if (reqdRes.ok) {
-          const reqd = (await reqdRes.json()) as { school_year_status: string | null };
-          if (!cancelled && reqd.school_year_status === "closed") {
-            setSchoolYearClosed(true);
+          const reqd = (await reqdRes.json()) as { school_year_status: string | null; school_year_name: string | null };
+          if (!cancelled) {
+            setSchoolYearName(reqd.school_year_name);
+            if (reqd.school_year_status === "closed") {
+              setSchoolYearClosed(true);
+            }
           }
         }
         if (docsRes.ok) {
@@ -243,6 +241,19 @@ export default function UploadDocuments() {
   useEffect(() => {
     if (step === 4) refetchSubmissions();
   }, [step, refetchSubmissions]);
+
+  if (schoolYearClosed) {
+    return (
+      <main className="flex flex-1 flex-col gap-6 p-6">
+        <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+          <div className="text-sm font-medium text-red-800">
+            The {schoolYearName ?? "current"} school year is closed. Your documents are archived and read-only.
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <UploadWizard step={step} onStepChange={goToStep} nextDisabled={nextDisabled}>
