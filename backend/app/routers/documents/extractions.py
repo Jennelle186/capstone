@@ -179,6 +179,8 @@ async def extract_all_documents(
             for schema_id in schemas_result.scalars().all():
                 active_schema_ids.add(schema_id)
 
+        # Legacy SchoolYearRequirement schemas take precedence; slot-item schemas
+        # fill any gaps. Both sources are de-duplicated by document_type_id.
         for req in reqs:
             if req.document_type_id and req.extraction_schema_id in active_schema_ids:
                 schema_doc_types.add(req.document_type_id)
@@ -328,6 +330,8 @@ async def list_extractions(
             for s in schemas_result.scalars().all():
                 schemas_map[s.id] = s
 
+        # Legacy SchoolYearRequirement schemas take precedence; slot-item schemas
+        # fill any gaps. Both sources are de-duplicated by document_type_id.
         for req in reqs:
             if not req.document_type_id:
                 continue
