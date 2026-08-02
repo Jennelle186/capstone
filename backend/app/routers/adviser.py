@@ -323,8 +323,42 @@ async def update_student_classification(
     except ValueError:
         raise HTTPException(400, f"Invalid classification: {body.classification}")
     student.classification = classification_value
+    student.classification_set_by_user = True
     await db.commit()
     return {"classification": student.classification.value}
+
+
+# ─── PATCH /api/adviser/students/{student_id}/student-number ────────────────
+
+
+class StudentNumberUpdateRequest(BaseModel):
+    student_number: str = Field(..., min_length=3, max_length=30)
+
+
+@router.patch("/api/adviser/students/{student_id}/student-number")
+async def update_student_number(
+    student_id: str,
+    body: StudentNumberUpdateRequest,
+    current_user: dict = CurrentAdviser,
+    db: SessionDep = None,
+) -> dict:
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(404, "Adviser not found.")
+    try:
+        uid = UUID(student_id)
+    except ValueError:
+        raise HTTPException(404, "Student not found.")
+    student = await db.get(Student, uid)
+    if student is None:
+        raise HTTPException(404, "Student not found.")
+    if student.program_id is not None and student.school_year_id is not None:
+        dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+        if student.program_id not in dept_ids:
+            raise HTTPException(404, "Student not found.")
+    student.student_number = body.student_number
+    await db.commit()
+    return {"student_number": student.student_number}
 
 
 # ─── GET /api/adviser/analytics ─────────────────────────────────────────────

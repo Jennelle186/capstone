@@ -132,6 +132,11 @@ class Student(Base):
     )
     program_mismatch_extracted = Column(String(30), nullable=True)
 
+    # ── Classification onboarding ────────────────────────────────────────────
+    classification_set_by_user = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
     # ── Privacy policy consent (Feature 4) ────────────────────────────────
     accepted_policy_version = Column(String(20), nullable=True)
 

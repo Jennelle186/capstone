@@ -102,11 +102,14 @@ export default function ResolveFlaggedPage() {
       const token = await getTokenRef.current();
       if (token) {
         try {
-          await fetchWithClerkAuth(
+          const delRes = await fetchWithClerkAuth(
             `/api/me/documents/${newSubmissionId}`,
             token,
             { method: "DELETE" },
           );
+          if (!delRes.ok) {
+            console.warn("Failed to delete submission during retry", newSubmissionId);
+          }
         } catch {
           // best-effort cleanup — proceed to re-upload
         }

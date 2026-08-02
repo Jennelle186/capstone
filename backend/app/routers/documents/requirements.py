@@ -31,6 +31,7 @@ class RequiredDocumentsResponse(BaseModel):
     school_year_status: str | None
     auto_closure_date: str | None
     classification: str | None
+    classification_set_by_user: bool = False
     documents: list[RequiredDocumentResponse]
 
 
@@ -48,7 +49,9 @@ async def get_required_documents(
             school_year_id=None,
             school_year_name=None,
             school_year_status=None,
+            auto_closure_date=None,
             classification=student.classification.value if student and student.classification else None,
+            classification_set_by_user=bool(student.classification_set_by_user) if student else False,
             documents=[],
         )
 
@@ -61,6 +64,7 @@ async def get_required_documents(
         school_year_status=school_year.status.value if school_year else None,
         auto_closure_date=str(school_year.auto_closure_date) if school_year and school_year.auto_closure_date else None,
         classification=student.classification.value if student.classification else None,
+        classification_set_by_user=bool(student.classification_set_by_user),
         documents=[
             RequiredDocumentResponse(
                 id=str(dt.id),

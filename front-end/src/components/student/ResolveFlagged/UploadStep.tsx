@@ -56,32 +56,56 @@ export default function UploadStep({ flaggedDoc, getToken, onUploadComplete }: U
       }
 
       const presigned = (await initRes.json()) as InitiateUploadResponse;
+      let confirmed = false;
 
-      const s3Res = await fetch(presigned.url, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!s3Res.ok) {
-        throw new Error("Failed to upload file to storage.");
+      try {
+        const gcsRes = await fetch(presigned.url, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type },
+        });
+        if (!gcsRes.ok) {
+          throw new Error("Failed to upload file to storage.");
+        }
+
+        const confirmToken = await getToken();
+        if (!confirmToken) {
+          throw new Error("Not authenticated");
+        }
+
+        const confirmRes = await fetchWithClerkAuth("/api/me/documents/confirm", confirmToken, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ submission_id: presigned.submission_id }),
+        });
+
+        if (!confirmRes.ok) {
+          const err = await confirmRes.json().catch(() => null);
+          throw new Error(err?.detail ?? "Failed to confirm upload.");
+        }
+
+        confirmed = true;
+        const result = (await confirmRes.json()) as ConfirmUploadResponse;
+        onUploadComplete(result);
+      } finally {
+        if (!confirmed) {
+          const cleanupToken = await getToken();
+          if (cleanupToken) {
+            try {
+              const delRes = await fetchWithClerkAuth(
+                `/api/me/documents/${presigned.submission_id}`,
+                cleanupToken,
+                { method: "DELETE" },
+              );
+              if (!delRes.ok) {
+                console.warn("Failed to clean up PENDING submission", presigned.submission_id);
+              }
+            } catch {
+              // best-effort — backend GC sweep handles it
+            }
+          }
+        }
       }
-
-      const confirmToken = await getToken();
-      if (!confirmToken) { setUploading(false); return; }
-
-      const confirmRes = await fetchWithClerkAuth("/api/me/documents/confirm", confirmToken, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submission_id: presigned.submission_id }),
-      });
-
-      if (!confirmRes.ok) {
-        const err = await confirmRes.json().catch(() => null);
-        throw new Error(err?.detail ?? "Failed to confirm upload.");
-      }
-
-      const confirmed = (await confirmRes.json()) as ConfirmUploadResponse;
-      onUploadComplete(confirmed);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed.";
       setError(msg);

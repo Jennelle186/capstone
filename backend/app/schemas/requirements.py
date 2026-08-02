@@ -66,6 +66,7 @@ class RequiredSlotsResponse(BaseModel):
     school_year_id: str | None
     school_year_name: str | None
     classification: str | None
+    classification_set_by_user: bool = False
     slots: list[SlotStatusResponse] = Field(default_factory=list)
 
 

@@ -59,6 +59,13 @@ export default function ClassificationStep({
         const requiredTypeId = flaggedDoc.document_type_id;
         const confidence = (newSub.classification_result?.confidence as number) ?? 0;
 
+        if (!requiredTypeId) {
+          setMatchConfidence(Math.round(confidence * 100));
+          setState("match");
+          onComplete();
+          return;
+        }
+
         if (predictedTypeId === requiredTypeId) {
           setMatchConfidence(Math.round(confidence * 100));
           setState("match");

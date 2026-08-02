@@ -128,11 +128,9 @@ export default function UploadDocuments() {
         if (docsRes.ok) {
           const data = (await docsRes.json()) as SubmissionDetail[];
           if (!cancelled) {
-            setExistingSubmissions(data);
-            const hasClassifiedOrFlagged = data.some(
-              (s) => s.status === "classified" || s.status === "flagged"
-            );
-            setClassificationComplete(hasClassifiedOrFlagged);
+            const activeSubmissions = data.filter((s) => s.status !== "flagged");
+            setExistingSubmissions(activeSubmissions);
+            setClassificationComplete(activeSubmissions.some((s) => s.status === "classified"));
           }
         }
       } catch {
@@ -195,7 +193,7 @@ export default function UploadDocuments() {
         const freshRes = await fetchWithClerkAuth("/api/me/documents", token);
         if (freshRes.ok) {
           const data = (await freshRes.json()) as SubmissionDetail[];
-          setExistingSubmissions(data);
+          setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
         }
         refetchSlots();
       }
@@ -206,7 +204,7 @@ export default function UploadDocuments() {
       const freshRes = await fetchWithClerkAuth("/api/me/documents", token);
       if (freshRes.ok) {
         const data = (await freshRes.json()) as SubmissionDetail[];
-        setExistingSubmissions(data);
+        setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
       }
       refetchSlots();
     }
@@ -218,7 +216,7 @@ export default function UploadDocuments() {
     const res = await fetchWithClerkAuth("/api/me/documents", token);
     if (res.ok) {
       const data = (await res.json()) as SubmissionDetail[];
-      setExistingSubmissions(data);
+      setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
     }
     refetchSlots();
   }, [getToken, refetchSlots]);
@@ -229,7 +227,7 @@ export default function UploadDocuments() {
     const res = await fetchWithClerkAuth("/api/me/documents", token);
     if (res.ok) {
       const data = (await res.json()) as SubmissionDetail[];
-      setExistingSubmissions(data);
+      setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
     }
   }, [getToken]);
 

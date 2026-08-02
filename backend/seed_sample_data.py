@@ -338,6 +338,7 @@ async def _create_student(
         student_number=student_number,
         program_id=dept_id,
         classification=classification,
+        classification_set_by_user=True,
     )
     db.add(student)
     await db.flush()

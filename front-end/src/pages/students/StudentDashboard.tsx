@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Link } from "react-router";
 import { fetchWithClerkAuth } from "@/lib/api";
+import { toast } from "sonner";
 import StatSummaryCards from "@/components/student/Dashboard/StatSummaryCards";
 import AnnouncementBar from "@/components/student/Dashboard/AnnouncementBar";
 import SubmissionsTable from "@/components/student/Dashboard/SubmissionsTable";
@@ -32,6 +33,7 @@ import {
   type SubmissionStatusType,
 } from "@/components/student/Dashboard/types";
 import type { SubmissionDetail } from "@/types/submission";
+import { CLASSIFICATION_LABELS } from "@/types/adviser-students";
 
 interface MeResponse {
   userId: string;
@@ -46,6 +48,7 @@ interface RequiredDocumentsData {
   school_year_name: string | null;
   school_year_status: string | null;
   classification: string | null;
+  classification_set_by_user?: boolean;
 }
 
 interface DepartmentOption {
@@ -106,6 +109,7 @@ export default function StudentDashboard() {
   const [departments, setDepartments] = React.useState<DepartmentOption[]>([]);
 
   const [submissions, setSubmissions] = React.useState<Submission[]>(placeholderSubmissions);
+  const [flaggedSubmissions, setFlaggedSubmissions] = React.useState<SubmissionDetail[]>([]);
   const [loadingDocs, setLoadingDocs] = React.useState(true);
   const [currentIndex, setCurrentIndex] = React.useState(-1);
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -118,6 +122,12 @@ export default function StudentDashboard() {
   const [dialogAdviser, setDialogAdviser] = React.useState<AdviserInfo | null>(null);
   const [loadingAdviser, setLoadingAdviser] = React.useState(false);
   const [savingProgram, setSavingProgram] = React.useState(false);
+
+  const [, setClassification] = React.useState<string | null>(null);
+  const [classificationSetByUser, setClassificationSetByUser] = React.useState(false);
+  const [pendingClassification, setPendingClassification] = React.useState<string | null>(null);
+  const [classificationDialogOpen, setClassificationDialogOpen] = React.useState(false);
+  const [savingClassification, setSavingClassification] = React.useState(false);
 
   React.useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
@@ -146,6 +156,8 @@ export default function StudentDashboard() {
         setStudentNumber(me.student_number);
         setSchoolYear(req.school_year_name);
         setSchoolYearStatus(req.school_year_status);
+        setClassification(req.classification);
+        setClassificationSetByUser(!!req.classification_set_by_user);
         setProgramId(me.program_id);
 
         if (me.program_id) {
@@ -167,7 +179,8 @@ export default function StudentDashboard() {
         if (docsRes.ok) {
           const docs = (await docsRes.json()) as SubmissionDetail[];
           if (isMounted) {
-            setSubmissions(docs.map(toSubmission));
+            setFlaggedSubmissions(docs.filter((d) => d.status === "flagged"));
+            setSubmissions(docs.filter((d) => d.status !== "flagged").map(toSubmission));
             setLoadingDocs(false);
           }
         }
@@ -235,6 +248,45 @@ export default function StudentDashboard() {
     }
   };
 
+  const handleClassificationSelect = (value: string) => {
+    setPendingClassification(value);
+    setClassificationDialogOpen(true);
+  };
+
+  const handleConfirmClassification = async () => {
+    if (!pendingClassification) return;
+    setSavingClassification(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/classification", token, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classification: pendingClassification }),
+      });
+      if (res.ok) {
+        setClassification(pendingClassification);
+        setClassificationSetByUser(true);
+        const reqRes = await fetchWithClerkAuth("/api/me/required-documents", token);
+        if (reqRes.ok) {
+          const req = (await reqRes.json()) as RequiredDocumentsData;
+          setClassification(req.classification);
+          setSchoolYearStatus(req.school_year_status);
+        }
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail ?? "Failed to update classification.");
+        return;
+      }
+    } catch {
+      toast.error("Failed to update classification. Please try again.");
+    } finally {
+      setSavingClassification(false);
+      setClassificationDialogOpen(false);
+      setPendingClassification(null);
+    }
+  };
+
   const selectedDept = departments.find((d) => d.id === programId);
   const pendingDept = departments.find((d) => d.id === pendingProgramId);
 
@@ -279,6 +331,28 @@ export default function StudentDashboard() {
                   <SelectItem key={dept.id} value={dept.id}>
                     {dept.code} — {dept.name}
                   </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {/* Classification Selection Banner */}
+      {!classificationSetByUser && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div className="flex flex-1 flex-col gap-3">
+            <p className="text-sm font-medium text-amber-800">
+              Please confirm your student classification, or else your document requirements may be incorrect.
+            </p>
+            <Select onValueChange={handleClassificationSelect} disabled={loadingDocs}>
+              <SelectTrigger className="w-full max-w-xs bg-white border-amber-300 focus:border-amber-500 focus:ring-amber-500">
+                <SelectValue placeholder="Select your classification..." />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(CLASSIFICATION_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>{label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -353,6 +427,42 @@ export default function StudentDashboard() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Classification Confirmation Dialog */}
+      <AlertDialog open={classificationDialogOpen} onOpenChange={(open) => { if (!open && !savingClassification) { setClassificationDialogOpen(false); setPendingClassification(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm your classification</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  You selected{" "}
+                  <strong>{pendingClassification ? CLASSIFICATION_LABELS[pendingClassification as keyof typeof CLASSIFICATION_LABELS] ?? pendingClassification : ""}</strong>.
+                </p>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+                  <p className="font-medium text-amber-900">This action is irreversible</p>
+                  <p className="text-amber-700 mt-1">
+                    You will not be able to change your classification later. Contact your adviser if you need to make changes.
+                  </p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingClassification}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmClassification} disabled={savingClassification}>
+              {savingClassification ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Confirm"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Welcome Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
@@ -367,10 +477,15 @@ export default function StudentDashboard() {
                 School Year: {schoolYear}
               </Badge>
             )}
-            {studentNumber && (
+            {studentNumber ? (
               <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100 rounded-full border-0 gap-1 text-xs font-semibold">
                 <IdCard className="h-3 w-3" />
                 ID: {studentNumber}
+              </Badge>
+            ) : (
+              <Badge className="bg-slate-50 text-slate-400 hover:bg-slate-50 rounded-full border border-dashed border-slate-300 gap-1 text-xs font-medium">
+                <IdCard className="h-3 w-3" />
+                ID: Pending — will be set from your admission form
               </Badge>
             )}
             {selectedDept && (
@@ -396,6 +511,35 @@ export default function StudentDashboard() {
           </Link>
         )}
       </div>
+
+      {/* Flagged Documents */}
+      {flaggedSubmissions.length > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <h3 className="text-sm font-semibold text-red-900">
+              {flaggedSubmissions.length} document{flaggedSubmissions.length > 1 ? "s" : ""} flagged by your adviser
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {flaggedSubmissions.map((doc) => (
+              <div key={doc.id} className="flex items-center justify-between rounded-lg border border-red-200 bg-white p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-900 truncate">{doc.original_filename}</p>
+                  {doc.rejection_reason && (
+                    <p className="text-xs text-red-600 mt-0.5">{doc.rejection_reason}</p>
+                  )}
+                </div>
+                <Link to={`/student/resolve-flagged/${doc.id}`}>
+                  <Button size="sm" variant="outline" className="ml-3 shrink-0 border-red-300 text-red-700 hover:bg-red-50 rounded-lg">
+                    Resolve
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <StatSummaryCards submissions={submissions} />

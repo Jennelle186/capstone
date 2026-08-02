@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import desc, select
@@ -320,6 +320,51 @@ async def save_submission_extraction_field(
     }
 
 
+def _sync_extracted_to_student(student: Student, extracted_data: dict) -> bool:
+    if not extracted_data:
+        return False
+    changed = False
+    for field_id, field_data in extracted_data.items():
+        if field_id.startswith("_") or not isinstance(field_data, dict):
+            continue
+        source_key = field_data.get("source_key", "")
+        value = field_data.get("value", "")
+        if not value:
+            continue
+
+        if source_key in ("student_number", "student_id", "student_id_no", "id_number"):
+            if not student.student_number:
+                student.student_number = value
+                changed = True
+        elif source_key == "gender":
+            if not student.gender:
+                student.gender = value
+                changed = True
+        elif source_key in ("birth_date", "date_of_birth", "dob", "date_of_birth_mm_dd_yyyy"):
+            if not student.birth_date:
+                try:
+                    parts = value.split("-")
+                    if len(parts) == 3:
+                        if source_key == "date_of_birth_mm_dd_yyyy":
+                            student.birth_date = date(int(parts[2]), int(parts[0]), int(parts[1]))
+                        else:
+                            student.birth_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
+                        changed = True
+                except (ValueError, IndexError):
+                    pass
+        elif source_key in ("address", "permanent_address", "home_address"):
+            if not student.address:
+                student.address = value
+                changed = True
+        elif source_key in ("first_name", "last_name"):
+            current_name = student.admission_form_name or {}
+            if isinstance(current_name, dict):
+                current_name[source_key] = value
+                student.admission_form_name = current_name
+                changed = True
+    return changed
+
+
 async def verify_submission(
     db: SessionDep,
     submission_id_str: str,
@@ -399,6 +444,11 @@ async def verify_submission(
         reference_id=submission.id,
     )
     db.add(notification)
+
+    extracted = getattr(submission, "extracted_data", None)
+    if extracted and isinstance(extracted, dict):
+        if _sync_extracted_to_student(student, extracted):
+            db.add(student)
 
     await db.commit()
 

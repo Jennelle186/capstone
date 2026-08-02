@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import zlib
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from typing import Literal
@@ -48,6 +49,8 @@ async def _require_student_onboarded(db: SessionDep, current_user: StudentClaims
         raise HTTPException(status_code=400, detail="Student profile not found. Complete onboarding first.")
     if student.program_id is None:
         raise HTTPException(status_code=400, detail="Please select your program before uploading.")
+    if student.classification is None or not student.classification_set_by_user:
+        raise HTTPException(status_code=400, detail="Please confirm your student classification before uploading documents.")
     return student
 
 
@@ -115,13 +118,30 @@ async def initiate_upload(
     current_user: StudentClaims,
     db: SessionDep,
 ) -> InitiateUploadResponse:
-    """Create a PENDING submission and return a presigned POST URL for direct S3 upload.
+    """Create a PENDING submission and return a presigned POST URL for direct GCS upload.
 
-    The browser uploads the file directly to S3 using the returned URL and fields,
+    The browser uploads the file directly to GCS using the returned URL and fields,
     then calls POST /api/me/documents/confirm to mark the submission as UPLOADED.
     """
     student = await _require_student_onboarded(db, current_user)
     await _ensure_school_year_not_closed(db, student)
+
+    # Garbage-collect stale PENDING submissions (orphaned from failed uploads)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    stale_result = await db.execute(
+        select(DocumentSubmission).where(
+            DocumentSubmission.student_id == student.id,
+            DocumentSubmission.status == SubmissionStatus.PENDING,
+            DocumentSubmission.created_at < cutoff,
+        )
+    )
+    for stale in stale_result.scalars().all():
+        if stale.file_key:
+            try:
+                await asyncio.to_thread(gcs_delete_file, stale.file_key)
+            except Exception:
+                logger.exception("Failed to clean up GCS file for stale PENDING submission %s", stale.id)
+        await db.delete(stale)
 
     if body.document_type_id:
         lock_key = zlib.crc32(f"{student.id}:{body.document_type_id}".encode()) & 0x7FFFFFFF
@@ -215,7 +235,7 @@ async def retry_upload(
 ) -> InitiateUploadResponse:
     """Generate a fresh presigned POST URL for an existing PENDING submission.
 
-    Used when an upload was initiated but the browser never completed the S3 POST
+    Used when an upload was initiated but the browser never completed the GCS POST
     (e.g., user closed the tab, network failed). The file_key stays the same;
     only the presigned URL is refreshed so the browser can retry the upload.
     """
@@ -265,10 +285,10 @@ async def confirm_upload(
     current_user: StudentClaims,
     db: SessionDep,
 ) -> ConfirmUploadResponse:
-    """Verify the file exists in S3 and mark the submission as UPLOADED.
+    """Verify the file exists in GCS and mark the submission as UPLOADED.
 
     This endpoint is called by the browser after it has successfully POSTed the
-    file to the presigned S3 URL returned by /api/me/documents/initiate.
+    file to the presigned GCS URL returned by /api/me/documents/initiate.
     Classification is triggered separately via the /classify endpoint.
     """
     student = await _require_student_onboarded(db, current_user)
@@ -560,7 +580,7 @@ async def delete_document(
     current_user: StudentClaims,
     db: SessionDep,
 ) -> dict:
-    """Delete a document submission from both the database and S3 storage.
+    """Delete a document submission from both the database and GCS storage.
 
     Only allows deletion of non-verified documents (uploaded, processing, flagged, etc.).
     Verified documents are protected from deletion to preserve audit integrity.
@@ -602,7 +622,7 @@ async def get_download_url(
 ) -> DownloadUrlResponse:
     """Return a presigned GET URL for viewing a previously uploaded document.
 
-    The URL is only generated for submissions that have actually arrived in S3
+    The URL is only generated for submissions that have actually arrived in GCS
     (UPLOADED, FLAGGED, CLASSIFIED, PROCESSING, SUBMITTED, or IN_REVIEW). PENDING
     submissions are rejected because the file may not be present yet.
     """

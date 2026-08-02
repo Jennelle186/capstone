@@ -92,11 +92,15 @@ export default function StepUpload({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        const detail = errBody?.detail ?? `Initiate failed: ${res.status} ${res.statusText}`;
         if (res.status === 409) {
-          const errBody = await res.json().catch(() => null);
-          throw new Error(`CONFLICT:${errBody?.detail ?? "Document already submitted."}`);
+          throw new Error(`CONFLICT:${detail}`);
         }
-        throw new Error(`Initiate failed: ${res.status} ${res.statusText}`);
+        if (res.status === 400) {
+          throw new Error(`BLOCKED:${detail}`);
+        }
+        throw new Error(detail);
       }
       return res.json() as Promise<InitiateUploadResponse>;
     },
@@ -104,7 +108,7 @@ export default function StepUpload({
   );
 
   // Uploads the file directly to GCS using the presigned signed URL.
-  const uploadToS3 = useCallback(
+  const uploadToGcs = useCallback(
     async (item: FileItem, presigned: InitiateUploadResponse): Promise<void> => {
       const gcsRes = await fetch(presigned.url, {
         method: "PUT",
@@ -153,11 +157,15 @@ export default function StepUpload({
           toast.error(msg.slice("CONFLICT:".length));
           return;
         }
+        if (msg.startsWith("BLOCKED:")) {
+          toast.error(msg.slice("BLOCKED:".length));
+          throw err;
+        }
         throw err;
       }
 
-      await uploadToS3(item, presigned);
-      // Fetch a fresh token after S3 upload; Clerk tokens can expire during
+      await uploadToGcs(item, presigned);
+      // Fetch a fresh token after GCS upload; Clerk tokens can expire during
       // large file transfers, and confirm_upload validates auth.
       const confirmToken = await getToken();
       if (!confirmToken) {
@@ -173,7 +181,7 @@ export default function StepUpload({
       });
       onUploadComplete?.(confirmed);
     },
-    [getToken, initiateUpload, uploadToS3, confirmUpload, onUploadComplete],
+    [getToken, initiateUpload, uploadToGcs, confirmUpload, onUploadComplete],
   );
 
   // Wraps uploadOne with uploading state management.
@@ -225,6 +233,16 @@ export default function StepUpload({
         const message = err instanceof Error ? err.message : "Upload failed";
         setErrors((prev) => ({ ...prev, [item.id]: message }));
         console.error(`Upload error for ${item.file.name}:`, err);
+        if (message.startsWith("BLOCKED:")) {
+          setUploadingIds((prev) => {
+            const next = new Set(prev);
+            for (const remaining of pending.slice(pending.indexOf(item) + 1)) {
+              next.delete(remaining.id);
+            }
+            return next;
+          });
+          break;
+        }
       } finally {
         setUploadingIds((prev) => {
           const next = new Set(prev);

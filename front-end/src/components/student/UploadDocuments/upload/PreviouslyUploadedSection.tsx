@@ -83,8 +83,8 @@ export default function PreviouslyUploadedSection({
           },
         );
         if (!initiateRes.ok) {
-          const err = await initiateRes.text();
-          throw new Error(`Retry initiate failed: ${err}`);
+          const errBody = await initiateRes.json().catch(() => null);
+          throw new Error(errBody?.detail ?? `Retry initiate failed: ${initiateRes.status} ${initiateRes.statusText}`);
         }
         const presigned = (await initiateRes.json()) as {
           url: string;
