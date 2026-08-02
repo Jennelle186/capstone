@@ -40,7 +40,7 @@ interface DepartmentFormDialogProps {
 
 // The dialog is used in the department table and the department details page. It allows the user to enter the department code and name. The user can also select the status of the department if the showStatus prop is true. The user can cancel the creation or editing or confirm it by clicking the "Save" button.
 export default function DepartmentFormDialog({
-    description = "Create a new department for adviser assignment.",
+    description = "Create a new academic program for adviser assignment.",
     error,
     form,
     isSubmitting,
@@ -52,7 +52,7 @@ export default function DepartmentFormDialog({
     statusValue = "active",
     submitLabel = "Save",
     submittingLabel = "Saving...",
-    title = "Department",
+    title = "Academic Program",
     onStatusChange,
 }: DepartmentFormDialogProps) {
     return (
@@ -64,7 +64,7 @@ export default function DepartmentFormDialog({
                 </DialogHeader>
                 <div className="space-y-4 py-2">
                     <div className="space-y-2">
-                        <Label htmlFor="department-code">Department Code</Label>
+                        <Label htmlFor="department-code">Program Code</Label>
                         <Input
                             id="department-code"
                             placeholder="e.g., SE"
@@ -73,7 +73,7 @@ export default function DepartmentFormDialog({
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="department-name">Department Name</Label>
+                        <Label htmlFor="department-name">Program Name</Label>
                         <Input
                             id="department-name"
                             placeholder="e.g., Software Engineering"

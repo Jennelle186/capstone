@@ -112,10 +112,10 @@ export default function AdviserFormDialog({
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor={`${idPrefix}-department`}>Department *</Label>
+                        <Label htmlFor={`${idPrefix}-department`}>Academic Program *</Label>
                         <Select value={formData.department} onValueChange={onDepartmentSelect}>
                             <SelectTrigger id={`${idPrefix}-department`}>
-                                <SelectValue placeholder="Select department" />
+                                <SelectValue placeholder="Select academic program" />
                             </SelectTrigger>
                             <SelectContent>
                                 {departments.map((department) => (
@@ -124,7 +124,7 @@ export default function AdviserFormDialog({
                                     </SelectItem>
                                 ))}
                                 <div className="my-1 h-px bg-border" />
-                                <SelectItem value={addDepartmentValue}>+ Add new department</SelectItem>
+                                <SelectItem value={addDepartmentValue}>+ Add new academic program</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

@@ -34,7 +34,7 @@ export default function AdviserAssignmentHistoryDialog({
                 <DialogHeader>
                     <DialogTitle>Assignment History</DialogTitle>
                     <DialogDescription>
-                        {adviserName ? `${adviserName}'s department assignments by school year.` : "Department assignment history."}
+                        {adviserName ? `${adviserName}'s academic program assignments by school year.` : "Academic program assignment history."}
                     </DialogDescription>
                 </DialogHeader>
 

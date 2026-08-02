@@ -141,7 +141,7 @@ export default function AdviserInvitationsTab({
                     className="px-0 hover:bg-transparent"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
-                    Department
+                    Academic Program
                     <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
                 </Button>
             ),
@@ -266,7 +266,7 @@ export default function AdviserInvitationsTab({
             <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                    placeholder="Search invitations by email, name, department, school year, or status..."
+                    placeholder="Search invitations by email, name, program, school year, or status..."
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     className="pl-9"

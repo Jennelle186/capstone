@@ -51,11 +51,11 @@ export default function AssignDepartmentDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-xl">
                 <DialogHeader>
-                    <DialogTitle>Assign to Department</DialogTitle>
+                    <DialogTitle>Assign to Academic Program</DialogTitle>
                     <DialogDescription className="wrap-break-word">
                         {selectedAdviserName ? (
                             <>
-                                Assign <strong>{selectedAdviserName}</strong> to a department
+                                Assign <strong>{selectedAdviserName}</strong> to an academic program
                             </>
                         ) : null}
                     </DialogDescription>
@@ -68,7 +68,7 @@ export default function AssignDepartmentDialog({
                     </p>
                     <Select value={selectedDepartment} onValueChange={onValueChange}>
                         <SelectTrigger>
-                            <SelectValue placeholder="Select department" />
+                            <SelectValue placeholder="Select academic program" />
                         </SelectTrigger>
                         <SelectContent>
                             {departments

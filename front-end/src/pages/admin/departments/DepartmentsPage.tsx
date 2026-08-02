@@ -82,23 +82,23 @@ export default function DepartmentsPage() {
     const visibleAdvisersTotal = filteredUnassignedAdvisers.length + visibleAssignedAdvisersCount;
 
     if (isPageLoading) {
-        return <p className="text-sm text-muted-foreground">Loading departments...</p>;
+        return <p className="text-sm text-muted-foreground">Loading academic programs...</p>;
     }
 
     return (
         <motion.div initial="hidden" animate="visible" variants={staggerContainer} className="space-y-6">
             <motion.div variants={fadeInUp}>
                 <AdminPageHeader
-                    title="Departments"
+                    title="Academic Programs"
                     description={
                         selectedSchoolYearName
-                            ? `Assign advisers per department for school year ${selectedSchoolYearName}.`
-                            : "Assign advisers to departments by school year."
+                            ? `Assign advisers per academic program for school year ${selectedSchoolYearName}.`
+                            : "Assign advisers to academic programs by school year."
                     }
                     actions={(
                         <Button onClick={openAddDepartmentDialog}>
                             <Plus className="mr-2 h-4 w-4" />
-                            Add Department
+                            Add Academic Program
                         </Button>
                     )}
                 />
@@ -110,7 +110,7 @@ export default function DepartmentsPage() {
                         <div className="relative">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
-                                placeholder="Search adviser, email, department code/name, or school year..."
+                                placeholder="Search adviser, email, program code/name, or school year..."
                                 value={searchQuery}
                                 onChange={(event) => setSearchQuery(event.target.value)}
                                 className="pl-9"
@@ -120,7 +120,7 @@ export default function DepartmentsPage() {
                         <div>
                             <p className="text-sm font-medium text-foreground">School Year Filter</p>
                             <p className="text-xs text-muted-foreground">
-                                Department assignments shown below are scoped to the selected school year.
+                                Academic program assignments shown below are scoped to the selected school year.
                             </p>
                         </div>
                         <Select
@@ -193,7 +193,7 @@ export default function DepartmentsPage() {
                                 ))}
                             </div>
                         ) : (
-                            <p className="text-muted-foreground text-sm">All advisers are assigned to departments</p>
+                            <p className="text-muted-foreground text-sm">All advisers are assigned to academic programs</p>
                         )}
                     </CardContent>
                 </Card>
@@ -303,7 +303,7 @@ export default function DepartmentsPage() {
                                         </AnimatePresence>
                                         {departmentAdvisers.length === 0 ? (
                                             <p className="text-center text-sm text-muted-foreground py-4">
-                                                No advisers assigned to this department
+                                                No advisers assigned to this academic program
                                             </p>
                                         ) : null}
                                     </div>
@@ -317,7 +317,7 @@ export default function DepartmentsPage() {
                 <motion.div variants={fadeInUp}>
                     <Card>
                         <CardContent className="p-6 text-sm text-muted-foreground">
-                            No departments matched your search.
+                             No academic programs matched your search.
                         </CardContent>
                     </Card>
                 </motion.div>
@@ -355,8 +355,8 @@ export default function DepartmentsPage() {
             <DepartmentFormDialog
                 open={isAddDepartmentDialogOpen}
                 onOpenChange={setIsAddDepartmentDialogOpen}
-                title="Add Department"
-                submitLabel="Add Department"
+                title="Add Academic Program"
+                submitLabel="Add Academic Program"
                 submittingLabel="Adding..."
                 form={addDepartmentForm}
                 onChange={setAddDepartmentForm}
@@ -368,8 +368,8 @@ export default function DepartmentsPage() {
             <DepartmentFormDialog
                 open={isEditDepartmentDialogOpen}
                 onOpenChange={setIsEditDepartmentDialogOpen}
-                title="Edit Department"
-                description="Update department information."
+                title="Edit Academic Program"
+                description="Update academic program information."
                 submitLabel="Save Changes"
                 submittingLabel="Saving..."
                 form={editDepartmentForm}

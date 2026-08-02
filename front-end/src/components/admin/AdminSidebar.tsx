@@ -41,7 +41,7 @@ export function AdminSidebar() {
                 label: "Management",
                 items: [
                     { title: "Advisers", icon: Users, url: "/admin/advisers" },
-                    { title: "Departments", icon: Building2, url: "/admin/departments" },
+                    { title: "Academic Programs", icon: Building2, url: "/admin/departments" },
                     { title: "Students", icon: GraduationCap, url: "/admin/students" },
                     { title: "Document Types", icon: FileText, url: "/admin/document-types" },
                     {
