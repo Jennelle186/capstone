@@ -59,6 +59,7 @@ class SlotStatusResponse(BaseModel):
     matched_submission_ids: list[UUID] = Field(default_factory=list)
     matched_count: int
     matched_document_type_names: list[str] = Field(default_factory=list)
+    verified_count: int = 0
 
 
 class RequiredSlotsResponse(BaseModel):

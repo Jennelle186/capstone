@@ -3,7 +3,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import SessionDep
 from ...models import (
@@ -259,10 +258,12 @@ async def get_extraction_analytics(
     fields.sort(key=lambda f: (f.get("analytics_group") or "", f["canonical_key"]))
 
     # ── Slot Compliance ──
-    # Per-slot completion: for each requirement slot, count how many
-    # eligible students have satisfied it.  Completion is determined by
-    # ``get_student_slot_statuses`` which handles classification filtering
-    # and matched-counts-against-min_required.
+    # Per-slot verification: for each requirement slot, count students as:
+    #   verified — at least one VERIFIED submission for the slot
+    #   pending  — slot is complete (is_complete) but zero VERIFIED submissions
+    #   missing  — no approved submissions for the slot at all
+    # ``get_student_slot_statuses`` handles classification filtering and
+    # matched-counts-against-min_required.
 
     statuses_map = await get_bulk_student_slot_statuses(db, all_students)
 
@@ -276,29 +277,35 @@ async def get_extraction_analytics(
                     "display_name": st.group_name or st.description or (
                         st.items[0].document_type_name if st.items else "Untitled slot"),
                     "eligible": 0,
-                    "completed": 0,
+                    "verified": 0,
+                    "pending": 0,
+                    "missing": 0,
                     "classifications": set(),
                 }
             compliance_map[slot_id]["eligible"] += 1
             if s.classification and s.classification.value:
                 compliance_map[slot_id]["classifications"].add(s.classification.value)
-            if st.is_complete:
-                compliance_map[slot_id]["completed"] += 1
+            if st.verified_count > 0:
+                compliance_map[slot_id]["verified"] += 1
+            elif st.is_complete:
+                compliance_map[slot_id]["pending"] += 1
+            else:
+                compliance_map[slot_id]["missing"] += 1
 
     compliance_items: list[dict] = []
     for slot_id, info in compliance_map.items():
         eligible = info["eligible"]
-        completed = info["completed"]
+        verified = info["verified"]
         if eligible == 0:
             continue
-        rate = round(completed / eligible * 100, 1)
+        rate = round(verified / eligible * 100, 1)
         compliance_items.append({
             "document_type": info["display_name"],
             "document_code": "",
             "classification_scope": sorted(info["classifications"]),
-            "verified": completed,
-            "pending": 0,
-            "missing": eligible - completed,
+            "verified": verified,
+            "pending": info["pending"],
+            "missing": info["missing"],
             "eligible_students": eligible,
             "verification_rate": rate,
         })

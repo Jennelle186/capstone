@@ -24,9 +24,9 @@ from ..models import (
 )
 from ..schemas.requirements import (
     SlotItemResponse,
+    SlotItemStatus,
     SlotResponse,
     SlotStatusResponse,
-    SlotItemStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -217,6 +217,7 @@ async def get_student_slot_statuses(
     for slot in slots:
         matched_sub_ids: list[UUID] = []
         matched_count = 0
+        verified_count = 0
         matched_doc_names: list[str] = []
         slot_item_dtos: list[SlotItemStatus] = []
 
@@ -244,6 +245,12 @@ async def get_student_slot_statuses(
                         if sub.id not in seen_ids:
                             seen_ids.add(sub.id)
                             matched_sub_ids.append(sub.id)
+            verified_for_type = [
+                status for status in inventory.get(item.document_type_id, [])
+                if status == "verified"
+            ]
+            if verified_for_type:
+                verified_count += 1
 
         statuses.append(
             SlotStatusResponse(
@@ -258,6 +265,7 @@ async def get_student_slot_statuses(
                 matched_submission_ids=matched_sub_ids,
                 matched_count=matched_count,
                 matched_document_type_names=matched_doc_names,
+                verified_count=verified_count,
             )
         )
 
@@ -412,6 +420,7 @@ async def get_bulk_student_slot_statuses(
         for slot in slots:
             matched_sub_ids: list[UUID] = []
             matched_count = 0
+            verified_count = 0
             slot_item_dtos: list[SlotItemStatus] = []
 
             for item in slot.items:
@@ -437,6 +446,13 @@ async def get_bulk_student_slot_statuses(
                             if sub.id not in seen_ids:
                                 seen_ids.add(sub.id)
                                 matched_sub_ids.append(sub.id)
+                verified_for_type = [
+                    status
+                    for status in inventory.get(item.document_type_id, [])
+                    if status == "verified"
+                ]
+                if verified_for_type:
+                    verified_count += 1
 
             statuses.append(
                 SlotStatusResponse(
@@ -450,6 +466,7 @@ async def get_bulk_student_slot_statuses(
                     is_complete=matched_count >= slot.min_required,
                     matched_submission_ids=matched_sub_ids,
                     matched_count=matched_count,
+                    verified_count=verified_count,
                 )
             )
 
