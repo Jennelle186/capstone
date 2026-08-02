@@ -55,6 +55,7 @@ export function mapDepartmentOptions(payload: DepartmentListResponse): Departmen
             label: department.name,
             isActive: department.is_active,
             studentCount: department.student_count,
+            adviserCount: department.adviser_count,
         })),
     );
 }

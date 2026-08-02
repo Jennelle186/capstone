@@ -162,6 +162,7 @@ async def _get_department_counts(db: SessionDep, school_year_id: UUID | None) ->
             func.count(Student.id).label("student_count"),
         )
         .join(Student, Student.program_id == Department.id)
+        .where(Student.school_year_id == resolved_school_year_id)
         .group_by(Department.code)
     )
     student_count_rows = (await db.execute(student_counts_stmt)).all()

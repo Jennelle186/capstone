@@ -23,6 +23,7 @@ export interface DepartmentOption {
     label: string;
     isActive: boolean;
     studentCount: number;
+    adviserCount: number;
 }
 
 export interface DepartmentCreateFormState {

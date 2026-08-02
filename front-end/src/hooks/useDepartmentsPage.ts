@@ -349,6 +349,7 @@ export function useDepartmentsPage() {
                         label: payload.name,
                         isActive: payload.is_active,
                         studentCount: payload.student_count,
+                        adviserCount: payload.adviser_count,
                     },
                 ]),
             );
@@ -408,6 +409,7 @@ export function useDepartmentsPage() {
                                 label: payload.name,
                                 isActive: payload.is_active,
                                 studentCount: payload.student_count,
+                                adviserCount: payload.adviser_count,
                             }
                             : department,
                     ),

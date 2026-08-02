@@ -229,7 +229,7 @@ export default function DepartmentsPage() {
                                             </div>
                                             <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
                                                 <Users className="w-4 h-4" />
-                                                <span>{departmentAdvisers.length} advisers</span>
+                                                <span>{department.adviserCount} advisers</span>
                                             </div>
                                             <div className="mt-2">
                                                 <Badge
