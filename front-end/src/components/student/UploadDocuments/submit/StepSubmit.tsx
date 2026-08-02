@@ -51,19 +51,23 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
       if (!res.ok || cancelled) return;
       const data = (await res.json()) as ExtractionItemResponse[];
       const allFields = data.flatMap((item) => item.fields);
+
+      // Exclude conditional child fields from accuracy — they are irrelevant
+      // when the parent field condition is not met (e.g. "Do you have a disability?" = No).
       const evaluableFields = allFields.filter((f) => {
-        const isBlank = !f.value || f.value.trim() === "";
-        const isOptional = !f.required;
-        return !(isBlank && isOptional);
+        const hasExtracted = f.extracted_value !== null && f.extracted_value !== undefined;
+        const isConditional = !!f.parent_field_id;
+        return hasExtracted && !isConditional;
       });
-      const avg = evaluableFields.length > 0
+
+      // Accuracy = percentage of fields where the user kept the original AI-extracted
+      // value unchanged. A field counts as accurate IFF value === extracted_value.
+      const accuracy = evaluableFields.length > 0
         ? evaluableFields.reduce((s, f) => {
-            const isBlank = !f.value || f.value.trim() === "";
-            if (f.required && isBlank) return s + 1.0;
-            return s + (f.confidence ?? 0);
+            return s + (f.value === f.extracted_value ? 1.0 : 0.0);
           }, 0) / evaluableFields.length
-        : 1.0;
-      if (!cancelled) setExtractionAccuracy(avg);
+        : null;
+      if (!cancelled) setExtractionAccuracy(accuracy);
     };
     fetchExtractions();
     return () => { cancelled = true; };

@@ -35,6 +35,9 @@ class ExtractionFieldResponse(BaseModel):
     description: str = ""
     required: bool = False
     value: str = ""
+    # Original AI-extracted value, frozen at extraction time.  Never overwritten
+    # by manual edits.  Used by StepSubmit to compute real extraction accuracy.
+    extracted_value: str | None = None
     source_key: str | None = None
     confidence: float = 0.0
     needs_review: bool = True
@@ -414,6 +417,9 @@ async def list_extractions(
                 description=field_def.get("description", ""),
                 required=field_def.get("required", False),
                 value=value,
+                # Include the frozen extracted_value so the frontend can
+                # compute extraction accuracy (Bug 3).
+                extracted_value=existing.get("extracted_value") if isinstance(existing, dict) else None,
                 source_key=source_key,
                 confidence=confidence,
                 needs_review=needs_review,
@@ -467,8 +473,19 @@ async def save_extraction_field(
     if not isinstance(extracted, dict):
         extracted = {}
 
+    # Preserve the original Gemini-extracted value before overwriting with
+    # the user's manual edit.  If this is the first edit and extracted_value
+    # is not yet set, promote the old value into extracted_value so we can
+    # still compute accuracy for legacy submissions.
+    old_entry = extracted.get(body.field_id)
+    if isinstance(old_entry, dict):
+        extracted_value = old_entry.get("extracted_value") or old_entry.get("value")
+    else:
+        extracted_value = body.value
+
     extracted[body.field_id] = {
         "value": body.value,
+        "extracted_value": extracted_value,
         "needs_review": False,
         "confidence": 1.0,
         "source_key": "manual",
@@ -524,6 +541,7 @@ async def save_extraction_field(
         id=body.field_id,
         key=body.field_id,
         value=body.value,
+        extracted_value=extracted_value,
         needs_review=False,
         confidence=1.0,
         source_key="manual",

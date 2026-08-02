@@ -80,8 +80,11 @@ async def extract_single(
                 if len(parts) == 3 and len(parts[2]) == 4:
                     value = f"{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
 
+            # Store extracted_value alongside value so StepSubmit can compute
+            # real extraction accuracy by comparing original AI output vs user edits.
             existing[field_id] = {
                 "value": value,
+                "extracted_value": value,
                 "confidence": confidence,
                 "needs_review": confidence < 0.7 if field_def.get("required", True) else False,
                 "source_key": field_key,

@@ -14,8 +14,8 @@ interface SubmissionSummaryProps {
   lockedReason?: "submitted" | "school-year-closed";
 }
 
-function formatAccuracy(value: number | null) {
-  if (value === null) return "\u2014";
+function formatAccuracy(value: number | null, label: string) {
+  if (value === null) return label;
   return `${Math.round(value * 100)}% Average`;
 }
 
@@ -50,11 +50,11 @@ export default function SubmissionSummary({
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">Classification Accuracy</span>
-            <span className="font-bold text-primary">{formatAccuracy(classificationAccuracy)}</span>
+            <span className="font-bold text-primary">{formatAccuracy(classificationAccuracy, "No classification")}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">Extraction Accuracy</span>
-            <span className="font-bold text-primary">{formatAccuracy(extractionAccuracy)}</span>
+            <span className="font-bold text-primary">{formatAccuracy(extractionAccuracy, "No extraction")}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">Target Institution</span>

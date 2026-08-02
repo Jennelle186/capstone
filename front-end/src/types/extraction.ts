@@ -12,6 +12,7 @@ export interface ExtractionFieldResponse {
   description: string;
   required: boolean;
   value: string;
+  extracted_value: string | null;
   source_key: string | null;
   confidence: number;
   needs_review: boolean;
@@ -41,6 +42,7 @@ export interface ExtractedField {
   id: string;
   label: string;
   value: string;
+  extracted_value: string | null;
   needsReview: boolean;
   key: string;
   type: string;
@@ -76,6 +78,7 @@ export function toExtractionItem(resp: ExtractionItemResponse): ExtractionItem {
     id: f.id,
     label: f.description || f.key,
     value: f.value,
+    extracted_value: f.extracted_value,
     needsReview: f.needs_review,
     key: f.key,
     type: f.type,
