@@ -614,6 +614,59 @@ async def delete_document(
     return {"ok": True}
 
 
+@router.post("/api/me/documents/{submission_id}/resolve-duplicate")
+async def resolve_duplicate(
+    submission_id: UUID,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> dict:
+    """Delete a duplicate submission that exceeds the slot's min_required.
+
+    Only allows deletion of non-verified documents. Adds a history entry
+    documenting the resolution.
+    """
+    student = await _require_student_onboarded(db, current_user)
+    await _ensure_school_year_not_closed(db, student)
+
+    submission = await db.get(DocumentSubmission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if submission.student_id != student.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to resolve this document.",
+        )
+
+    if submission.status in (
+        SubmissionStatus.VERIFIED,
+        SubmissionStatus.SUBMITTED,
+        SubmissionStatus.IN_REVIEW,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot resolve a document that has been submitted or verified.",
+        )
+
+    history = DocumentSubmissionHistory(
+        submission_id=submission.id,
+        action="duplicate_resolved",
+        reason="Student removed duplicate submission",
+        actor_user_id=student.user_id,
+    )
+    db.add(history)
+
+    await db.delete(submission)
+    await db.commit()
+
+    try:
+        await asyncio.to_thread(gcs_delete_file, submission.file_key)
+    except Exception:
+        logger.warning("GCS file already missing or failed to delete: %s", submission.file_key)
+
+    return {"ok": True, "deleted_id": str(submission_id)}
+
+
 @router.get("/api/me/documents/{submission_id}/download-url", response_model=DownloadUrlResponse)
 async def get_download_url(
     submission_id: UUID,

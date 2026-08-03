@@ -108,6 +108,7 @@ export default function StepClassify({
   const [trackedJob, setTrackedJob] = React.useState<JobResponse | null>(null);
   const [autoDeletedCount, setAutoDeletedCount] = React.useState(0);
   const [conflictError, setConflictError] = React.useState<string | null>(null);
+  const [selectedKeepIds, setSelectedKeepIds] = React.useState<Record<string, string | null>>({});
 
   const getTokenRef = React.useRef(getToken);
   React.useEffect(() => {
@@ -375,6 +376,42 @@ export default function StepClassify({
     [],
   );
 
+  const handleResolveDuplicate = React.useCallback(
+    async (submissionId: string) => {
+      const token = await getTokenRef.current();
+      if (!token) return;
+      try {
+        const res = await fetchWithClerkAuth(
+          `/api/me/documents/${submissionId}/resolve-duplicate`,
+          token,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err.detail ?? "Failed to remove duplicate.");
+          return;
+        }
+        setItems((prev) => prev.filter((i) => i.id !== submissionId));
+        // Refresh parent submissions list
+        const docsRes = await fetchWithClerkAuth("/api/me/documents", token);
+        if (docsRes.ok) {
+          const data = await docsRes.json();
+          onSubmissionsUpdate?.(data as SubmissionDetail[]);
+        }
+        toast.success("Duplicate removed.");
+      } catch {
+        toast.error("Failed to remove duplicate.");
+      }
+    },
+    [onSubmissionsUpdate],
+  );
+
+  const duplicateSlots = React.useMemo(() => {
+    return requiredSlots.filter(
+      (slot) => slot.slot_type === "solo" && slot.duplicate_submission_ids.length > 0,
+    );
+  }, [requiredSlots]);
+
   const hasPending = visibleItems.some((i) => i.status === "pending" || i.status === "needs-review");
   const allClassified = visibleItems.length > 0 && visibleItems.every(
     (i) => i.status === "classified" || i.status === "overridden" || i.status === "submitted",
@@ -525,6 +562,91 @@ export default function StepClassify({
             </button>
           </div>
         )}
+
+        {/* Duplicate Conflict Banners */}
+        {duplicateSlots.map((slot) => {
+          const matched = slot.matched_submission_ids
+            .map((id) => items.find((i) => i.id === id))
+            .filter(Boolean);
+          if (matched.length < 2) return null;
+          const selectedId = selectedKeepIds[slot.id] ?? null;
+          return (
+            <div
+              key={slot.id}
+              className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900"
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 flex-shrink-0 text-rose-600 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">
+                    Multiple {slot.group_name || slot.description || "documents"} found
+                  </p>
+                  <p className="text-xs text-rose-700 mt-0.5">
+                    You have {matched.length} documents for a slot that only needs 1. Choose the correct one to keep, then delete the others.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 pl-8">
+                {matched.map((item) => (
+                  <label
+                    key={item!.id}
+                    className="flex items-center gap-3 rounded-lg border border-rose-100 bg-white px-3 py-2 cursor-pointer hover:bg-rose-50/50 transition-colors"
+                  >
+                    <input
+                      type="radio"
+                      name={`keep-slot-${slot.id}`}
+                      value={item!.id}
+                      checked={selectedId === item!.id}
+                      onChange={() =>
+                        setSelectedKeepIds((prev) => ({ ...prev, [slot.id]: item!.id }))
+                      }
+                      className="h-4 w-4 text-rose-600 border-rose-300 focus:ring-rose-500"
+                    />
+                    <span className="text-sm font-medium text-rose-900 flex-1 truncate">
+                      {item!.fileName || "Untitled"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handlePreview(item!.id)}
+                      className="text-xs font-semibold text-rose-600 hover:text-rose-800 underline underline-offset-2"
+                    >
+                      Preview
+                    </button>
+                  </label>
+                ))}
+              </div>
+              <div className="pl-8">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!selectedId) return;
+                    const toDelete = matched
+                      .map((i) => i!.id)
+                      .filter((id) => id !== selectedId);
+                    for (const id of toDelete) {
+                      await handleResolveDuplicate(id);
+                    }
+                    setSelectedKeepIds((prev) => {
+                      const next = { ...prev };
+                      delete next[slot.id];
+                      return next;
+                    });
+                  }}
+                  disabled={isProcessing || !selectedId}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold transition-colors",
+                    selectedId
+                      ? "bg-rose-600 text-white hover:bg-rose-700 shadow-sm"
+                      : "bg-rose-200 text-rose-400 cursor-not-allowed",
+                  )}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Delete others
+                </button>
+              </div>
+            </div>
+          );
+        })}
 
         {/* Tips Banner (only when not all classified and nothing processing) */}
         {hasItems && !isProcessing && !allClassified && (

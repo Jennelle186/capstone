@@ -57,6 +57,7 @@ class SlotStatusResponse(BaseModel):
     items: list[SlotItemStatus] = Field(default_factory=list)
     is_complete: bool
     matched_submission_ids: list[UUID] = Field(default_factory=list)
+    duplicate_submission_ids: list[UUID] = Field(default_factory=list)
     matched_count: int
     matched_document_type_names: list[str] = Field(default_factory=list)
     verified_count: int = 0

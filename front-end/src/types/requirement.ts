@@ -37,6 +37,7 @@ export interface SlotStatusResponse {
     items: SlotItemStatus[];
     is_complete: boolean;
     matched_submission_ids: string[];
+    duplicate_submission_ids: string[];
     matched_count: number;
 }
 

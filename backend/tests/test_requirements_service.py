@@ -131,6 +131,38 @@ async def test_solo_slot_exposes_duplicate_submission_ids() -> None:
     assert len(result[0].matched_submission_ids) == 2
     assert sub1.id in result[0].matched_submission_ids
     assert sub2.id in result[0].matched_submission_ids
+    # duplicate_submission_ids should contain only the extras beyond min_required
+    assert len(result[0].duplicate_submission_ids) == 1
+    assert sub2.id in result[0].duplicate_submission_ids
+
+
+@pytest.mark.asyncio
+async def test_group_slot_has_no_duplicate_submission_ids() -> None:
+    """Group slots never expose duplicate_submission_ids (multiple matches are intentional)."""
+    dt_id_a = uuid4()
+    dt_id_b = uuid4()
+    items = [
+        _slot_item(dt_id_a, _doc_type("ITR", "itr")),
+        _slot_item(dt_id_b, _doc_type("Tax Exemption Cert", "tax_exempt")),
+    ]
+    slot = _slot(slot_type="group", min_required=2, items=items)
+    student = _student(classification=StudentClassification.FRESHMAN)
+
+    sub_a = _submission(doc_type_id=dt_id_a, status=SubmissionStatus.VERIFIED)
+    sub_b = _submission(doc_type_id=dt_id_b, status=SubmissionStatus.VERIFIED)
+
+    db = AsyncMock()
+    db.execute.return_value = _submissions_result(sub_a, sub_b)
+
+    with patch(
+        "app.services.requirements.get_requirement_slots_for_student",
+        new_callable=AsyncMock,
+        return_value=[slot],
+    ):
+        result = await get_student_slot_statuses(db, student)
+
+    assert len(result) == 1
+    assert result[0].duplicate_submission_ids == []
 
 
 @pytest.mark.asyncio

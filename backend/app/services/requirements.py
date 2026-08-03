@@ -252,6 +252,11 @@ async def get_student_slot_statuses(
             if verified_for_type:
                 verified_count += 1
 
+        # For solo slots, duplicates are the submissions beyond min_required
+        duplicate_sub_ids: list[UUID] = []
+        if slot.slot_type == "solo" and len(matched_sub_ids) > slot.min_required:
+            duplicate_sub_ids = matched_sub_ids[slot.min_required:]
+
         statuses.append(
             SlotStatusResponse(
                 id=slot.id,
@@ -263,6 +268,7 @@ async def get_student_slot_statuses(
                 items=slot_item_dtos,
                 is_complete=matched_count >= slot.min_required,
                 matched_submission_ids=matched_sub_ids,
+                duplicate_submission_ids=duplicate_sub_ids,
                 matched_count=matched_count,
                 matched_document_type_names=matched_doc_names,
                 verified_count=verified_count,
