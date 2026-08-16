@@ -202,6 +202,7 @@ async def get_student_slot_statuses(
             DocumentSubmission.status.in_(approved_statuses),
             DocumentSubmission.id.notin_(replaced_subq),
         )
+        .order_by(DocumentSubmission.created_at.asc())
     )
     submissions = list((await db.execute(sub_stmt)).scalars().all())
 

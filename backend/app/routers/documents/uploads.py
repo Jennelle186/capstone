@@ -628,7 +628,12 @@ async def resolve_duplicate(
     student = await _require_student_onboarded(db, current_user)
     await _ensure_school_year_not_closed(db, student)
 
-    submission = await db.get(DocumentSubmission, submission_id)
+    submission_result = await db.execute(
+        select(DocumentSubmission)
+        .where(DocumentSubmission.id == submission_id)
+        .with_for_update()
+    )
+    submission = submission_result.scalar_one_or_none()
     if submission is None:
         raise HTTPException(status_code=404, detail="Document not found.")
 
