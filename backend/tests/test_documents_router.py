@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -77,6 +78,20 @@ def _student_execute_result(student):
     """Return a mocked execute result whose scalar_one_or_none returns the student."""
     result = MagicMock()
     result.scalar_one_or_none = MagicMock(return_value=student)
+    return result
+
+
+def _scalar_result(value):
+    """Return a mocked execute result whose scalar_one_or_none returns value."""
+    result = MagicMock()
+    result.scalar_one_or_none = MagicMock(return_value=value)
+    return result
+
+
+def _scalars_all_result(values):
+    """Return a mocked execute result whose scalars().all() returns values."""
+    result = MagicMock()
+    result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=values)))
     return result
 
 
@@ -358,6 +373,7 @@ def test_list_extractions_excludes_nonverified_of_verified_type(client, mock_use
         status=SubmissionStatus.VERIFIED,
         original_filename="verified.pdf",
         extracted_data={},
+        created_at=datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc),
     )
     pending_sub = SimpleNamespace(
         id=pending_id,
@@ -367,6 +383,7 @@ def test_list_extractions_excludes_nonverified_of_verified_type(client, mock_use
         status=SubmissionStatus.CLASSIFIED,
         original_filename="pending.pdf",
         extracted_data={},
+        created_at=datetime(2026, 8, 16, 11, 0, tzinfo=timezone.utc),
     )
 
     schema_req = SimpleNamespace(
@@ -622,3 +639,206 @@ def test_list_extractions_merges_legacy_and_slot_schemas(client, mock_user, mock
     data = response.json()
     assert len(data) == 1, f"Expected 1 item (merged not duplicated), got {len(data)}"
     assert data[0]["submission_id"] == str(submission_id)
+
+
+def test_initiate_upload_rejects_verified_duplicate(client, mock_user, mock_student):
+    """Bug 5F follow-up: a VERIFIED submission blocks a fresh upload of the same type."""
+    doc_type_id = uuid4()
+    verified_id = uuid4()
+    school_year = SimpleNamespace(status="active")
+    doc_type = SimpleNamespace(name="Admission Form")
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(side_effect=[
+        _student_execute_result(mock_student),
+        _scalars_all_result([]),
+        MagicMock(),
+        _scalar_result(None),
+        _scalar_result(verified_id),
+    ])
+    session.get = AsyncMock(side_effect=[school_year, doc_type])
+
+    async def override_get_db_session():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.post(
+            "/api/me/documents/initiate",
+            json={
+                "name": "admission.pdf",
+                "type": "application/pdf",
+                "size": 1024,
+                "document_type_id": str(doc_type_id),
+            },
+        )
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["error_code"] == "duplicate_verified_document"
+    assert data["document_type_id"] == str(doc_type_id)
+    assert "already been verified" in data["detail"]
+    session.add.assert_not_called()
+
+
+def test_initiate_upload_concurrency_verified(client, mock_user, mock_student):
+    """Bug 5F follow-up: two uploads against an already-VERIFIED type both get 409."""
+    doc_type_id = uuid4()
+    verified_id = uuid4()
+    school_year = SimpleNamespace(status="active")
+    doc_type = SimpleNamespace(name="Admission Form")
+    created_submissions: list = []
+
+    def build_session():
+        session = AsyncMock()
+        session.add = MagicMock(side_effect=lambda obj: created_submissions.append(obj))
+        session.execute = AsyncMock(side_effect=[
+            _student_execute_result(mock_student),
+            _scalars_all_result([]),
+            MagicMock(),
+            _scalar_result(None),
+            _scalar_result(verified_id),
+        ])
+        session.get = AsyncMock(side_effect=[school_year, doc_type])
+        return session
+
+    async def override_get_db_session():
+        yield build_session()
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    payload = {
+        "name": "admission.pdf",
+        "type": "application/pdf",
+        "size": 1024,
+        "document_type_id": str(doc_type_id),
+    }
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        res1 = client.post("/api/me/documents/initiate", json=payload)
+        res2 = client.post("/api/me/documents/initiate", json=payload)
+
+    assert res1.status_code == 409
+    assert res2.status_code == 409
+    assert res1.json()["error_code"] == "duplicate_verified_document"
+    assert res2.json()["error_code"] == "duplicate_verified_document"
+    assert created_submissions == []
+
+
+def test_initiate_upload_rejects_submitted_duplicate(client, mock_user, mock_student):
+    """Regression: the existing SUBMITTED/IN_REVIEW guard still blocks."""
+    doc_type_id = uuid4()
+    existing_id = uuid4()
+    school_year = SimpleNamespace(status="active")
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(side_effect=[
+        _student_execute_result(mock_student),
+        _scalars_all_result([]),
+        MagicMock(),
+        _scalar_result(existing_id),
+    ])
+    session.get = AsyncMock(return_value=school_year)
+
+    async def override_get_db_session():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.post(
+            "/api/me/documents/initiate",
+            json={
+                "name": "a.pdf",
+                "type": "application/pdf",
+                "size": 1,
+                "document_type_id": str(doc_type_id),
+            },
+        )
+
+    assert response.status_code == 409
+    assert "cannot submit the same document" in response.json()["detail"]
+    session.add.assert_not_called()
+
+
+def test_initiate_upload_replace_rejects_verified(client, mock_user, mock_student):
+    """Regression: the replace_submission_id VERIFIED guard still blocks."""
+    replace_id = uuid4()
+    doc_type_id = uuid4()
+    verified_id = uuid4()
+    school_year = SimpleNamespace(status="active")
+    doc_type = SimpleNamespace(name="Admission Form")
+    old_sub = SimpleNamespace(
+        id=replace_id,
+        student_id=mock_student.id,
+        document_type_id=doc_type_id,
+        document_type=doc_type,
+    )
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(side_effect=[
+        _student_execute_result(mock_student),
+        _scalars_all_result([]),
+        _scalar_result(old_sub),
+        _scalar_result(verified_id),
+    ])
+    session.get = AsyncMock(return_value=school_year)
+
+    async def override_get_db_session():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_generate_presigned_post", return_value={
+            "url": "https://storage.googleapis.com/bucket/staging",
+            "fields": {"key": "k", "policy": "p"},
+            "key": "k",
+        }):
+            response = client.post(
+                "/api/me/documents/initiate",
+                json={
+                    "name": "a.pdf",
+                    "type": "application/pdf",
+                    "size": 1,
+                    "replace_submission_id": str(replace_id),
+                },
+            )
+
+    assert response.status_code == 409
+    assert "already verified and cannot be re-uploaded" in response.json()["detail"]
+    session.add.assert_not_called()
+
+
+def test_resolve_duplicate_rejects_verified(client, mock_user, mock_student):
+    """Regression: resolve_duplicate still refuses to remove a VERIFIED submission."""
+    submission_id = uuid4()
+    school_year = SimpleNamespace(status="active")
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.VERIFIED,
+        file_key="staging/student/file.pdf",
+    )
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(side_effect=[
+        _student_execute_result(mock_student),
+        _scalar_result(submission),
+    ])
+    session.get = AsyncMock(return_value=school_year)
+
+    async def override_get_db_session():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.post(f"/api/me/documents/{submission_id}/resolve-duplicate")
+
+    assert response.status_code == 409
+    assert "submitted or verified" in response.json()["detail"]

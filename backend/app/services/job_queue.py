@@ -26,6 +26,7 @@ from ..services.gcp_storage import delete_file as gcs_delete_file
 from ..services.processor import process_submission
 from ..services.extraction_service import extract_single
 from ..services.concurrency import CLASSIFY_CONCURRENCY, EXTRACT_CONCURRENCY
+from ..services.llm_observability import document_id_var, job_id_var
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,13 @@ EXTRACT_SEMAPHORE = asyncio.Semaphore(EXTRACT_CONCURRENCY)
 # The dispatcher semaphore limits concurrent jobs; this limits concurrent
 # submissions per job so a single large job doesn’t hog all slots.
 CLASSIFY_PER_JOB_SEMAPHORE = asyncio.Semaphore(max(1, CLASSIFY_CONCURRENCY // 2))
+
+# Limit concurrent Gemini extraction calls *within* a single extraction job.
+# Extraction prompts are large and slow (25–30s each), so a single student's
+# batch would otherwise extract sequentially. The global EXTRACT_SEMAPHORE still
+# bounds total concurrent jobs across all students, so a busy queue cannot
+# oversubscribe the shared Vertex AI quota.
+EXTRACT_PER_JOB_SEMAPHORE = asyncio.Semaphore(EXTRACT_CONCURRENCY)
 
 
 # ── Job Creation ─────────────────────────────────────────────────────────────
@@ -243,6 +251,12 @@ async def classify_worker(job_id: UUID) -> None:
         pending_sub_ids = [row[0] for row in items_result.all()]
 
     async def _process_one(sub_id: UUID) -> None:
+        # Propagate document/job context into the Gemini call sites (which only
+        # receive a file_key) so observability logs can correlate each LLM call
+        # with its submission and job. asyncio.to_thread copies these contextvars
+        # into the worker thread.
+        document_id_var.set(str(sub_id))
+        job_id_var.set(str(job_id))
         async with CLASSIFY_PER_JOB_SEMAPHORE:
             async with AsyncSessionLocal() as proc_session:
                 try:
@@ -337,6 +351,36 @@ async def classify_worker(job_id: UUID) -> None:
         await _finish_job(session, job_id)
 
 
+async def _resolve_extraction_schemas(
+    session: AsyncSession,
+    school_year_id: UUID | None,
+) -> dict[UUID, list]:
+    """Resolve active extraction schemas keyed by document type id.
+
+    A document type only has an extraction schema if the student's school year
+    maps it to an active (non-archived) schema with a non-empty ``fields_json``.
+    Used both at job creation (to compute an accurate ``job.total``) and in the
+    extract worker (to actually run extraction) so the two stay consistent.
+    """
+    schemas_by_type: dict[UUID, list] = {}
+    if not school_year_id:
+        return schemas_by_type
+
+    req_result = await session.execute(
+        select(SchoolYearRequirement).where(
+            SchoolYearRequirement.school_year_id == school_year_id,
+            SchoolYearRequirement.extraction_schema_id.isnot(None),
+        )
+    )
+    for req in req_result.scalars().all():
+        if not req.document_type_id:
+            continue
+        schema = await session.get(ExtractionSchema, req.extraction_schema_id)
+        if schema and schema.status != ExtractionSchemaStatus.ARCHIVED and schema.fields_json:
+            schemas_by_type[req.document_type_id] = schema.fields_json
+    return schemas_by_type
+
+
 async def extract_worker(job_id: UUID) -> None:
     """Process an extraction job: run AI extraction on each pending submission."""
     async with AsyncSessionLocal() as session:
@@ -370,79 +414,77 @@ async def extract_worker(job_id: UUID) -> None:
         else:
             submissions = {}
 
-        # Resolve extraction schemas per document type
-        schemas_by_type: dict[UUID, list] = {}
-        if student.school_year_id:
-            req_result = await session.execute(
-                select(SchoolYearRequirement).where(
-                    SchoolYearRequirement.school_year_id == student.school_year_id,
-                    SchoolYearRequirement.extraction_schema_id.isnot(None),
-                )
-            )
-            for req in req_result.scalars().all():
-                if not req.document_type_id:
-                    continue
-                schema = await session.get(ExtractionSchema, req.extraction_schema_id)
-                if schema and schema.status != ExtractionSchemaStatus.ARCHIVED and schema.fields_json:
-                    schemas_by_type[req.document_type_id] = schema.fields_json
+        # Resolve extraction schemas per document type (shared with job creation
+        # so job.total and the worker agree on which submissions are extractable).
+        schemas_by_type = await _resolve_extraction_schemas(session, student.school_year_id)
 
-    # Process each submission in its own session
-    for sub_id in pending_sub_ids:
+    async def _process_one(sub_id: UUID) -> None:
+        # Propagate document/job context into the Gemini call sites (which only
+        # receive a file_key) so observability logs can correlate each LLM call
+        # with its submission and job. asyncio.to_thread copies these contextvars
+        # into the worker thread.
+        document_id_var.set(str(sub_id))
+        job_id_var.set(str(job_id))
+
         submission = submissions.get(sub_id)
         if submission is None:
             async with AsyncSessionLocal() as s:
                 await _complete_item(s, job_id, sub_id, JobSubmissionItemStatus.SKIPPED, "Submission not found.")
-            continue
+            return
 
         field_defs = schemas_by_type.get(submission.document_type_id) if submission.document_type_id else None
         if not field_defs:
             async with AsyncSessionLocal() as s:
                 await _complete_item(s, job_id, sub_id, JobSubmissionItemStatus.SKIPPED, "No extraction schema.")
-            continue
+            return
 
-        async with AsyncSessionLocal() as proc_session:
-            try:
-                # Mark as running
+        async with EXTRACT_PER_JOB_SEMAPHORE:
+            async with AsyncSessionLocal() as proc_session:
+                try:
+                    # Mark as running
+                    await proc_session.execute(
+                        update(JobSubmission)
+                        .where(JobSubmission.job_id == job_id, JobSubmission.submission_id == sub_id)
+                        .values(status=JobSubmissionItemStatus.RUNNING)
+                    )
+                    await proc_session.commit()
+
+                    await extract_single(proc_session, sub_id, field_defs)
+
+                    await proc_session.execute(
+                        update(JobSubmission)
+                        .where(JobSubmission.job_id == job_id, JobSubmission.submission_id == sub_id)
+                        .values(status=JobSubmissionItemStatus.COMPLETED, error_message=None)
+                    )
+
+                except Exception as exc:
+                    logger.exception("extract_worker: submission %s failed", sub_id)
+                    await proc_session.execute(
+                        update(JobSubmission)
+                        .where(JobSubmission.job_id == job_id, JobSubmission.submission_id == sub_id)
+                        .values(status=JobSubmissionItemStatus.FAILED, error_message=str(exc))
+                    )
+
+                # Update job progress (best-effort; final count is fixed by _finish_job)
+                done_result = await proc_session.execute(
+                    select(JobSubmission).where(
+                        JobSubmission.job_id == job_id,
+                        JobSubmission.status.notin_([
+                            JobSubmissionItemStatus.PENDING,
+                            JobSubmissionItemStatus.RUNNING,
+                        ]),
+                    )
+                )
+                done_count = len(list(done_result.scalars().all()))
                 await proc_session.execute(
-                    update(JobSubmission)
-                    .where(JobSubmission.job_id == job_id, JobSubmission.submission_id == sub_id)
-                    .values(status=JobSubmissionItemStatus.RUNNING)
+                    update(Job)
+                    .where(Job.id == job_id)
+                    .values(progress=done_count, last_updated_at=func_now())
                 )
                 await proc_session.commit()
 
-                await extract_single(proc_session, sub_id, field_defs)
-
-                await proc_session.execute(
-                    update(JobSubmission)
-                    .where(JobSubmission.job_id == job_id, JobSubmission.submission_id == sub_id)
-                    .values(status=JobSubmissionItemStatus.COMPLETED, error_message=None)
-                )
-
-            except Exception as exc:
-                logger.exception("extract_worker: submission %s failed", sub_id)
-                await proc_session.execute(
-                    update(JobSubmission)
-                    .where(JobSubmission.job_id == job_id, JobSubmission.submission_id == sub_id)
-                    .values(status=JobSubmissionItemStatus.FAILED, error_message=str(exc))
-                )
-
-            # Update job progress
-            done_result = await proc_session.execute(
-                select(JobSubmission).where(
-                    JobSubmission.job_id == job_id,
-                    JobSubmission.status.notin_([
-                        JobSubmissionItemStatus.PENDING,
-                        JobSubmissionItemStatus.RUNNING,
-                    ]),
-                )
-            )
-            done_count = len(list(done_result.scalars().all()))
-            await proc_session.execute(
-                update(Job)
-                .where(Job.id == job_id)
-                .values(progress=done_count, last_updated_at=func_now())
-            )
-            await proc_session.commit()
+    # Process submissions concurrently (up to EXTRACT_PER_JOB_SEMAPHORE slots)
+    await asyncio.gather(*[_process_one(sub_id) for sub_id in pending_sub_ids])
 
     async with AsyncSessionLocal() as session:
         await _finish_job(session, job_id)
@@ -462,10 +504,72 @@ CONCURRENCY_SEMAPHORES = {
 }
 
 
-async def dispatcher():
-    """Main worker loop: atomically claims queued jobs and dispatches to the
-    appropriate per-operation worker pool.
+async def _mark_job_failed(job_id: UUID, message: str) -> None:
+    """Mark a job as FINISHED/FAILED after an unhandled worker crash.
+
+    Without this, a fire-and-forget worker that raises (e.g. an unexpected DB
+    error outside the worker's own try/except) would leave the job stuck in
+    RUNNING until the next restart re-queues it. Recording the failure here
+    ensures the job terminal state reflects reality immediately.
     """
+    try:
+        async with AsyncSessionLocal() as session:
+            job = await session.get(Job, job_id)
+            if job is None:
+                return
+            job.status = JobStatus.FINISHED
+            job.result = JobResult.FAILED
+            job.error_message = message
+            job.completed_at = func_now()
+            job.last_updated_at = func_now()
+            await session.commit()
+    except Exception:
+        logger.exception("Failed to mark job %s as failed", job_id)
+
+
+async def _bounded_worker(
+    job_id: UUID,
+    worker,
+    semaphore: asyncio.Semaphore,
+    operation: str,
+) -> None:
+    """Run a job worker while holding the operation's semaphore for the full
+    duration.
+
+    The semaphore is acquired *inside* this task rather than in the dispatcher
+    loop. If the dispatcher wrapped `asyncio.create_task(worker(...))` in an
+    ``async with semaphore`` block, the context manager would exit the moment
+    the task was scheduled (create_task returns immediately), releasing the
+    slot before the worker even started — making concurrency effectively
+    unbounded. Acquiring the semaphore here keeps the slot held until the
+    worker actually finishes.
+    """
+    async with semaphore:
+        try:
+            await worker(job_id)
+        except Exception:
+            logger.exception(
+                "Worker crashed for job %s (operation=%s)", job_id, operation
+            )
+            await _mark_job_failed(job_id, "Worker crashed unexpectedly.")
+
+
+async def dispatcher():
+    """Main worker loop: atomically claims queued jobs and dispatches them to
+    the appropriate per-operation worker pool.
+
+    Each job is scheduled as a background task so the loop returns immediately
+    to claim the next queued job, instead of blocking on ``await worker(...)``.
+    Concurrency is bounded by each operation's semaphore, which is held inside
+    the task (see ``_bounded_worker``) for the worker's full duration.
+    """
+    # Track in-flight tasks so they are not garbage-collected while running;
+    # each task removes itself from the set when it completes.
+    running_tasks: set[asyncio.Task] = set()
+
+    def _discard(task: asyncio.Task) -> None:
+        running_tasks.discard(task)
+
     while True:
         try:
             async with AsyncSessionLocal() as session:
@@ -486,8 +590,13 @@ async def dispatcher():
                             job_ref.completed_at = func_now()
                             await s.commit()
                 else:
-                    async with semaphore:
-                        await worker(job.id)
+                    # Fire-and-forget: schedule the bounded worker and keep
+                    # looping to claim the next job without waiting.
+                    task = asyncio.create_task(
+                        _bounded_worker(job.id, worker, semaphore, job.operation)
+                    )
+                    running_tasks.add(task)
+                    task.add_done_callback(_discard)
             else:
                 await asyncio.sleep(1)
         except Exception:

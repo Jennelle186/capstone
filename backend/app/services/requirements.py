@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import SessionDep
@@ -33,6 +34,53 @@ logger = logging.getLogger(__name__)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
+
+
+async def has_verified_submission(
+    db: AsyncSession,
+    student_id: UUID,
+    document_type_id: UUID,
+    exclude_submission_id: UUID | None = None,
+) -> bool:
+    """Return True if the student already has a VERIFIED submission for the type.
+
+    A VERIFIED document of a type is final — no further uploads of that type are
+    allowed. This rule is shared by the upload, replacement, and classification
+    confirmation paths so "is this type already verified?" lives in one place.
+    ``exclude_submission_id`` opts a specific submission out (used when replacing
+    a submission with a new upload of the same type).
+    """
+    stmt = select(DocumentSubmission.id).where(
+        DocumentSubmission.student_id == student_id,
+        DocumentSubmission.document_type_id == document_type_id,
+        DocumentSubmission.status == SubmissionStatus.VERIFIED,
+    )
+    if exclude_submission_id is not None:
+        stmt = stmt.where(DocumentSubmission.id != exclude_submission_id)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none() is not None
+
+
+def latest_submission_per_type(
+    submissions: list[DocumentSubmission],
+) -> list[DocumentSubmission]:
+    """Keep only the newest submission per ``document_type_id``.
+
+    Submissions with no document type are preserved as-is (each is unique).
+    Shared by ``submit_batch``, extraction auto-collect, and the extraction
+    list so all three agree on which submission is canonical for a type,
+    instead of each reimplementing "keep newest per type" independently.
+    """
+    latest_by_type: dict[UUID, DocumentSubmission] = {}
+    untyped: list[DocumentSubmission] = []
+    for sub in submissions:
+        if sub.document_type_id is None:
+            untyped.append(sub)
+            continue
+        existing = latest_by_type.get(sub.document_type_id)
+        if existing is None or sub.created_at > existing.created_at:
+            latest_by_type[sub.document_type_id] = sub
+    return untyped + list(latest_by_type.values())
 
 
 async def get_school_year_or_404(db: SessionDep, school_year_id: UUID) -> SchoolYear:
@@ -195,6 +243,10 @@ async def get_student_slot_statuses(
         select(DocumentSubmission.parent_submission_id)
         .where(DocumentSubmission.parent_submission_id.isnot(None))
     ).scalar_subquery()
+    # Order by created_at so duplicate detection is deterministic: the oldest
+    # submission is always kept and any extras beyond min_required are always
+    # the same set. Without this, DB row order is undefined and the backend
+    # could flag different submissions as duplicates on each request.
     sub_stmt = (
         select(DocumentSubmission)
         .where(
@@ -213,6 +265,12 @@ async def get_student_slot_statuses(
         if dt_id is None:
             continue
         inventory.setdefault(dt_id, []).append(sub.status.value)
+
+    # IDs of this student's VERIFIED submissions, used to flag slots where a
+    # verified document is already in the mix (auto-cleanup vs. real conflict).
+    verified_sub_ids = {
+        sub.id for sub in submissions if sub.status == SubmissionStatus.VERIFIED
+    }
 
     statuses: list[SlotStatusResponse] = []
     for slot in slots:
@@ -258,6 +316,13 @@ async def get_student_slot_statuses(
         if slot.slot_type == "solo" and len(matched_sub_ids) > slot.min_required:
             duplicate_sub_ids = matched_sub_ids[slot.min_required:]
 
+        # Flag slots where a VERIFIED submission is already present among the
+        # matches. These are not "choose which to keep" conflicts — the verified
+        # document is definitive and the extras will be auto-cleaned on submit.
+        has_verified_conflict = any(
+            sub_id in verified_sub_ids for sub_id in matched_sub_ids
+        )
+
         statuses.append(
             SlotStatusResponse(
                 id=slot.id,
@@ -273,6 +338,7 @@ async def get_student_slot_statuses(
                 matched_count=matched_count,
                 matched_document_type_names=matched_doc_names,
                 verified_count=verified_count,
+                has_verified_conflict=has_verified_conflict,
             )
         )
 
@@ -383,6 +449,12 @@ async def get_bulk_student_slot_statuses(
     ).scalar_subquery()
 
     student_ids = [s.id for s in students]
+    # Order by created_at so duplicate detection is deterministic across the
+    # bulk path too: the oldest submission is always kept and extras beyond
+    # min_required are always the same set. This mirrors the single-student
+    # path in get_student_slot_statuses; without it, DB row order is undefined
+    # and list views (adviser/admin) could flag different submissions as
+    # duplicates on every request.
     sub_stmt = (
         select(DocumentSubmission)
         .where(
@@ -390,6 +462,7 @@ async def get_bulk_student_slot_statuses(
             DocumentSubmission.status.in_(approved_statuses),
             DocumentSubmission.id.notin_(replaced_subq),
         )
+        .order_by(DocumentSubmission.created_at.asc())
     )
     all_subs = list((await db.execute(sub_stmt)).scalars().all())
 
@@ -422,6 +495,11 @@ async def get_bulk_student_slot_statuses(
             if dt_id is None:
                 continue
             inventory.setdefault(dt_id, []).append(sub.status.value)
+
+        # IDs of this student's VERIFIED submissions (see single-student path).
+        verified_sub_ids = {
+            sub.id for sub in student_subs if sub.status == SubmissionStatus.VERIFIED
+        }
 
         statuses: list[SlotStatusResponse] = []
         for slot in slots:
@@ -474,6 +552,9 @@ async def get_bulk_student_slot_statuses(
                     matched_submission_ids=matched_sub_ids,
                     matched_count=matched_count,
                     verified_count=verified_count,
+                    has_verified_conflict=any(
+                        sub_id in verified_sub_ids for sub_id in matched_sub_ids
+                    ),
                 )
             )
 

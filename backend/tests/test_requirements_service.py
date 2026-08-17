@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -9,7 +10,10 @@ import pytest
 from app.models import SubmissionStatus, StudentClassification
 from app.services.requirements import (
     _filter_slots_by_classification,
+    get_bulk_student_slot_statuses,
     get_student_slot_statuses,
+    has_verified_submission,
+    latest_submission_per_type,
 )
 
 
@@ -72,6 +76,101 @@ def _submissions_result(*subs):
     result = MagicMock()
     result.scalars.return_value.all.return_value = list(subs)
     return result
+
+
+# ── has_verified_submission helper ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_has_verified_submission_returns_true_when_verified_exists() -> None:
+    student_id = uuid4()
+    doc_type_id = uuid4()
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = uuid4()
+    db.execute = AsyncMock(return_value=result)
+
+    found = await has_verified_submission(db, student_id, doc_type_id)
+
+    assert found is True
+
+
+@pytest.mark.asyncio
+async def test_has_verified_submission_returns_false_when_none() -> None:
+    student_id = uuid4()
+    doc_type_id = uuid4()
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(return_value=result)
+
+    found = await has_verified_submission(db, student_id, doc_type_id)
+
+    assert found is False
+
+
+@pytest.mark.asyncio
+async def test_has_verified_submission_excludes_submission_id() -> None:
+    student_id = uuid4()
+    doc_type_id = uuid4()
+    excluded_id = uuid4()
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = uuid4()
+    db.execute = AsyncMock(return_value=result)
+
+    await has_verified_submission(
+        db, student_id, doc_type_id, exclude_submission_id=excluded_id
+    )
+
+    stmt = db.execute.await_args.args[0]
+    assert "!=" in str(stmt)
+
+
+# ── latest_submission_per_type helper ──────────────────────────────────────
+
+
+def test_latest_submission_per_type_keeps_newest_per_type() -> None:
+    shared_type = uuid4()
+    other_type = uuid4()
+    older = SimpleNamespace(
+        id=uuid4(),
+        document_type_id=shared_type,
+        created_at=datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+    )
+    newer = SimpleNamespace(
+        id=uuid4(),
+        document_type_id=shared_type,
+        created_at=datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc),
+    )
+    distinct = SimpleNamespace(
+        id=uuid4(),
+        document_type_id=other_type,
+        created_at=datetime(2026, 8, 16, 11, 0, tzinfo=timezone.utc),
+    )
+
+    result = latest_submission_per_type([older, distinct, newer])
+
+    result_ids = {s.id for s in result}
+    assert newer.id in result_ids
+    assert distinct.id in result_ids
+    assert older.id not in result_ids
+    assert len(result) == 2
+
+
+def test_latest_submission_per_type_preserves_untyped() -> None:
+    untyped = SimpleNamespace(id=uuid4(), document_type_id=None, created_at=None)
+    typed = SimpleNamespace(
+        id=uuid4(),
+        document_type_id=uuid4(),
+        created_at=datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc),
+    )
+
+    result = latest_submission_per_type([untyped, typed])
+
+    assert len(result) == 2
+    assert untyped in result
+    assert typed in result
 
 
 # ── Bug 5F: duplicate solo slots ──────────────────────────────────────────
@@ -313,3 +412,97 @@ def test_filter_slots_by_classification_returns_all_when_classification_none() -
 
     assert len(result) == 1
     assert result[0] is slot
+
+
+@pytest.mark.asyncio
+async def test_solo_slot_verified_conflict_flag_with_multiple_extras() -> None:
+    """A solo slot with one VERIFIED submission plus multiple non-verified extras
+    exposes has_verified_conflict=True so clients render an auto-cleanup message."""
+    doc_type_id = uuid4()
+    dt = _doc_type("Admission Form", "admission_form")
+    slot = _slot(min_required=1, items=[_slot_item(doc_type_id, dt)])
+    student = _student(classification=StudentClassification.FRESHMAN)
+
+    verified = _submission(doc_type_id=doc_type_id, status=SubmissionStatus.VERIFIED)
+    stale_a = _submission(doc_type_id=doc_type_id, status=SubmissionStatus.CLASSIFIED)
+    stale_b = _submission(doc_type_id=doc_type_id, status=SubmissionStatus.CLASSIFIED)
+
+    db = AsyncMock()
+    db.execute.return_value = _submissions_result(verified, stale_a, stale_b)
+
+    with patch(
+        "app.services.requirements.get_requirement_slots_for_student",
+        new_callable=AsyncMock,
+        return_value=[slot],
+    ):
+        result = await get_student_slot_statuses(db, student)
+
+    assert len(result) == 1
+    assert result[0].has_verified_conflict is True
+    # The verified document is definitive; the two extras remain in duplicate ids.
+    assert len(result[0].duplicate_submission_ids) == 2
+
+
+@pytest.mark.asyncio
+async def test_solo_slot_no_verified_conflict_flag_without_verified() -> None:
+    """A solo slot with only non-verified duplicates has_verified_conflict=False
+    (a real choose-to-keep conflict, not an auto-cleanup case)."""
+    doc_type_id = uuid4()
+    dt = _doc_type("Birth Certificate", "birth_cert")
+    slot = _slot(min_required=1, items=[_slot_item(doc_type_id, dt)])
+    student = _student(classification=StudentClassification.FRESHMAN)
+
+    sub_a = _submission(doc_type_id=doc_type_id, status=SubmissionStatus.CLASSIFIED)
+    sub_b = _submission(doc_type_id=doc_type_id, status=SubmissionStatus.CLASSIFIED)
+
+    db = AsyncMock()
+    db.execute.return_value = _submissions_result(sub_a, sub_b)
+
+    with patch(
+        "app.services.requirements.get_requirement_slots_for_student",
+        new_callable=AsyncMock,
+        return_value=[slot],
+    ):
+        result = await get_student_slot_statuses(db, student)
+
+    assert len(result) == 1
+    assert result[0].has_verified_conflict is False
+    assert len(result[0].duplicate_submission_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_slot_statuses_orders_submissions_by_created_at() -> None:
+    """The bulk path must order submissions by created_at (ascending) so that
+    duplicate detection in list views is deterministic, matching the
+    single-student path. Regression guard against the ordering being dropped
+    from the bulk submissions query."""
+    sy_id = uuid4()
+    student = _student(
+        school_year_id=sy_id, classification=StudentClassification.FRESHMAN
+    )
+
+    captured: list = []
+
+    async def _fake_execute(stmt):
+        # Record every statement issued so we can inspect the SQL shape.
+        captured.append(stmt)
+        return _submissions_result()  # empty result for all queries
+
+    db = AsyncMock()
+    db.execute.side_effect = _fake_execute
+
+    await get_bulk_student_slot_statuses(db, [student])
+
+    submissions_sql = [
+        str(stmt)
+        for stmt in captured
+        if "FROM document_submissions" in str(stmt)
+    ]
+    assert submissions_sql, "No submissions query was issued by the bulk path"
+    assert any(
+        "ORDER BY document_submissions.created_at" in sql
+        for sql in submissions_sql
+    ), (
+        "Bulk submissions query must order by created_at so duplicate "
+        "detection is deterministic"
+    )

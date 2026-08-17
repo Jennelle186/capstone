@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import SubmissionStatus
+from app.models import AdminAuditLog, SubmissionStatus
 from app.services.gcp_pipeline import GcpPipelineError
 from app.services.processor import process_submission
 
@@ -174,3 +174,44 @@ async def test_process_submission_flags_on_pipeline_error() -> None:
 
     assert submission.status == SubmissionStatus.FLAGGED
     assert submission.classification_result["error"] == "pipeline_error"
+
+
+@pytest.mark.asyncio
+async def test_process_submission_deletes_when_type_already_verified() -> None:
+    """A predicted type that is already VERIFIED for the student causes the new
+    submission to be hard-deleted (not CLASSIFIED, not FLAGGED) with an audit entry."""
+    submission = _submission(status=SubmissionStatus.UPLOADED)
+    doc_type = _doc_type(code="ADMISSION_FORM", classifier_description="Admission form.", keywords=["admission"])
+
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=submission)
+    session.delete = AsyncMock()
+    execute_result = MagicMock()
+    execute_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[doc_type])))
+    # has_verified_submission reads scalar_one_or_none(); a non-None value means
+    # a VERIFIED submission already exists for the predicted type.
+    execute_result.scalar_one_or_none = MagicMock(return_value=uuid4())
+    session.execute = AsyncMock(return_value=execute_result)
+
+    pipeline_result = _make_pipeline_result(
+        match_type="ADMISSION_FORM",
+        confidence=0.95,
+        reasoning="Matched",
+    )
+
+    with patch("app.services.processor.asyncio.to_thread", side_effect=[pipeline_result, None]):
+        await process_submission(session, submission.id)
+
+    session.delete.assert_awaited_once_with(submission)
+    assert submission.status != SubmissionStatus.CLASSIFIED
+    assert submission.status != SubmissionStatus.FLAGGED
+
+    audit_calls = [
+        c for c in session.add.call_args_list
+        if c.args and isinstance(c.args[0], AdminAuditLog)
+    ]
+    assert len(audit_calls) == 1
+    audit = audit_calls[0].args[0]
+    assert audit.action == "AUTO_DELETED_DUPLICATE_VERIFIED"
+    assert audit.entity_id == submission.id
+    assert audit.audit_metadata["reason"] == "duplicate_verified"

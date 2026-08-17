@@ -9,12 +9,21 @@ from sqlalchemy import select
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import DocumentSubmission, DocumentSubmissionHistory, DocumentType, DocumentTypeStatus, SchoolYearRequirement, SubmissionStatus
+from ..models import (
+    AdminAuditLog,
+    DocumentSubmission,
+    DocumentSubmissionHistory,
+    DocumentType,
+    DocumentTypeStatus,
+    SchoolYearRequirement,
+    SubmissionStatus,
+)
 from ..services.gcp_pipeline import (
     GcpPipelineError,
     process_document_sync,
 )
 from ..services.gcp_storage import delete_file
+from ..services.requirements import has_verified_submission
 
 AUTO_ACCEPT_THRESHOLD = 0.80
 REJECT_THRESHOLD = 0.30
@@ -146,6 +155,11 @@ async def process_submission(
 
         if submission.is_compiled:
             logger.info("process_submission: compiled document not supported for %s", submission_id)
+            # TODO(Phase 3 - PDF De-compilation): once compiled documents get a
+            # real classification pipeline that produces a document_type_id, a
+            # VERIFIED guard must be added here (mirroring initiate_upload) so a
+            # compiled segment classified as a type the student already has
+            # VERIFIED is auto-deleted before extraction, instead of proceeding.
             await _save_classification(
                 session,
                 submission,
@@ -229,6 +243,40 @@ async def process_submission(
         )
         if extracted_text_length is not None:
             classification_result["extracted_text_length"] = extracted_text_length
+
+        # A VERIFIED document of this type is final. If this upload's predicted
+        # type is already verified, there is exactly one correct outcome: delete
+        # it now rather than letting it become CLASSIFIED and waste an extraction
+        # call (or linger as a stale FLAGGED item). Mirrors submit_batch's
+        # verified-duplicate cleanup; the audit entry preserves traceability.
+        if matched_type is not None and await has_verified_submission(
+            session, submission.student_id, matched_type.id,
+            exclude_submission_id=submission.id,
+        ):
+            logger.info(
+                "process_submission: auto-deleting %s — type %s already verified",
+                submission_id, matched_type.code,
+            )
+            await asyncio.to_thread(delete_file, submission.file_key)
+            await session.delete(submission)
+            # Traceable record: DocumentSubmissionHistory is cascade-deleted with
+            # the submission, so record the event in the unified audit log instead
+            # so a student disputing a "missing" document can be traced.
+            session.add(
+                AdminAuditLog(
+                    action="AUTO_DELETED_DUPLICATE_VERIFIED",
+                    entity_type="document_submission",
+                    entity_id=submission.id,
+                    audit_metadata={
+                        "reason": "duplicate_verified",
+                        "document_type_id": str(matched_type.id),
+                        "document_type_code": matched_type.code,
+                        "original_filename": submission.original_filename,
+                    },
+                )
+            )
+            await session.commit()
+            return
 
         if confidence >= AUTO_ACCEPT_THRESHOLD and matched_type is not None:
             if await _check_document_type_conflict(

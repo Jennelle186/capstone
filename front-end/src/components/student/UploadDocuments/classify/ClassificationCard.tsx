@@ -33,6 +33,7 @@ interface ClassificationCardProps {
   onDelete?: (id: string) => void;
   isClassifying: boolean;
   getToken: () => Promise<string | null>;
+  hasVerifiedConflict?: boolean;
 }
 
 function formatFileSize(bytes: number | null) {
@@ -178,6 +179,7 @@ export default function ClassificationCard({
   onDelete,
   isClassifying,
   getToken,
+  hasVerifiedConflict = false,
 }: ClassificationCardProps) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
@@ -295,6 +297,41 @@ export default function ClassificationCard({
               variant="outline"
               size="sm"
               className="h-10 rounded-xl whitespace-nowrap gap-1.5 border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800"
+              onClick={handleDeleteDocument}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <AlertTriangle className="h-4 w-4" />
+              )}
+              {deleting ? "Removing…" : "Remove Document"}
+            </Button>
+          </div>
+        </div>
+      ) : hasVerifiedConflict ? (
+        /* Verified-conflict card — read-only, this type is already verified by an adviser */
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100">
+              <CheckCircle className="h-8 w-8 text-amber-600" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-slate-900">
+                {item.fileName}
+              </p>
+              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                {item.documentTypeName ?? "This document type"} has already been
+                verified by your adviser. This upload will be removed when you
+                submit.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-row items-center gap-2 sm:shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10 rounded-xl whitespace-nowrap gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
               onClick={handleDeleteDocument}
               disabled={deleting}
             >

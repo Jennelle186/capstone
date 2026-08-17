@@ -11,7 +11,7 @@ import StepExtract from "@/components/student/UploadDocuments/extract/StepExtrac
 import StepSubmit from "@/components/student/UploadDocuments/submit/StepSubmit";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { RequiredDocument } from "@/types/student";
-import type { SlotStatusResponse, RequiredSlotsResponse } from "@/types/requirement";
+import { allSlotsVerified, type SlotStatusResponse, type RequiredSlotsResponse } from "@/types/requirement";
 import type { ConfirmUploadResponse, SubmissionDetail } from "@/types/submission";
 
 const CLAMP = (n: number) => Math.max(1, Math.min(4, n));
@@ -80,6 +80,11 @@ export default function UploadDocuments() {
     if (sessionUploadIds.size === 0) return [];
     return existingSubmissions.filter((s) => sessionUploadIds.has(s.id));
   }, [existingSubmissions, replaceSubmissionId, sessionUploadIds]);
+
+  const allVerified = useMemo(
+    () => allSlotsVerified(requiredSlots),
+    [requiredSlots],
+  );
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
@@ -291,6 +296,7 @@ export default function UploadDocuments() {
           onExtractionChange={setExtractionComplete}
           getToken={getToken}
           isSchoolYearClosed={schoolYearClosed}
+          allVerified={allVerified}
         />
       )}
       {step === 4 && <StepSubmit requiredSlots={requiredSlots} submissions={sessionSubmissions} getToken={getToken} onSubmitted={handleSubmitted} isSchoolYearClosed={schoolYearClosed} />}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from google import genai
 from google.genai import types
 
 from ..models import DocumentType
+from ..services.llm_observability import log_llm_call
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -28,20 +30,91 @@ class GcpPipelineError(Exception):
     pass
 
 
+# HTTP statuses that are transient and worth retrying. Anything in the 4xx
+# range that is *not* 429 (e.g. 400/401/403/404 auth or validation failures)
+# will never succeed on retry and must fail fast instead.
+_TRANSIENT_STATUS_CODES = frozenset({429, 502, 503, 504})
+
+# Retry limit shared by the Gemini classification/extraction callers.
+_MAX_RETRY_ATTEMPTS = 3
+
+
+def _usage_from_response(response) -> dict[str, int]:
+    """Extract token counts from a generate_content response's usage_metadata.
+
+    The SDK exposes prompt/output/total token counts via
+    ``response.usage_metadata``. Defaults to 0 when the metadata is absent
+    (some model versions or response shapes may not populate it).
+    """
+    usage = getattr(response, "usage_metadata", None)
+    return {
+        "prompt_tokens": int(getattr(usage, "prompt_token_count", 0) or 0),
+        "output_tokens": int(getattr(usage, "candidates_token_count", 0) or 0),
+        "total_tokens": int(getattr(usage, "total_token_count", 0) or 0),
+    }
+
+
+def _status_for_error(exc: Exception) -> str:
+    """Map a Gemini call failure to a stable observability status string.
+
+    Distinguishes rate-limit (429), server timeout (504), other HTTP errors,
+    and transport-level timeouts that carry no HTTP status code.
+    """
+    code = _extract_status_code(exc)
+    if code == 429:
+        return "failed_429"
+    if code == 504:
+        return "failed_504"
+    if code is not None:
+        return "failed_other"
+    return "timeout"
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    """Best-effort extraction of the HTTP status code from a genai SDK error.
+
+    The SDK raises ``google.genai.errors.APIError`` (and its
+    ``ClientError``/``ServerError`` subclasses) with a ``.code`` attribute
+    carrying the HTTP status. Non-APIError exceptions (e.g. raw httpx transport
+    errors) may embed the status in their message, so fall back to a regex scan
+    of the exception text — but only for the transient codes we actually retry.
+    """
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code
+    match = re.search(r"\b(429|502|503|504)\b", str(exc))
+    return int(match.group(1)) if match else None
+
+
 def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_label: str) -> bool:
-    error_text = str(exc)
-    is_429 = "429" in error_text
-    is_504 = "504" in error_text
+    """Decide whether a Gemini call failure should be retried, and sleep if so.
 
-    if (is_429 or is_504) and attempt < 3:
-        wait = (5 * (2 ** attempt)) if is_504 else (2 ** attempt)
-        reason = "Server timeout" if is_504 else "Rate limited"
-        logger.warning("%s (%s), retry %d/3 in %ss...", reason, file_key, attempt + 1, wait)
-        time.sleep(wait)
-        return True
+    Only transient errors are retried (429 rate-limit, 502/503/504 server
+    timeouts). Permanent client errors (auth/validation) fail immediately.
 
-    logger.error("Gemini %s failed for %s: %s", context_label, file_key, exc)
-    return False
+    Backoff is exponential with a base of 1s for 429 and 2s for 502/503/504
+    (reduced from the previous 5s), plus full random jitter. The jitter spreads
+    concurrent retrying workers apart so a burst of simultaneous retries doesn't
+    re-trigger the very overload that caused the 504s. ``Retry-After`` is
+    intentionally not honored: the SDK does not surface it cleanly on all
+    response types, and jitter already addresses the synchronized-thundering-herd
+    problem the header would otherwise solve.
+    """
+    code = _extract_status_code(exc)
+
+    if code not in _TRANSIENT_STATUS_CODES or attempt >= _MAX_RETRY_ATTEMPTS:
+        logger.error("Gemini %s failed for %s: %s", context_label, file_key, exc)
+        return False
+
+    is_server_timeout = code in (502, 503, 504)
+    base = 2.0 if is_server_timeout else 1.0
+    backoff = base * (2 ** attempt)
+    jitter = random.uniform(0, backoff)
+    wait = backoff + jitter
+    reason = "Server timeout" if is_server_timeout else "Rate limited"
+    logger.warning("%s (%s), retry %d/%d in %.2fs...", reason, file_key, attempt + 1, _MAX_RETRY_ATTEMPTS, wait)
+    time.sleep(wait)
+    return True
 
 
 SYSTEM_INSTRUCTION = """You are an expert document processing AI for an academic institution.
@@ -209,8 +282,12 @@ def classify_with_gemini(
 
     logger.info("Sending %s to Gemini for classification (model=%s)", file_key, model_name)
 
+    # retry_count tracks how many retries occurred before the current attempt so
+    # the observability log can reveal "which documents needed 2+ retries".
+    retry_count = 0
     last_error: Exception | None = None
-    for attempt in range(4):
+    for attempt in range(_MAX_RETRY_ATTEMPTS + 1):
+        attempt_start = time.perf_counter()
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -227,11 +304,29 @@ def classify_with_gemini(
                     http_options=types.HttpOptions(timeout=60_000),
                 ),
             )
+            # Log the successful attempt with token counts and latency.
+            log_llm_call(
+                stage="classification",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status="success",
+                **_usage_from_response(response),
+            )
             last_error = None
             break
         except Exception as exc:
             last_error = exc
+            # Log the failed attempt before deciding whether to retry.
+            log_llm_call(
+                stage="classification",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status=_status_for_error(exc),
+            )
             if _retry_on_gemini_error(exc, file_key, attempt, "classification"):
+                retry_count += 1
                 continue
             raise GcpPipelineError(f"Gemini classification failed: {exc}") from exc
 
@@ -538,7 +633,7 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
     contents.append(types.Part.from_text(text=prompt))
 
     last_error: Exception | None = None
-    for attempt in range(4):
+    for attempt in range(_MAX_RETRY_ATTEMPTS + 1):
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -652,8 +747,12 @@ def extract_fields_from_document(
 
     logger.info("Extracting %d fields from %s (model=%s)", len(fields), file_key, model_name)
 
+    # retry_count tracks how many retries occurred before the current attempt so
+    # the observability log can reveal extraction retry patterns per document.
+    retry_count = 0
     last_error: Exception | None = None
-    for attempt in range(4):
+    for attempt in range(_MAX_RETRY_ATTEMPTS + 1):
+        attempt_start = time.perf_counter()
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -669,11 +768,29 @@ def extract_fields_from_document(
                     http_options=types.HttpOptions(timeout=60_000),
                 ),
             )
+            # Log the successful attempt with token counts and latency.
+            log_llm_call(
+                stage="extraction",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status="success",
+                **_usage_from_response(response),
+            )
             last_error = None
             break
         except Exception as exc:
             last_error = exc
+            # Log the failed attempt before deciding whether to retry.
+            log_llm_call(
+                stage="extraction",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status=_status_for_error(exc),
+            )
             if _retry_on_gemini_error(exc, file_key, attempt, "extraction"):
+                retry_count += 1
                 continue
             raise GcpPipelineError(f"Gemini extraction failed: {exc}") from exc
 
@@ -795,7 +912,7 @@ def generate_classification_settings(
     logger.info("Generating classification settings for document type '%s' (model=%s)", name, model_name)
 
     last_error: Exception | None = None
-    for attempt in range(4):
+    for attempt in range(_MAX_RETRY_ATTEMPTS + 1):
         try:
             response = client.models.generate_content(
                 model=model_name,

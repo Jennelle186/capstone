@@ -20,12 +20,14 @@ interface StepExtractProps {
   onExtractionChange?: (complete: boolean) => void;
   getToken: () => Promise<string | null>;
   isSchoolYearClosed?: boolean;
+  allVerified?: boolean;
 }
 
 export default function StepExtract({
   onExtractionChange,
   getToken,
   isSchoolYearClosed = false,
+  allVerified = false,
 }: StepExtractProps) {
   const [items, setItems] = useState<ExtractionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -333,13 +335,26 @@ export default function StepExtract({
       {/* Empty state */}
       {!loading && items.length === 0 && !hasActiveJob && (
         <div className="flex flex-col items-center gap-3 py-16 text-slate-400">
-          <Database className="h-12 w-12" />
-          <p className="text-sm font-medium">No extracted data available.</p>
-          <p className="text-xs text-slate-500">
-            {isSchoolYearClosed
-              ? "The school year is closed. Extraction is no longer available."
-              : "Classify your documents first, then click \"Extract All\" to begin extraction."}
-          </p>
+          {allVerified ? (
+            <>
+              <Database className="h-12 w-12 text-emerald-300" />
+              <p className="text-sm font-medium text-emerald-600">All documents verified.</p>
+              <p className="text-xs text-slate-500">
+                Your adviser has verified all required documents. No extraction
+                is needed.
+              </p>
+            </>
+          ) : (
+            <>
+              <Database className="h-12 w-12" />
+              <p className="text-sm font-medium">No extracted data available.</p>
+              <p className="text-xs text-slate-500">
+                {isSchoolYearClosed
+                  ? "The school year is closed. Extraction is no longer available."
+                  : "Classify your documents first, then click \"Extract All\" to begin extraction."}
+              </p>
+            </>
+          )}
         </div>
       )}
 

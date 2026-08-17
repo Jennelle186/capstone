@@ -474,15 +474,67 @@ def test_confirm_classification_sets_type(client, mock_user, mock_student):
         with patch(
             "app.routers.documents.classification.attributes.flag_modified",
         ):
-            response = client.post(
-                f"/api/me/documents/{submission_id}/confirm",
-                json={"document_type_id": str(doc_type_id)},
-            )
+            with patch(
+                "app.routers.documents.classification.has_verified_submission",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
+                response = client.post(
+                    f"/api/me/documents/{submission_id}/confirm",
+                    json={"document_type_id": str(doc_type_id)},
+                )
 
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "classified"
     assert data["document_type_name"] == "Admission Form"
+
+
+def test_confirm_classification_duplicate_verified_returns_409(client, mock_user, mock_student):
+    submission_id = uuid4()
+    doc_type_id = uuid4()
+    doc_type = SimpleNamespace(id=doc_type_id, name="Admission Form")
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.CLASSIFIED,
+        original_filename="file.pdf",
+        file_key="staging/student/file.pdf",
+        file_size="1024",
+        mime_type="application/pdf",
+        is_compiled=False,
+        document_type_id=doc_type_id,
+        document_type=doc_type,
+        classification_result={"type": "ADMISSION_FORM", "confidence": 0.95},
+        created_at=None,
+    )
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        session.get = AsyncMock(side_effect=[submission, doc_type])
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch(
+        "app.routers.documents.classification.ensure_user_row",
+        new_callable=AsyncMock,
+        return_value=mock_user,
+    ):
+        with patch(
+            "app.routers.documents.classification.has_verified_submission",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
+            response = client.post(
+                f"/api/me/documents/{submission_id}/confirm",
+                json={},
+            )
+
+    assert response.status_code == 409
+    assert "already been verified" in response.json()["detail"]
 
 
 def test_confirm_classification_invalid_status(client, mock_user, mock_student):

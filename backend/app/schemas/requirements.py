@@ -61,6 +61,10 @@ class SlotStatusResponse(BaseModel):
     matched_count: int
     matched_document_type_names: list[str] = Field(default_factory=list)
     verified_count: int = 0
+    # True when at least one matched submission is already VERIFIED, meaning
+    # any extra uploads are auto-cleanup candidates rather than an actionable
+    # "choose which to keep" conflict. Lets clients render a different message.
+    has_verified_conflict: bool = False
 
 
 class RequiredSlotsResponse(BaseModel):

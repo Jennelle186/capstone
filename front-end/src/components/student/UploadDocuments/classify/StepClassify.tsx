@@ -15,7 +15,7 @@ import SubmissionChecklist from "@/components/student/UploadDocuments/classify/S
 import JobProgress from "@/components/student/UploadDocuments/JobProgress";
 import type { ClassificationItem, ClassificationStatus } from "@/types/classification";
 import type { RequiredDocument } from "@/types/student";
-import type { SlotStatusResponse } from "@/types/requirement";
+import { allSlotsVerified, type SlotStatusResponse } from "@/types/requirement";
 import type { SubmissionDetail } from "@/types/submission";
 
 type FilterTab = "all" | "needs-review" | "ready";
@@ -412,11 +412,24 @@ export default function StepClassify({
     );
   }, [requiredSlots]);
 
+  const verifiedConflictIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const slot of requiredSlots) {
+      if (slot.has_verified_conflict) {
+        for (const id of slot.matched_submission_ids) {
+          ids.add(id);
+        }
+      }
+    }
+    return ids;
+  }, [requiredSlots]);
+
   const hasPending = visibleItems.some((i) => i.status === "pending" || i.status === "needs-review");
   const allClassified = visibleItems.length > 0 && visibleItems.every(
     (i) => i.status === "classified" || i.status === "overridden" || i.status === "submitted",
   );
   const hasItems = visibleItems.length > 0;
+  const allVerified = allSlotsVerified(requiredSlots);
 
   const previewableItems = React.useMemo(
     () => visibleItems.filter((i) => i.status !== "pending" && i.status !== "processing"),
@@ -569,6 +582,37 @@ export default function StepClassify({
             .map((id) => items.find((i) => i.id === id))
             .filter(Boolean);
           if (matched.length < 2) return null;
+
+          // A VERIFIED submission is definitive — the extras are auto-cleaned at
+          // submit time, so show an informational amber banner instead of the
+          // "choose which to keep" rose conflict UI.
+          if (slot.has_verified_conflict) {
+            const verifiedItem = matched.find((m) => m?.status === "verified");
+            const typeName =
+              verifiedItem?.documentTypeName ??
+              slot.group_name ??
+              slot.description ??
+              "This document";
+            const extraCount = matched.filter((m) => m?.status !== "verified").length;
+            return (
+              <div
+                key={slot.id}
+                className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900"
+              >
+                <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-600 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">{typeName} already verified</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    {typeName} has already been verified by your adviser.{" "}
+                    {extraCount === 1
+                      ? "The extra upload will be automatically removed when you submit."
+                      : `The ${extraCount} extra uploads will be automatically removed when you submit.`}
+                  </p>
+                </div>
+              </div>
+            );
+          }
+
           const selectedId = selectedKeepIds[slot.id] ?? null;
           return (
             <div
@@ -663,12 +707,25 @@ export default function StepClassify({
 
         {/* Empty State */}
         {!hasItems && (
-          <div className="flex flex-col items-center gap-3 py-16">
-            <FileSearch className="h-12 w-12 text-slate-300" />
-            <p className="text-sm font-medium text-slate-400">
-              No documents uploaded yet. Go back to Step 1 to upload documents.
-            </p>
-          </div>
+          allVerified ? (
+            <div className="flex flex-col items-center gap-3 py-16">
+              <CheckCircle className="h-12 w-12 text-emerald-400" />
+              <p className="text-sm font-medium text-emerald-600">
+                All documents verified.
+              </p>
+              <p className="text-xs text-slate-400">
+                Your adviser has verified all required documents. Nothing to
+                classify here.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-16">
+              <FileSearch className="h-12 w-12 text-slate-300" />
+              <p className="text-sm font-medium text-slate-400">
+                No documents uploaded yet. Go back to Step 1 to upload documents.
+              </p>
+            </div>
+          )
         )}
 
         {/* Processing Items — loading spinners above everything else */}
@@ -794,6 +851,7 @@ export default function StepClassify({
                     onDelete={handleDelete}
                     isClassifying={item.status === "processing"}
                     getToken={getToken}
+                    hasVerifiedConflict={verifiedConflictIds.has(item.id)}
                   />
                 ))}
               </div>

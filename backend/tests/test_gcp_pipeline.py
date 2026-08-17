@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 from app.services.gcp_pipeline import (
     _build_classification_schema,
+    _extract_status_code,
     _normalize_text,
+    _retry_on_gemini_error,
+    _status_for_error,
+    _usage_from_response,
     _word_set,
     classify_with_keywords,
     get_document_text,
@@ -114,3 +118,85 @@ def test_build_classification_schema_includes_type_codes() -> None:
     assert "reasoning" in schema["properties"]
     assert "ADMISSION_FORM" in (schema["properties"]["type"].get("description") or "")
     assert "BIRTH_CERT" in (schema["properties"]["type"].get("description") or "")
+
+
+# ── Retry logic (transient vs permanent error differentiation) ───────────
+
+
+def _api_error(code: int) -> Exception:
+    """Build a fake genai APIError-like exception carrying a ``.code`` status."""
+    exc = SimpleNamespace(code=code)
+    return exc  # type: ignore[return-value]
+
+
+def test_extract_status_code_from_api_error() -> None:
+    """Status code is read from the SDK error's ``.code`` attribute."""
+    assert _extract_status_code(_api_error(504)) == 504
+    assert _extract_status_code(_api_error(429)) == 429
+
+
+def test_extract_status_code_falls_back_to_message_scan() -> None:
+    """Non-APIError exceptions with the status embedded in text are still detected."""
+    assert _extract_status_code(Exception("HTTP 504 Gateway Timeout")) == 504
+    assert _extract_status_code(Exception("The read operation timed out")) is None
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_retry_on_504(mock_sleep) -> None:
+    """504 server timeout is transient and should be retried."""
+    assert _retry_on_gemini_error(_api_error(504), "f.pdf", 0, "classification") is True
+    mock_sleep.assert_called_once()
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_retry_on_429(mock_sleep) -> None:
+    """429 rate-limit is transient and should be retried."""
+    assert _retry_on_gemini_error(_api_error(429), "f.pdf", 0, "classification") is True
+    mock_sleep.assert_called_once()
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_no_retry_on_client_error(mock_sleep) -> None:
+    """Permanent 4xx client errors (auth/validation) must not be retried."""
+    for code in (400, 401, 403, 404):
+        assert _retry_on_gemini_error(_api_error(code), "f.pdf", 0, "classification") is False
+    mock_sleep.assert_not_called()
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_no_retry_when_attempts_exhausted(mock_sleep) -> None:
+    """Even a transient error is not retried beyond the retry limit."""
+    assert _retry_on_gemini_error(_api_error(504), "f.pdf", 3, "classification") is False
+    mock_sleep.assert_not_called()
+
+
+def test_usage_from_response_extracts_token_counts() -> None:
+    """Token counts are read from the SDK response's usage_metadata."""
+    usage = SimpleNamespace(
+        prompt_token_count=100, candidates_token_count=20, total_token_count=120
+    )
+    response = SimpleNamespace(usage_metadata=usage)
+    result = _usage_from_response(response)
+    assert result == {
+        "prompt_tokens": 100,
+        "output_tokens": 20,
+        "total_tokens": 120,
+    }
+
+
+def test_usage_from_response_defaults_to_zero_when_absent() -> None:
+    """Missing usage_metadata yields zeroed token counts rather than crashing."""
+    assert _usage_from_response(SimpleNamespace()) == {
+        "prompt_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+    }
+
+
+def test_status_for_error_mapping() -> None:
+    """Failures map to stable observability status strings."""
+    assert _status_for_error(_api_error(504)) == "failed_504"
+    assert _status_for_error(_api_error(429)) == "failed_429"
+    assert _status_for_error(_api_error(500)) == "failed_other"
+    assert _status_for_error(_api_error(403)) == "failed_other"
+    assert _status_for_error(Exception("The read operation timed out")) == "timeout"

@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { SubmissionDetail } from "@/types/submission";
+import { allSlotsVerified, type SlotStatusResponse } from "@/types/requirement";
 
 const { mockGetToken, mockFetchWithClerk } = vi.hoisted(() => ({
   mockGetToken: vi.fn().mockResolvedValue("mock-token"),
@@ -139,6 +140,23 @@ vi.mock("@/lib/jobs", () => ({
 
 import * as jobLib from "@/lib/jobs";
 
+const makeSlot = (overrides: Partial<SlotStatusResponse> = {}): SlotStatusResponse => ({
+  id: "slot-1",
+  slot_type: "solo",
+  group_name: null,
+  description: null,
+  min_required: 1,
+  display_order: 0,
+  items: [],
+  is_complete: true,
+  matched_submission_ids: [],
+  duplicate_submission_ids: [],
+  matched_count: 1,
+  verified_count: 1,
+  has_verified_conflict: true,
+  ...overrides,
+});
+
 // ═══════════════════════════════════════════════════════════════
 //  Pure utility tests
 // ═══════════════════════════════════════════════════════════════
@@ -182,6 +200,33 @@ describe("isClassificationComplete", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+//  allSlotsVerified utility tests
+// ═══════════════════════════════════════════════════════════════
+
+describe("allSlotsVerified", () => {
+  it("returns false for empty slots", () => {
+    expect(allSlotsVerified([])).toBe(false);
+  });
+
+  it("returns true when every slot is fully verified", () => {
+    expect(allSlotsVerified([makeSlot()])).toBe(true);
+  });
+
+  it("returns false when a slot is only partially verified", () => {
+    expect(allSlotsVerified([makeSlot({ min_required: 2, verified_count: 1 })])).toBe(false);
+  });
+
+  it("returns false when any slot is not fully verified", () => {
+    expect(
+      allSlotsVerified([
+        makeSlot({ id: "slot-1", min_required: 1, verified_count: 1 }),
+        makeSlot({ id: "slot-2", min_required: 2, verified_count: 1 }),
+      ]),
+    ).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 //  StepUpload tests
 // ═══════════════════════════════════════════════════════════════
 
@@ -196,6 +241,12 @@ describe("StepUpload", () => {
   it("renders DropZone when not all verified", () => {
     render(<StepUpload getToken={mockGetToken} />);
     expect(screen.getByTestId("drop-zone")).toBeDefined();
+  });
+
+  it("hides DropZone when all documents are verified", () => {
+    render(<StepUpload requiredSlots={[makeSlot()]} getToken={mockGetToken} />);
+    expect(screen.queryByTestId("drop-zone")).toBeNull();
+    expect(screen.getByText("All documents verified")).toBeDefined();
   });
 
   it("renders the previously uploaded section", () => {
@@ -281,6 +332,19 @@ describe("StepClassify", () => {
       />,
     );
     expect(screen.getByText(/No documents uploaded yet/)).toBeDefined();
+  });
+
+  it("shows verified empty state when all slots are verified", () => {
+    render(
+      <StepClassify
+        requiredSlots={[makeSlot()]}
+        requiredDocuments={[]}
+        submissions={[]}
+        getToken={mockGetToken}
+      />,
+    );
+    expect(screen.getByText(/All documents verified/)).toBeDefined();
+    expect(screen.queryByText(/No documents uploaded yet/)).toBeNull();
   });
 
   it("shows Classify All button when items are pending", () => {
@@ -605,6 +669,21 @@ describe("StepExtract", () => {
     });
   });
 
+  it("shows verified empty state when all documents are verified", async () => {
+    mockFetchWithClerk.mockImplementation((url: string) => {
+      if (url.includes("/documents/extractions")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+
+    render(<StepExtract getToken={mockGetToken} allVerified />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/All documents verified/)).toBeDefined();
+    });
+  });
+
   it("shows Extract All button when items are loaded", async () => {
     render(<StepExtract getToken={mockGetToken} />);
 
@@ -809,5 +888,17 @@ describe("StepSubmit", () => {
       />,
     );
     expect(screen.queryByText(/verified/)).toBeNull();
+  });
+
+  it("shows all-verified completion screen when every slot is verified", () => {
+    render(
+      <StepSubmit
+        requiredSlots={[makeSlot()]}
+        submissions={[]}
+        getToken={mockGetToken}
+      />,
+    );
+    expect(screen.getByText("All Documents Verified")).toBeDefined();
+    expect(screen.getByText("Return to Dashboard")).toBeDefined();
   });
 });

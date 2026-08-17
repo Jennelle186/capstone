@@ -12,8 +12,7 @@ import ReviewDocumentDetailModal from "@/components/student/ReviewDocumentDetail
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { SubmissionCardStatus, SubmissionDetail } from "@/types/submission";
 import type { ExtractionItemResponse } from "@/types/extraction";
-import type { SlotStatusResponse } from "@/types/requirement";
-import { getSlotDisplayName } from "@/types/requirement";
+import { allSlotsVerified, getSlotDisplayName, type SlotStatusResponse } from "@/types/requirement";
 
 interface StepSubmitProps {
   requiredSlots: SlotStatusResponse[];
@@ -79,6 +78,8 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
   const verifiedSubmissions = submissions.filter(
     (s) => s.status === "verified" && s.document_type_id != null,
   );
+
+  const allVerified = allSlotsVerified(requiredSlots);
 
   const items = pendingSubmissions
     .map((s) => ({
@@ -182,6 +183,34 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
   const handleBackToConfirmation = () => {
     setReadOnly(false);
   };
+
+  // All-verified completion screen — shown when every required slot is already
+  // satisfied by a VERIFIED submission, so there is nothing left to submit.
+  if (allVerified && !submitted && !readOnly) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <FolderCheck className="h-8 w-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900">
+          All Documents Verified
+        </h2>
+        <p className="max-w-md text-sm leading-relaxed text-slate-500">
+          Your adviser has verified all required documents. There is nothing
+          left to submit.
+        </p>
+        <div className="mt-2 flex w-full max-w-xs flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => navigate("/student/dashboard")}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-white shadow-sm transition-all hover:opacity-90 active:scale-[0.98]"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Celebration screen — shown immediately after successful submit
   if (submitted && !readOnly) {

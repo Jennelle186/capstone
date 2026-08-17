@@ -1,11 +1,21 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Lock } from "lucide-react";
+import { AlertTriangle, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { fetchWithClerkAuth } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { RequiredDocument } from "@/types/student";
-import type { SlotStatusResponse } from "@/types/requirement";
+import { allSlotsVerified, type SlotStatusResponse } from "@/types/requirement";
 import type { ConfirmUploadResponse, InitiateUploadResponse, SubmissionDetail } from "@/types/submission";
 import DocumentPreviewDialog, { type PreviewItem } from "./DocumentPreviewDialog";
 import DropZone from "./DropZone";
@@ -51,6 +61,11 @@ export default function StepUpload({
   const [uploadedIds, setUploadedIds] = useState<Set<string>>(new Set());
   // Map of file ID to the last error message for failed uploads
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Controls the blocking dialog shown when an upload targets an already-verified type
+  const [verifiedConflict, setVerifiedConflict] = useState<{ open: boolean; message: string }>({
+    open: false,
+    message: "",
+  });
 
   // Adds incoming files to the local selection, filtering out any that exceed the size limit
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -95,7 +110,13 @@ export default function StepUpload({
         const errBody = await res.json().catch(() => null);
         const detail = errBody?.detail ?? `Initiate failed: ${res.status} ${res.statusText}`;
         if (res.status === 409) {
-          throw new Error(`CONFLICT:${detail}`);
+          const err = new Error(`CONFLICT:${detail}`) as Error & {
+            errorCode?: string;
+            documentTypeId?: string;
+          };
+          err.errorCode = errBody?.error_code;
+          err.documentTypeId = errBody?.document_type_id;
+          throw err;
         }
         if (res.status === 400) {
           throw new Error(`BLOCKED:${detail}`);
@@ -153,6 +174,14 @@ export default function StepUpload({
         presigned = await initiateUpload(item, token);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "";
+        const errorCode = (err as { errorCode?: string } | null)?.errorCode;
+        if (errorCode === "duplicate_verified_document") {
+          const message = msg.startsWith("CONFLICT:")
+            ? msg.slice("CONFLICT:".length)
+            : msg;
+          setVerifiedConflict({ open: true, message });
+          return;
+        }
         if (msg.startsWith("CONFLICT:")) {
           toast.error(msg.slice("CONFLICT:".length));
           return;
@@ -310,6 +339,11 @@ export default function StepUpload({
     return requiredDocuments.filter((doc) => verifiedDocIds.has(doc.id));
   }, [existingSubmissions, requiredDocuments]);
 
+  // When every required slot is already satisfied by a VERIFIED submission,
+  // there is nothing left to upload — hide the upload controls entirely.
+  const allVerified = !replaceSubmissionId && allSlotsVerified(requiredSlots);
+  const canUpload = !isSchoolYearClosed && !allVerified;
+
   return (
     <div className="grid grid-cols-12 gap-4">
       {isSchoolYearClosed && (
@@ -319,11 +353,23 @@ export default function StepUpload({
       )}
       {/* Left column: upload controls and file lists */}
       <div className="col-span-12 lg:col-span-8 space-y-4">
-        {verifiedTypes.length > 0 && (
+        {allVerified && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
             <p className="flex items-center gap-2 font-semibold text-emerald-800">
               <Lock className="h-4 w-4 shrink-0" />
-              Already verified — no re-uploads needed
+              All documents verified
+            </p>
+            <p className="mt-1 text-xs text-emerald-700">
+              All required documents have been verified by your adviser. No
+              further uploads are needed.
+            </p>
+          </div>
+        )}
+        {!allVerified && verifiedTypes.length > 0 && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
+            <p className="flex items-center gap-2 font-semibold text-emerald-800">
+              <Lock className="h-4 w-4 shrink-0" />
+              Already verified. No re-uploads needed
             </p>
             <p className="mt-1 text-xs text-emerald-700">
               {verifiedTypes.map((d) => d.name).join(", ")}
@@ -345,22 +391,22 @@ export default function StepUpload({
           getToken={getToken}
           isReadOnly={isSchoolYearClosed}
         />
-        {!isSchoolYearClosed && (
+        {canUpload && (
           <DropZone onFilesAdded={addFiles} />
         )}
-        {!isSchoolYearClosed && (
+        {canUpload && (
           <NewFileList
-          files={files}
-          uploadingIds={uploadingIds}
-          uploadedIds={uploadedIds}
-          errors={errors}
-          previewItems={previewItems}
-          onUpload={handleUpload}
-          onUploadAll={handleUploadAll}
-          onPreview={setPreviewIndex}
-          onRemove={removeFile}
-          onClearAll={clearAllFiles}
-        />
+            files={files}
+            uploadingIds={uploadingIds}
+            uploadedIds={uploadedIds}
+            errors={errors}
+            previewItems={previewItems}
+            onUpload={handleUpload}
+            onUploadAll={handleUploadAll}
+            onPreview={setPreviewIndex}
+            onRemove={removeFile}
+            onClearAll={clearAllFiles}
+          />
         )}
       </div>
       {/* Right sidebar: required documents and tips */}
@@ -374,6 +420,27 @@ export default function StepUpload({
         onIndexChange={setPreviewIndex}
         getToken={getToken}
       />
+      <AlertDialog
+        open={verifiedConflict.open}
+        onOpenChange={(open) => !open && setVerifiedConflict((prev) => ({ ...prev, open: false }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-amber-100">
+              <AlertTriangle className="h-5 w-5 text-amber-700" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>Document already verified</AlertDialogTitle>
+            <AlertDialogDescription>{verifiedConflict.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => setVerifiedConflict((prev) => ({ ...prev, open: false }))}
+            >
+              Got it
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

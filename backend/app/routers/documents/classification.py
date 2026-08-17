@@ -12,6 +12,7 @@ from ...models import DocumentSubmission, DocumentType, SchoolYearRequirement, S
 from ...services.gcp_storage import delete_file as gcs_delete_file
 from ...services.job_queue import create_job, duplicate_check
 from ...services.processor import process_submission
+from ...services.requirements import has_verified_submission
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims, SubmissionDetailResponse
 from .uploads import _require_student_onboarded, _ensure_school_year_not_closed
@@ -202,6 +203,21 @@ async def confirm_classification(
         if dt_exists is None:
             raise HTTPException(status_code=404, detail="Document type not found.")
         submission.document_type_id = dt_uuid
+
+    # A VERIFIED document of this type is final — block confirming a duplicate
+    # (e.g. a previous-school-year upload of an already-verified type). This is
+    # the last line of defense before the submission becomes CLASSIFIED and
+    # flows into extraction.
+    if submission.document_type_id is not None:
+        if await has_verified_submission(
+            db, student.id, submission.document_type_id, exclude_submission_id=submission.id
+        ):
+            dt = await db.get(DocumentType, submission.document_type_id)
+            type_name = dt.name if dt else "this document"
+            raise HTTPException(
+                status_code=409,
+                detail=f"'{type_name}' has already been verified by your adviser. This upload cannot be confirmed.",
+            )
 
     if submission.classification_result and isinstance(submission.classification_result, dict):
         submission.classification_result.pop("flag", None)

@@ -20,6 +20,7 @@ from ...models import (
     SubmissionStatus,
 )
 from ...services.job_queue import create_job, duplicate_check
+from ...services.requirements import latest_submission_per_type
 from ...services.user_sync import ensure_user_row
 from ...utils.computation import apply_computed_fields
 from .schemas import StudentClaims, SubmissionDetailResponse
@@ -274,11 +275,7 @@ async def list_extractions(
     submissions = list(submissions_result.scalars().all())
 
     # Keep only the latest submission per document type
-    latest_by_type: dict[UUID, DocumentSubmission] = {}
-    for sub in submissions:
-        if sub.document_type_id not in latest_by_type:
-            latest_by_type[sub.document_type_id] = sub
-    submissions = list(latest_by_type.values())
+    submissions = latest_submission_per_type(submissions)
 
     verified_type_ids = set(
         (await db.execute(

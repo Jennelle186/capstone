@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -14,14 +15,18 @@ from app.api import app
 from app.auth import get_current_user
 from app.database import get_db_session
 from app.models import (
+    ExtractionSchemaStatus,
     JobResult,
     JobStatus,
     JobSubmissionItemStatus,
     SubmissionStatus,
 )
 from app.services.job_queue import (
+    _bounded_worker,
     _complete_item,
     _finish_job,
+    _mark_job_failed,
+    _resolve_extraction_schemas,
     claim_job,
     classify_worker,
     create_job,
@@ -176,6 +181,52 @@ async def test_recover_stuck_jobs_resets_running_to_queued():
     assert stuck.status == JobStatus.QUEUED
     assert stuck.started_at is None
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resolve_extraction_schemas_filters_archived_and_empty():
+    """Only active schemas with a non-empty fields_json are returned, keyed by
+    document type id. Archived schemas, empty schemas, and rows with no document
+    type are excluded."""
+    dt_active = uuid4()
+    dt_archived = uuid4()
+    dt_empty = uuid4()
+    schema_active = uuid4()
+    schema_archived = uuid4()
+    schema_empty = uuid4()
+
+    session = AsyncMock()
+    req_rows = [
+        SimpleNamespace(document_type_id=dt_active, extraction_schema_id=schema_active),
+        SimpleNamespace(document_type_id=dt_archived, extraction_schema_id=schema_archived),
+        SimpleNamespace(document_type_id=dt_empty, extraction_schema_id=schema_empty),
+        SimpleNamespace(document_type_id=None, extraction_schema_id=schema_active),
+    ]
+    session.execute = AsyncMock(return_value=_mock_scalars_all(req_rows))
+
+    async def _fake_get(_model, key):
+        if key == schema_active:
+            return SimpleNamespace(status=ExtractionSchemaStatus.ACTIVE, fields_json={"f": "v"})
+        if key == schema_archived:
+            return SimpleNamespace(status=ExtractionSchemaStatus.ARCHIVED, fields_json={"f": "v"})
+        if key == schema_empty:
+            return SimpleNamespace(status=ExtractionSchemaStatus.ACTIVE, fields_json=None)
+        return None
+
+    session.get = AsyncMock(side_effect=_fake_get)
+
+    result = await _resolve_extraction_schemas(session, uuid4())
+
+    assert result == {dt_active: {"f": "v"}}
+
+
+@pytest.mark.asyncio
+async def test_resolve_extraction_schemas_returns_empty_without_school_year():
+    """A missing school year short-circuits to an empty schema map."""
+    session = AsyncMock()
+    result = await _resolve_extraction_schemas(session, None)
+    assert result == {}
+    session.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -443,6 +494,68 @@ async def test_extract_worker_skips_missing_submission():
     assert s2.execute.await_count >= 0
 
 
+@pytest.mark.asyncio
+async def test_extract_worker_processes_multiple_submissions():
+    """Multiple pending submissions are each extracted (concurrently)."""
+    job_id = uuid4()
+    sub1 = uuid4()
+    sub2 = uuid4()
+    doc_type_id = uuid4()
+    student_id = uuid4()
+
+    s1 = AsyncMock()
+    schema = SimpleNamespace(
+        status="active",
+        fields_json=[{"id": "f1", "key": "name", "type": "string"}],
+    )
+    s1.get = AsyncMock(side_effect=[
+        SimpleNamespace(**_job_kwargs(id=job_id, student_id=student_id, total=2)),
+        SimpleNamespace(id=student_id, school_year_id=uuid4()),
+        schema,
+    ])
+    pending_result = MagicMock()
+    pending_result.all = MagicMock(return_value=[(sub1,), (sub2,)])
+    subs_result = MagicMock()
+    subs_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[
+        SimpleNamespace(id=sub1, document_type_id=doc_type_id),
+        SimpleNamespace(id=sub2, document_type_id=doc_type_id),
+    ])))
+    req_result = MagicMock()
+    req_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[
+        SimpleNamespace(document_type_id=doc_type_id, extraction_schema_id=uuid4()),
+    ])))
+    s1.execute = AsyncMock(side_effect=[pending_result, subs_result, req_result])
+
+    def _proc_session():
+        s = AsyncMock()
+        done_result = MagicMock()
+        done_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[SimpleNamespace()])))
+        s.execute = AsyncMock(return_value=done_result)
+        return s
+
+    s2 = _proc_session()
+    s3 = _proc_session()
+
+    s4 = AsyncMock()
+    s4.get = AsyncMock(return_value=SimpleNamespace(**_job_kwargs(id=job_id, status=JobStatus.RUNNING, result=None)))
+    items_result = MagicMock()
+    items_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[
+        SimpleNamespace(**_job_sub_kwargs(status=JobSubmissionItemStatus.COMPLETED)),
+        SimpleNamespace(**_job_sub_kwargs(status=JobSubmissionItemStatus.COMPLETED)),
+    ])))
+    s4.execute = AsyncMock(return_value=items_result)
+
+    factory = _make_async_session_factory([s1, s2, s3, s4])
+
+    with patch("app.services.job_queue.AsyncSessionLocal", factory):
+        with patch("app.services.job_queue.extract_single", new_callable=AsyncMock) as mock_extract:
+            await extract_worker(job_id)
+
+    assert mock_extract.await_count == 2
+    called_sub_ids = {call.args[1] for call in mock_extract.call_args_list}
+    assert called_sub_ids == {sub1, sub2}
+
+
 def test_worker_registry_has_classify_and_extract():
     from app.services.job_queue import OPERATION_WORKERS, CONCURRENCY_SEMAPHORES
 
@@ -617,6 +730,207 @@ def test_start_job_invalid_operation(client, mock_user, mock_student):
     assert "Invalid operation" in response.json()["detail"]
 
 
+def test_start_job_extract_without_schemas_returns_400(client, mock_user, mock_student):
+    """Auto-collect for extract with no configured schemas yields 400 instead of
+    creating a job whose progress bar would count zero real extractions."""
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_result(mock_student))
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+        session.refresh = AsyncMock()
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.jobs.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch(
+            "app.routers.jobs._resolve_extraction_schemas",
+            new_callable=AsyncMock,
+            return_value={},
+        ):
+            response = client.post(
+                "/api/me/jobs",
+                json={"operation": "extract", "submission_ids": []},
+            )
+
+    assert response.status_code == 400
+    assert "No eligible submissions" in response.json()["detail"]
+
+
+def test_start_job_extract_auto_collect_uses_schema_filter(client, mock_user, mock_student):
+    """Extract auto-collection resolves schemas and passes the filtered submission
+    ids to create_job (so job.total reflects only schema-bearing documents)."""
+    sub_id = uuid4()
+    dt_id = uuid4()
+    mock_job = SimpleNamespace(**_job_kwargs(operation="extract"))
+    mock_job.submissions = [SimpleNamespace(
+        submission_id=sub_id,
+        status=JobSubmissionItemStatus.PENDING,
+        error_message=None,
+    )]
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        # First execute: student query; second: auto-collect submission query.
+        sub_result = MagicMock()
+        sub_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[
+            SimpleNamespace(
+                id=sub_id,
+                student_id=mock_student.id,
+                status=SubmissionStatus.CLASSIFIED,
+                document_type_id=dt_id,
+            ),
+        ])))
+        session.execute = AsyncMock(side_effect=[
+            _student_result(mock_student),
+            sub_result,
+        ])
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+        session.refresh = AsyncMock()
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.jobs.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch(
+            "app.routers.jobs._resolve_extraction_schemas",
+            new_callable=AsyncMock,
+            return_value={dt_id: [{"key": "k"}]},
+        ) as mock_resolve:
+            with patch("app.routers.jobs.duplicate_check", new_callable=AsyncMock, return_value=None):
+                with patch("app.routers.jobs.create_job", new_callable=AsyncMock, return_value=mock_job) as mock_create:
+                    response = client.post(
+                        "/api/me/jobs",
+                        json={"operation": "extract", "submission_ids": []},
+                    )
+
+    assert response.status_code == 201
+    # Schema resolution must be consulted for the auto-collect path.
+    mock_resolve.assert_awaited_once()
+    # create_job is called with the collected submission ids.
+    assert mock_create.await_args.kwargs["submission_ids"] == [sub_id]
+
+
+def test_start_job_extract_auto_collect_dedupes_by_type(client, mock_user, mock_student):
+    """Extract auto-collect keeps only the newest submission per document type."""
+    shared_dt = uuid4()
+    other_dt = uuid4()
+    older_id = uuid4()
+    newer_id = uuid4()
+    distinct_id = uuid4()
+
+    mock_job = SimpleNamespace(**_job_kwargs(operation="extract"))
+    mock_job.submissions = []
+
+    def _sub(sid, dt_id, ts):
+        return SimpleNamespace(
+            id=sid,
+            student_id=mock_student.id,
+            status=SubmissionStatus.CLASSIFIED,
+            document_type_id=dt_id,
+            created_at=ts,
+        )
+
+    subs = [
+        _sub(older_id, shared_dt, datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc)),
+        _sub(distinct_id, other_dt, datetime(2026, 8, 16, 11, 0, tzinfo=timezone.utc)),
+        _sub(newer_id, shared_dt, datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc)),
+    ]
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        sub_result = MagicMock()
+        sub_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=subs)))
+        session.execute = AsyncMock(side_effect=[
+            _student_result(mock_student),
+            sub_result,
+        ])
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+        session.refresh = AsyncMock()
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.jobs.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch(
+            "app.routers.jobs._resolve_extraction_schemas",
+            new_callable=AsyncMock,
+            return_value={shared_dt: [{"key": "k"}], other_dt: [{"key": "k"}]},
+        ):
+            with patch("app.routers.jobs.duplicate_check", new_callable=AsyncMock, return_value=None):
+                with patch("app.routers.jobs.create_job", new_callable=AsyncMock, return_value=mock_job) as mock_create:
+                    response = client.post(
+                        "/api/me/jobs",
+                        json={"operation": "extract", "submission_ids": []},
+                    )
+
+    assert response.status_code == 201
+    collected = set(mock_create.await_args.kwargs["submission_ids"])
+    assert collected == {newer_id, distinct_id}
+    assert older_id not in collected
+
+
+def test_start_job_extract_auto_collect_no_false_dedup(client, mock_user, mock_student):
+    """Distinct document types are all kept (no false-positive dedup)."""
+    dt_a = uuid4()
+    dt_b = uuid4()
+    dt_c = uuid4()
+    ids = [uuid4(), uuid4(), uuid4()]
+
+    mock_job = SimpleNamespace(**_job_kwargs(operation="extract"))
+    mock_job.submissions = []
+
+    subs = [
+        SimpleNamespace(
+            id=ids[i],
+            student_id=mock_student.id,
+            status=SubmissionStatus.CLASSIFIED,
+            document_type_id=dt,
+            created_at=datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+        )
+        for i, dt in enumerate([dt_a, dt_b, dt_c])
+    ]
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        sub_result = MagicMock()
+        sub_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=subs)))
+        session.execute = AsyncMock(side_effect=[
+            _student_result(mock_student),
+            sub_result,
+        ])
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+        session.refresh = AsyncMock()
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.jobs.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch(
+            "app.routers.jobs._resolve_extraction_schemas",
+            new_callable=AsyncMock,
+            return_value={dt_a: [], dt_b: [], dt_c: []},
+        ):
+            with patch("app.routers.jobs.duplicate_check", new_callable=AsyncMock, return_value=None):
+                with patch("app.routers.jobs.create_job", new_callable=AsyncMock, return_value=mock_job) as mock_create:
+                    response = client.post(
+                        "/api/me/jobs",
+                        json={"operation": "extract", "submission_ids": []},
+                    )
+
+    assert response.status_code == 201
+    collected = set(mock_create.await_args.kwargs["submission_ids"])
+    assert collected == set(ids)
+
+
 def test_list_jobs_returns_all(client, mock_user, mock_student):
     mock_job = SimpleNamespace(**_job_kwargs())
     mock_job.submissions = [SimpleNamespace(
@@ -782,7 +1096,8 @@ async def test_dispatcher_does_not_expire_job_attributes_after_commit():
 
     Verifies that session.expire_on_commit is set to False before claim_job runs,
     and that the worker is dispatched with the correct job_id (proving job.id
-    is accessible after commit).
+    is accessible after commit). The worker is now scheduled as a background
+    task, so we wait for it to complete before asserting.
     """
     dispatcher_job_id = uuid4()
     job = SimpleNamespace(id=dispatcher_job_id, operation="classify")
@@ -802,7 +1117,13 @@ async def test_dispatcher_does_not_expire_job_attributes_after_commit():
 
     mock_factory = MagicMock(return_value=session_cm)
 
-    mock_worker = AsyncMock()
+    seen_job_ids: list = []
+    worker_done = asyncio.Event()
+
+    async def mock_worker(job_id):
+        seen_job_ids.append(job_id)
+        worker_done.set()
+
     # Only claim a job on the first call; return None after to trigger sleep
     call_count = [0]
 
@@ -835,5 +1156,88 @@ async def test_dispatcher_does_not_expire_job_attributes_after_commit():
         mock_session.expire_on_commit is False
     ), "session.expire_on_commit must be False to prevent DetachedInstanceError"
 
+    # The worker runs as a background task now — wait for it to finish.
+    await asyncio.wait_for(worker_done.wait(), timeout=1.0)
+
     # Worker was dispatched with the correct job_id (proves job.id survived commit)
-    mock_worker.assert_awaited_once_with(dispatcher_job_id)
+    assert seen_job_ids == [dispatcher_job_id]
+
+
+@pytest.mark.asyncio
+async def test_bounded_worker_respects_semaphore():
+    """No more than the semaphore's capacity of workers run simultaneously.
+
+    This fails against the buggy ``async with semaphore: create_task(...)``
+    pattern — which releases the slot immediately after scheduling and allows
+    unbounded concurrency — and passes against the corrected version that
+    acquires the semaphore inside the task for the worker's full duration.
+    """
+    semaphore = asyncio.Semaphore(2)
+    active = 0
+    max_active = 0
+
+    async def mock_worker(job_id):
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)  # simulate work while holding the slot
+        active -= 1
+
+    tasks = [
+        asyncio.create_task(_bounded_worker(uuid4(), mock_worker, semaphore, "classify"))
+        for _ in range(6)
+    ]
+    await asyncio.gather(*tasks)
+
+    assert max_active <= 2, "Semaphore capacity must bound true concurrency"
+    assert active == 0
+
+
+@pytest.mark.asyncio
+async def test_bounded_worker_marks_job_failed_on_crash():
+    """A worker that raises must not crash the dispatcher and must not leave the
+    job silently stuck — the job should be marked FINISHED/FAILED."""
+    job_id = uuid4()
+    semaphore = asyncio.Semaphore(1)
+
+    async def crashing_worker(_job_id):
+        raise RuntimeError("boom")
+
+    with patch(
+        "app.services.job_queue._mark_job_failed", new_callable=AsyncMock
+    ) as mock_mark_failed:
+        await _bounded_worker(job_id, crashing_worker, semaphore, "classify")
+
+    mock_mark_failed.assert_awaited_once_with(job_id, "Worker crashed unexpectedly.")
+
+
+@pytest.mark.asyncio
+async def test_mark_job_failed_sets_failed_status():
+    """_mark_job_failed persists FINISHED/FAILED so a crashed worker never leaves
+    the job stuck in RUNNING."""
+    job_id = uuid4()
+    mock_job = SimpleNamespace(
+        id=job_id,
+        status=None,
+        result=None,
+        error_message=None,
+        completed_at=None,
+        last_updated_at=None,
+    )
+    mock_session = AsyncMock()
+    mock_session.get = AsyncMock(return_value=mock_job)
+
+    session_cm = AsyncMock()
+    session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+    session_cm.__aexit__ = AsyncMock(return_value=None)
+    mock_factory = MagicMock(return_value=session_cm)
+
+    with patch("app.services.job_queue.AsyncSessionLocal", mock_factory):
+        await _mark_job_failed(job_id, "boom")
+
+    assert mock_job.status == JobStatus.FINISHED
+    assert mock_job.result == JobResult.FAILED
+    assert mock_job.error_message == "boom"
+    assert mock_job.completed_at is not None
+    assert mock_job.last_updated_at is not None
+    mock_session.commit.assert_awaited_once()

@@ -7,6 +7,7 @@ from uuid import UUID
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select, text
 from sqlalchemy.orm import aliased, selectinload
@@ -21,7 +22,7 @@ from ...services.gcp_storage import (
     make_staging_key,
 )
 from ...services.helpers import exclude_replaced_submissions
-from ...services.requirements import get_student_slot_statuses
+from ...services.requirements import get_student_slot_statuses, has_verified_submission, latest_submission_per_type
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims, SubmissionDetailResponse
 
@@ -162,6 +163,26 @@ async def initiate_upload(
                 detail="You cannot submit the same document; please wait for confirmation by your adviser.",
             )
 
+        # A VERIFIED document of this type is final — no further uploads allowed.
+        # Runs inside the same advisory lock as the SUBMITTED/IN_REVIEW check so a
+        # near-simultaneous upload cannot slip past the status read.
+        try:
+            doc_type_uuid = UUID(body.document_type_id)
+        except ValueError:
+            doc_type_uuid = None
+        if doc_type_uuid is not None:
+            if await has_verified_submission(db, student.id, doc_type_uuid):
+                dt = await db.get(DocumentType, doc_type_uuid)
+                type_name = dt.name if dt else "that document"
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "detail": f"CONFLICT: '{type_name}' has already been verified by your adviser. You cannot upload it again.",
+                        "error_code": "duplicate_verified_document",
+                        "document_type_id": str(doc_type_uuid),
+                    },
+                )
+
     key = make_staging_key(str(student.id), body.name)
     presigned = gcs_generate_presigned_post(key, body.type)
 
@@ -195,15 +216,9 @@ async def initiate_upload(
             old_sub = old_sub_result.scalar_one_or_none()
             if old_sub is not None and old_sub.student_id == student.id:
                 if old_sub.document_type_id is not None:
-                    verified = await db.execute(
-                        select(DocumentSubmission.id).where(
-                            DocumentSubmission.student_id == student.id,
-                            DocumentSubmission.document_type_id == old_sub.document_type_id,
-                            DocumentSubmission.status == SubmissionStatus.VERIFIED,
-                            DocumentSubmission.id != old_sub.id,
-                        )
-                    )
-                    if verified.scalar_one_or_none() is not None:
+                    if await has_verified_submission(
+                        db, student.id, old_sub.document_type_id, exclude_submission_id=old_sub.id
+                    ):
                         doc_type = old_sub.document_type
                         type_name = doc_type.name if doc_type else "that type"
                         raise HTTPException(
@@ -417,30 +432,29 @@ async def submit_batch(
     # Catches uploads from the general upload page where parent_submission_id
     # was not set, causing both the old FLAGGED and new CLASSIFIED copies to
     # pass the query filter.
-    latest_by_type: dict[UUID, DocumentSubmission] = {}
     dups_to_remove: list[DocumentSubmission] = []
     gcs_keys_to_cleanup: list[str] = []
 
+    kept = latest_submission_per_type(submissions)
+    latest_map = {s.document_type_id: s for s in kept if s.document_type_id is not None}
+    kept_ids = {s.id for s in kept}
+
     for sub in submissions:
-        if sub.document_type_id is None:
-            latest_by_type[sub.id] = sub
+        if sub.id in kept_ids or sub.document_type_id is None:
             continue
 
-        existing = latest_by_type.get(sub.document_type_id)
-        if existing is None:
-            latest_by_type[sub.document_type_id] = sub
+        new_sub = latest_map.get(sub.document_type_id)
+        if new_sub is None:
             continue
 
-        old_sub, new_sub = (existing, sub) if existing.created_at < sub.created_at else (sub, existing)
-
-        if old_sub.status == SubmissionStatus.FLAGGED:
+        if sub.status == SubmissionStatus.FLAGGED:
             # Preserve the flagged record — link lineage instead of deleting.
             # exclude_replaced_submissions will hide it from adviser views.
-            new_sub.parent_submission_id = old_sub.id
-            flag_reason = old_sub.rejection_reason
-            flag_actor = old_sub.flagged_by if old_sub.flagged_by else student.user_id
+            new_sub.parent_submission_id = sub.id
+            flag_reason = sub.rejection_reason
+            flag_actor = sub.flagged_by if sub.flagged_by else student.user_id
             db.add(DocumentSubmissionHistory(
-                submission_id=old_sub.id,
+                submission_id=sub.id,
                 actor_user_id=flag_actor,
                 action="REUPLOADED",
                 previous_status=SubmissionStatus.FLAGGED.value,
@@ -454,21 +468,19 @@ async def submit_batch(
                 action="REPLACEMENT_OF",
                 previous_status=SubmissionStatus.CLASSIFIED.value,
                 new_status=SubmissionStatus.SUBMITTED.value,
-                reference_submission_id=old_sub.id,
+                reference_submission_id=sub.id,
                 reason=flag_reason,
             ))
-            latest_by_type[old_sub.document_type_id] = new_sub
         else:
             # CLASSIFIED duplicate from this batch — safe to hard-delete
-            dups_to_remove.append(old_sub)
-            latest_by_type[old_sub.document_type_id] = new_sub
+            dups_to_remove.append(sub)
 
     for dup in dups_to_remove:
         if dup.file_key:
             gcs_keys_to_cleanup.append(dup.file_key)
         await db.delete(dup)
 
-    submissions = [v for v in latest_by_type.values() if isinstance(v, DocumentSubmission)]
+    submissions = kept
 
     if not submissions:
         raise HTTPException(
@@ -628,6 +640,11 @@ async def resolve_duplicate(
     student = await _require_student_onboarded(db, current_user)
     await _ensure_school_year_not_closed(db, student)
 
+    # Lock the submission row for the duration of this transaction. This
+    # prevents a race where an adviser verifies the document after the status
+    # check below but before the delete, which would silently remove a verified
+    # submission. The adviser verify path also locks the row (with_for_update),
+    # so the two operations serialize instead of interleaving.
     submission_result = await db.execute(
         select(DocumentSubmission)
         .where(DocumentSubmission.id == submission_id)

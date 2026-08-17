@@ -14,7 +14,8 @@ from ..models import (
     SubmissionStatus,
 )
 from ..schemas.jobs import JobCreate, JobListResponse, JobResponse, JobSubmissionResponse, RetryResponse
-from ..services.job_queue import create_job, duplicate_check
+from ..services.job_queue import _resolve_extraction_schemas, create_job, duplicate_check
+from ..services.requirements import latest_submission_per_type
 from ..services.user_sync import ensure_user_row
 from .documents.schemas import StudentClaims
 
@@ -107,12 +108,41 @@ async def start_job(
         ]
         if body.operation == "extract":
             filters.append(DocumentSubmission.extracted_data.is_(None))
+            # Only include submissions whose document type has an active
+            # extraction schema, so job.total reflects the real number of
+            # documents that will be extracted rather than every classified /
+            # flagged document. Without this, schema-less documents inflate the
+            # progress-bar denominator and are then silently skipped by the
+            # worker, showing "X out of N" with the wrong N.
+            schemas = await _resolve_extraction_schemas(db, student.school_year_id)
+            schema_doc_type_ids = list(schemas.keys())
+            if schema_doc_type_ids:
+                filters.append(DocumentSubmission.document_type_id.in_(schema_doc_type_ids))
+            else:
+                # No document type has an active extraction schema configured,
+                # so nothing is eligible to extract.
+                raise HTTPException(status_code=400, detail="No eligible submissions found.")
         subs_result = await db.execute(
             select(DocumentSubmission).where(*filters)
         )
         submissions = list(subs_result.scalars().all())
+        if body.operation == "extract":
+            # Deduplicate by document type — keep only the newest per type.
+            # Older duplicates of the same type would be deleted at submit time
+            # anyway, so extracting them is wasted work and inflates the progress
+            # denominator relative to the extraction list (which shows one card
+            # per type).
+            submissions = latest_submission_per_type(submissions)
         if not submissions:
             raise HTTPException(status_code=400, detail="No eligible submissions found.")
+        # Diagnostic: log which submissions the auto-collect picked up so we can
+        # confirm job.total reflects distinct document types (not duplicate
+        # uploads of the same type).
+        logger.info(
+            "Extract auto-collect: student=%s docs=%s",
+            student.id,
+            [(str(s.id), str(getattr(s, "document_type_id", None))) for s in submissions],
+        )
         submission_ids = [s.id for s in submissions]
     else:
         # Verify ownership and eligibility

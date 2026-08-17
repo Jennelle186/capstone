@@ -39,6 +39,11 @@ export interface SlotStatusResponse {
     matched_submission_ids: string[];
     duplicate_submission_ids: string[];
     matched_count: number;
+    // Number of distinct document types in the slot that have a VERIFIED submission.
+    verified_count: number;
+    // True when a VERIFIED submission is already among the matched documents,
+    // so extra uploads are auto-cleanup candidates rather than a resolvable conflict.
+    has_verified_conflict: boolean;
 }
 
 export interface RequiredSlotsResponse {
@@ -92,4 +97,10 @@ export function getSlotDisplayName(slot: SlotStatusResponse): string {
     if (slot.description) return slot.description;
     if (slot.items[0]?.document_type_name) return slot.items[0].document_type_name;
     return "Untitled requirement";
+}
+
+// True when every required slot is satisfied entirely by VERIFIED submissions,
+// i.e. there is nothing left for the student to upload, classify, extract, or submit.
+export function allSlotsVerified(slots: SlotStatusResponse[]): boolean {
+    return slots.length > 0 && slots.every((s) => s.verified_count >= s.min_required);
 }
