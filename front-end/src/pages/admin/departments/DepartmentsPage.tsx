@@ -63,7 +63,7 @@ export default function DepartmentsPage() {
         schoolYears,
         searchQuery,
         selectedAdviser,
-        selectedDepartment,
+        selectedDepartments,
         selectedSchoolYearId,
         selectedSchoolYearName,
         setSearchQuery,
@@ -73,7 +73,7 @@ export default function DepartmentsPage() {
         setIsAddDepartmentDialogOpen,
         setIsAssignDialogOpen,
         setIsEditDepartmentDialogOpen,
-        setSelectedDepartment,
+        setSelectedDepartments,
     } = useDepartmentsPage();
     const visibleAssignedAdvisersCount = filteredDepartments.reduce(
         (count, department) => count + getVisibleAdvisersByDepartment(department).length,
@@ -386,11 +386,10 @@ export default function DepartmentsPage() {
                 open={isAssignDialogOpen}
                 onOpenChange={setIsAssignDialogOpen}
                 selectedAdviserName={selectedAdviser?.name ?? null}
-                selectedDepartment={selectedDepartment}
+                selectedDepartments={selectedDepartments}
                 selectedSchoolYearName={selectedSchoolYearName}
-                onValueChange={setSelectedDepartment}
+                onDepartmentsChange={setSelectedDepartments}
                 departments={departments}
-                getDepartmentAdviserCount={getDepartmentAdviserCount}
                 isSubmitting={isUpdatingAssignment}
                 isSubmissionDisabled={isSelectedSchoolYearClosed || !selectedSchoolYearId}
                 onSubmit={handleAssignDepartment}

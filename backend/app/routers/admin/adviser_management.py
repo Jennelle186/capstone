@@ -26,12 +26,13 @@ from ...services.clerk import (
     unlock_user_account,
     update_user_personal_names,
 )
+from ...services.adviser_core import reconcile_adviser_program_assignments
 from ...services.helpers import (
     get_active_school_year_id,
     get_program_id_to_department_code_map,
     program_uuid_for_department_code,
 )
-from .program_assignment import get_adviser_department_map_for_school_year
+from .program_assignment import get_adviser_departments_map_for_school_year
 
 router = APIRouter(prefix="/advisers")
 
@@ -43,7 +44,10 @@ class AdviserResponse(BaseModel):
     middle_name: str | None
     last_name: str | None
     email: str | None
+    # The department field is the primary (first) program code for backward compatibility,
+    # while departments carries the full list of programs the adviser is assigned to.
     department: str | None
+    departments: list[str] = Field(default_factory=list)
     school_year: str | None
     is_active: bool
     created_at: datetime
@@ -61,7 +65,7 @@ class AdviserUpdateRequest(BaseModel):
     middle_name: str | None = Field(default=None, max_length=255)
     last_name: str = Field(min_length=1, max_length=255)
     email: str = Field(min_length=3, max_length=255)
-    department_code: str | None = Field(default=None, max_length=30)
+    department_codes: list[str] = Field(default_factory=list)
     school_year_name: str = Field(min_length=4, max_length=64)
 
     # The validators ensure that required text fields are not just whitespace and that optional 
@@ -90,13 +94,15 @@ class AdviserUpdateRequest(BaseModel):
             raise ValueError("Email is required.")
         return normalized
 
-    @field_validator("department_code")
+    @field_validator("department_codes")
     @classmethod
-    def normalize_department_code(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip().upper()
-        return normalized or None
+    def normalize_department_codes(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for code in value:
+            stripped = (code or "").strip().upper()
+            if stripped:
+                normalized.append(stripped)
+        return list(dict.fromkeys(normalized))
 
 
 # The status update request is intentionally minimal since it only needs to toggle the active status, 
@@ -190,7 +196,7 @@ async def list_advisers(
         active_school_year = await db.get(SchoolYear, active_school_year_id)
         active_school_year_name = active_school_year.name if active_school_year is not None else None
 
-    assignment_map = await get_adviser_department_map_for_school_year(
+    assignment_map = await get_adviser_departments_map_for_school_year(
         db,
         [adviser.id for adviser, _ in rows],
         active_school_year_id,
@@ -210,7 +216,8 @@ async def list_advisers(
             middle_name=user.middle_name,
             last_name=user.last_name,
             email=user.email,
-            department=assignment_map.get(adviser.id),
+            department=(assignment_map.get(adviser.id) or [None])[0],
+            departments=assignment_map.get(adviser.id) or [],
             school_year=active_school_year_name,
             is_active=_resolve_is_active(user.role, adviser_lock_map.get(adviser.id)),
             created_at=adviser.created_at,
@@ -310,33 +317,23 @@ async def update_adviser(
             detail="Closed school years cannot be used for adviser assignments.",
         )
 
-    # The code below handles the department assignment logic. 
-    # If a department code is provided, it validates that the department exists and is active, 
-    # then determines the corresponding program ID for the assignment. 
-    # If no department code is provided, any existing assignments for the adviser in the specified school year will be removed.
-    department: Department | None = None
-    target_program_id = None
-    if payload.department_code is not None:
-        department_stmt = select(Department).where(func.lower(Department.code) == payload.department_code.lower())
-        department = (await db.execute(department_stmt)).scalar_one_or_none()
-        if department is None:
+    # Validate that every requested department code exists and is active before
+    # touching any assignments, so a bad code never partially mutates the data.
+    for code in payload.department_codes:
+        department_stmt = select(Department).where(
+            func.lower(Department.code) == code.lower()
+        )
+        _department = (await db.execute(department_stmt)).scalar_one_or_none()
+        if _department is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f'Department code "{payload.department_code}" does not exist.',
+                detail=f'Department code "{code}" does not exist.',
             )
-        if not department.is_active:
+        if not _department.is_active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f'Department code "{payload.department_code}" is inactive.',
+                detail=f'Department code "{code}" is inactive.',
             )
-
-    # The code below checks if the target program corresponding to the department code exists, a
-    # and creates it if it does not.
-        target_program_id = program_uuid_for_department_code(department.code)
-        program = await db.get(Program, target_program_id)
-        if program is None:
-            db.add(Program(id=target_program_id))
-            await db.flush()
 
 # The query below checks for email conflicts by looking for any other user with the same email address (case-insensitive) but a different user ID.
 # If a conflict is found, a 409 Conflict error is raised to indicate that the email address is already in use by another user.
@@ -362,41 +359,14 @@ async def update_adviser(
             detail="Failed to update Clerk personal name fields for adviser.",
         )
 
-    assignment_stmt = (
-        select(ProgramAdviserAssignment)
-        .where(
-            ProgramAdviserAssignment.adviser_id == adviser.id,
-            ProgramAdviserAssignment.school_year_id == school_year.id,
-        )
-        .order_by(
-            desc(ProgramAdviserAssignment.updated_at),
-            desc(ProgramAdviserAssignment.created_at),
-        )
+    # Reconcile diff-based: add missing assignments, remove ones not in the list.
+    # An empty list removes every assignment for the adviser in the school year.
+    assigned_codes = await reconcile_adviser_program_assignments(
+        db,
+        adviser_id=adviser.id,
+        school_year_id=school_year.id,
+        department_codes=payload.department_codes,
     )
-    assignments = (await db.execute(assignment_stmt)).scalars().all()
-
-    # The code below updates the adviser’s department assignment based on the provided department code and school year.
-    if target_program_id is None:
-        for assignment in assignments:
-            await db.delete(assignment)
-    else:
-        # If there are existing assignments for the adviser in the specified school year, 
-        # the most recent one will be updated to reflect the new program ID, 
-        # while any additional stale assignments will be removed to maintain data integrity. 
-        # If no existing assignments are found, a new assignment will be created for the adviser with the target program ID and school year.
-        if assignments:
-            latest_assignment = assignments[0]
-            latest_assignment.program_id = target_program_id
-            for stale_assignment in assignments[1:]:
-                await db.delete(stale_assignment)
-        else:
-            db.add(
-                ProgramAdviserAssignment(
-                    adviser_id=adviser.id,
-                    program_id=target_program_id,
-                    school_year_id=school_year.id,
-                )
-            )
 
     user.first_name = updated_personal_names[0] or payload.first_name
     user.middle_name = payload.middle_name
@@ -418,7 +388,8 @@ async def update_adviser(
         middle_name=user.middle_name,
         last_name=user.last_name,
         email=user.email,
-        department=department.code if department else None,
+        department=assigned_codes[0] if assigned_codes else None,
+        departments=assigned_codes,
         school_year=school_year.name,
         is_active=_resolve_is_active(user.role, lock_state),
         created_at=adviser.created_at,
@@ -468,10 +439,10 @@ async def update_adviser_status(
     if active_school_year_id is not None:
         active_school_year = await db.get(SchoolYear, active_school_year_id)
         active_school_year_name = active_school_year.name if active_school_year is not None else None
-    assignment_map = await get_adviser_department_map_for_school_year(db, [adviser.id], active_school_year_id)
-    department = assignment_map.get(adviser.id)
+    assignment_map = await get_adviser_departments_map_for_school_year(db, [adviser.id], active_school_year_id)
+    department_codes = assignment_map.get(adviser.id) or []
 
-    # The response includes the updated adviser information, reflecting the new active status based on the lock state in Clerk, along with their name, email, department, associated school year, and creation date.
+    # The response includes the updated adviser information, reflecting the new active status based on the lock state in Clerk, along with their name, email, department(s), associated school year, and creation date.
     return AdviserResponse(
         id=str(adviser.id),
         name=_build_adviser_name(user),
@@ -479,7 +450,8 @@ async def update_adviser_status(
         middle_name=user.middle_name,
         last_name=user.last_name,
         email=user.email,
-        department=department,
+        department=department_codes[0] if department_codes else None,
+        departments=department_codes,
         school_year=active_school_year_name,
         is_active=_resolve_is_active(user.role, lock_state),
         created_at=adviser.created_at,

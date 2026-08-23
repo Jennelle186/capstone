@@ -10,13 +10,15 @@ import type { RecentSubmission } from "@/types/adviser-dashboard";
 
 interface RecentSubmissionsTableProps {
   data?: RecentSubmission[];
+  departmentId?: string | null;
 }
 
 export default function RecentSubmissionsTable({
   data: propData,
+  departmentId,
 }: RecentSubmissionsTableProps) {
   const navigate = useNavigate();
-  const { data, loading } = useAdviserSubmissions(propData);
+  const { data, loading } = useAdviserSubmissions(departmentId, propData);
 
   const handleReview = React.useCallback((submission: RecentSubmission) => {
     const mappedSubmissions = data.map((s) => ({

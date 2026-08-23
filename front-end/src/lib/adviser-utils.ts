@@ -16,6 +16,7 @@ export const EMPTY_ADVISER_FORM: AdviserFormState = {
     lastName: "",
     email: "",
     department: "",
+    departmentCodes: [],
     schoolYear: "",
 };
 

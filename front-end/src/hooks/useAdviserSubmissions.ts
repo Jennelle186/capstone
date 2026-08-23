@@ -29,7 +29,7 @@ function getAvatarColor(name: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-export function useAdviserSubmissions(propData?: RecentSubmission[]) {
+export function useAdviserSubmissions(departmentId?: string | null, propData?: RecentSubmission[]) {
   const getTokenRef = useStableToken();
   const [data, setData] = useState<RecentSubmission[]>(() => propData ?? []);
   const [loading, setLoading] = useState(() => (propData ? false : true));
@@ -41,7 +41,8 @@ export function useAdviserSubmissions(propData?: RecentSubmission[]) {
       return;
     }
     try {
-      const res = await fetchWithClerkAuth("/api/adviser/submissions", token);
+      const params = departmentId ? `?department_id=${departmentId}` : "";
+      const res = await fetchWithClerkAuth(`/api/adviser/submissions${params}`, token);
       if (!res.ok) {
         setData([]);
         setLoading(false);
@@ -64,7 +65,7 @@ export function useAdviserSubmissions(propData?: RecentSubmission[]) {
     } finally {
       setLoading(false);
     }
-  }, [getTokenRef]);
+  }, [getTokenRef, departmentId]);
 
   useEffect(() => {
     if (propData) return;

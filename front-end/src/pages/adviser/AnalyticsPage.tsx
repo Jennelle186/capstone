@@ -15,8 +15,10 @@ import {
 
 import AnalyticsStatCard from "@/components/common/analytics/AnalyticsStatCard";
 import PageHeader from "@/components/adviser/ui/PageHeader";
+import ProgramSelector from "@/components/adviser/dashboard/ProgramSelector";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { useAdviserAnalytics } from "@/hooks/useAdviserAnalytics";
+import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope";
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
@@ -32,7 +34,8 @@ const COLORS_PIE = [
 ];
 
 export default function AnalyticsPage() {
-  const { stats, archived, loading, error } = useAdviserAnalytics();
+  const { selectedDepartmentId, hasMultiplePrograms } = useAdviserProgramScope();
+  const { stats, archived, loading, error } = useAdviserAnalytics(selectedDepartmentId);
 
   if (loading) {
     return (
@@ -54,10 +57,13 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <motion.div variants={fadeInUp} initial="hidden" animate="visible">
-        <PageHeader
-          title="Analytics"
-          subtitle="Overview of document submission activity and clearance progress."
-        />
+        <div className="flex items-start justify-between gap-4">
+          <PageHeader
+            title="Analytics"
+            subtitle="Overview of document submission activity and clearance progress."
+          />
+          {hasMultiplePrograms && <ProgramSelector />}
+        </div>
       </motion.div>
 
       {/* Stat Cards */}

@@ -74,7 +74,14 @@ async def list_students(
     db: SessionDep,
     adviser: Adviser,
     school_year_id_str: str | None,
+    department_id: uuid.UUID | None = None,
 ) -> list[dict]:
+    """Return students visible to the adviser for a school year.
+
+    When ``department_id`` is provided (and the adviser is assigned to it),
+    results are scoped to that single department instead of every assigned
+    department.
+    """
     target_sy_id = await get_school_year_id(db, school_year_id_str)
     if target_sy_id is None:
         return []
@@ -82,6 +89,10 @@ async def list_students(
     dept_ids = await get_department_ids_for_adviser(db, adviser, target_sy_id)
     if not dept_ids:
         return []
+    if department_id is not None and department_id not in dept_ids:
+        return []
+    if department_id is not None:
+        dept_ids = [department_id]
 
     students_stmt = (
         select(Student)

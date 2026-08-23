@@ -5,7 +5,16 @@ export interface AdviserProfileResponse {
   last_name: string | null;
   email: string | null;
   department: string | null;
+  departments: string[];
   school_year: string | null;
+}
+
+// Department assigned to an adviser for the active (or selected) school year.
+// Returned by GET /api/adviser/departments.
+export interface AdviserDepartment {
+  id: string;
+  name: string;
+  code: string;
 }
 
 export interface Adviser {
@@ -16,6 +25,7 @@ export interface Adviser {
     lastName?: string | null;
     email: string | null;
     department: string | null;
+    departments: string[];
     schoolYear: string | null;
     isActive: boolean;
     createdAt: string;
@@ -30,6 +40,7 @@ export interface AdviserApiResponse {
     last_name?: string | null;
     email: string | null;
     department: string | null;
+    departments: string[];
     school_year: string | null;
     is_active: boolean;
     created_at: string;
@@ -92,6 +103,7 @@ export interface AdviserDepartmentRecord {
     name: string;
     email: string | null;
     department: string | null;
+    departments: string[];
     isActive: boolean;
 }
 
@@ -101,6 +113,7 @@ export interface AdviserDepartmentResponse {
     name: string;
     email: string | null;
     department: string | null;
+    departments: string[];
     is_active: boolean;
     created_at: string;
 }
@@ -112,5 +125,6 @@ export interface AdviserFormState {
     lastName: string;
     email: string;
     department: string;
+    departmentCodes: string[];
     schoolYear: string;
 }

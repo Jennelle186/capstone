@@ -36,6 +36,7 @@ class AdviserProfileResponse(BaseModel):
     last_name: str | None
     email: str | None
     department: str | None
+    departments: list[str] = Field(default_factory=list)
     school_year: str | None
 
 
@@ -79,7 +80,15 @@ async def _ensure_adviser_profile_row(db: SessionDep, current_user: dict) -> tup
     return user, adviser
 
 
-async def _get_active_assignment_for_adviser(db: SessionDep, adviser_id: Any) -> tuple[str | None, str | None]:
+async def _get_active_assignment_for_adviser(
+    db: SessionDep, adviser_id: Any
+) -> tuple[list[str], str | None]:
+    """Return the adviser's assigned department names and the active school year name.
+
+    Unlike the previous single-program helper, this returns *all* programs the
+    adviser is assigned to for the active school year, so an adviser with
+    multiple program assignments sees every one of them in the profile.
+    """
     active_school_year_stmt = (
         select(SchoolYear)
         .where(SchoolYear.is_active.is_(True))
@@ -87,7 +96,7 @@ async def _get_active_assignment_for_adviser(db: SessionDep, adviser_id: Any) ->
     )
     active_school_year = (await db.execute(active_school_year_stmt)).scalars().first()
     if active_school_year is None:
-        return None, None
+        return [], None
 
     assignment_stmt = (
         select(ProgramAdviserAssignment.program_id)
@@ -100,26 +109,33 @@ async def _get_active_assignment_for_adviser(db: SessionDep, adviser_id: Any) ->
             desc(ProgramAdviserAssignment.created_at),
         )
     )
-    program_id = (await db.execute(assignment_stmt)).scalars().first()
-    if program_id is None:
-        return None, active_school_year.name
+    program_ids = (await db.execute(assignment_stmt)).scalars().all()
+    if not program_ids:
+        return [], active_school_year.name
 
     program_id_to_name = await get_program_id_to_department_name_map(db)
-    return program_id_to_name.get(program_id), active_school_year.name
+    department_names = [
+        name for pid in program_ids if (name := program_id_to_name.get(pid))
+    ]
+    return department_names, active_school_year.name
 
 
 def _build_adviser_profile_response(
     user: User,
     *,
-    department: str | None,
+    department_names: list[str],
     school_year: str | None,
 ) -> AdviserProfileResponse:
+    # Keep `department` (singular) for backward compatibility: it holds the
+    # first assigned program; `departments` carries the full list.
+    primary_department = department_names[0] if department_names else None
     return AdviserProfileResponse(
         first_name=user.first_name,
         middle_name=user.middle_name,
         last_name=user.last_name,
         email=user.email,
-        department=department,
+        department=primary_department,
+        departments=department_names,
         school_year=school_year,
     )
 
@@ -192,8 +208,8 @@ async def update_public_metadata(payload: PublicMetadataUpdate, current_user: St
 @router.get("/api/adviser/profile", response_model=AdviserProfileResponse, tags=["users"])
 async def get_adviser_profile(current_user: AdviserClaims, db: SessionDep) -> AdviserProfileResponse:
     user, adviser = await _ensure_adviser_profile_row(db, current_user)
-    department, school_year = await _get_active_assignment_for_adviser(db, adviser.id)
-    return _build_adviser_profile_response(user, department=department, school_year=school_year)
+    department_names, school_year = await _get_active_assignment_for_adviser(db, adviser.id)
+    return _build_adviser_profile_response(user, department_names=department_names, school_year=school_year)
 
 
 @router.patch("/api/adviser/profile", response_model=AdviserProfileResponse, tags=["users"])
@@ -230,6 +246,6 @@ async def update_adviser_profile(
     await db.commit()
     await db.refresh(user)
 
-    department, school_year = await _get_active_assignment_for_adviser(db, adviser.id)
-    return _build_adviser_profile_response(user, department=department, school_year=school_year)
+    department_names, school_year = await _get_active_assignment_for_adviser(db, adviser.id)
+    return _build_adviser_profile_response(user, department_names=department_names, school_year=school_year)
 

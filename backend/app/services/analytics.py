@@ -24,11 +24,14 @@ from .requirements import get_bulk_student_slot_statuses, get_student_slot_statu
 async def get_analytics(
     db: SessionDep,
     adviser: Adviser,
+    department_id: uuid.UUID | None = None,
 ) -> dict:
     """Return live dashboard stats for an adviser's assigned departments.
 
     Metrics are scoped to the **active** school year and filtered through
-    the adviser's ``ProgramAdviserAssignment`` records.
+    the adviser's ``ProgramAdviserAssignment`` records. When ``department_id``
+    is provided (and the adviser is assigned to it), stats are scoped to that
+    single department.
 
     Returns counts for: total students, pending reviews (submitted/in-review
     status), submissions uploaded today, verified documents, and an overall
@@ -53,6 +56,16 @@ async def get_analytics(
             "verifiedCount": 0,
             "progressPercent": 0,
         }
+    if department_id is not None and department_id not in dept_ids:
+        return {
+            "totalStudents": 0,
+            "pendingReviews": 0,
+            "submittedToday": 0,
+            "verifiedCount": 0,
+            "progressPercent": 0,
+        }
+    if department_id is not None:
+        dept_ids = [department_id]
 
     student_count_stmt = select(func.count(Student.id)).where(
         Student.program_id.in_(dept_ids),
@@ -100,13 +113,16 @@ async def get_archived(
     db: SessionDep,
     adviser: Adviser,
     school_year_id_str: str,
+    department_id: uuid.UUID | None = None,
 ) -> dict | None:
     """Return detailed archived analytics for a specific school year.
 
     Unlike ``get_analytics`` (which only returns live aggregates), this
     function returns per-student breakdowns, monthly submission timelines,
     status distributions, and per-student completion status derived from
-    verified-doc counts vs. required-doc counts by classification.
+    verified-doc counts vs. required-doc counts by classification. When
+    ``department_id`` is provided (and the adviser is assigned to it), the
+    results are scoped to that single department.
 
     Returns ``None`` if the school year ID is not a valid UUID or does not
     exist.  Returns zeroed data if the adviser has no assigned departments
@@ -132,9 +148,15 @@ async def get_archived(
                 "avg_processing_days": None,
                 "status_distribution": [],
                 "monthly_submissions": [],
+                "student_status_distribution": [],
+                "student_completion_rate": 0,
             },
             "students": [],
         }
+    if department_id is not None and department_id not in dept_ids:
+        return None
+    if department_id is not None:
+        dept_ids = [department_id]
 
     student_count_stmt = select(func.count(Student.id)).where(
         Student.program_id.in_(dept_ids),

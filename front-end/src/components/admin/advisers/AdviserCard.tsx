@@ -23,7 +23,7 @@ interface AdviserCardProps {
 }
 
 // The AdviserCard component is responsible for displaying individual adviser information in a card format, 
-// including their name, email, department, school year, and status. 
+// including their name, email, department(s), school year, and status. 
 // It also includes a dropdown menu with actions to edit, toggle status, or delete the adviser. 
 // The component uses framer-motion for animations and includes handling for the status update state to disable actions while an update is in progress.
 export default function AdviserCard({
@@ -34,6 +34,13 @@ export default function AdviserCard({
     onEdit,
     onToggleStatus,
 }: AdviserCardProps) {
+    // Display every assigned program code as a badge; fall back to the legacy single department field when no list is present.
+    const departmentCodes =
+        (adviser.departments ?? []).length > 0
+            ? adviser.departments
+            : adviser.department
+                ? [adviser.department]
+                : [];
     return (
         <motion.div
             layout
@@ -93,12 +100,20 @@ export default function AdviserCard({
                         </DropdownMenu>
                     </div>
 
-                    <div className="mt-4 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Building2 className="w-4 h-4 text-muted-foreground" />
-                            <Badge variant="outline" className="text-xs">
-                                {adviser.department || "Unassigned"}
-                            </Badge>
+                    <div className="mt-4 flex items-start justify-between">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <Building2 className="w-4 h-4 text-muted-foreground mt-0.5" />
+                            {departmentCodes.length > 0 ? (
+                                departmentCodes.map((code) => (
+                                    <Badge key={code} variant="outline" className="text-xs">
+                                        {code}
+                                    </Badge>
+                                ))
+                            ) : (
+                                <Badge variant="outline" className="text-xs">
+                                    Unassigned
+                                </Badge>
+                            )}
                         </div>
                         <Badge
                             className={

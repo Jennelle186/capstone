@@ -52,15 +52,14 @@ async def get_adviser_department_map(db: SessionDep, adviser_ids: Sequence[UUID]
 
     return adviser_department_map
 
-# The get_adviser_department_map_for_school_year function is similar to get_adviser_department_map 
-# but allows for specifying a particular school year ID instead of using the active school year. 
-# It retrieves the adviser to department code mapping for the given adviser IDs and specified school year, 
-# following the same logic as the previous function but scoped to the provided school year.
-async def get_adviser_department_map_for_school_year(
+# The get_adviser_departments_map_for_school_year function returns ALL department codes assigned to each adviser
+# for a given school year, rather than collapsing to a single (latest) code.
+# This is used by the admin UI to pre-populate multi-program assignments when editing an adviser.
+async def get_adviser_departments_map_for_school_year(
     db: SessionDep,
     adviser_ids: Sequence[UUID],
     school_year_id: UUID | None,
-) -> dict[UUID, str]:
+) -> dict[UUID, list[str]]:
     if not adviser_ids or school_year_id is None:
         return {}
 
@@ -84,15 +83,18 @@ async def get_adviser_department_map_for_school_year(
     )
     rows = (await db.execute(stmt)).all()
 
-    adviser_department_map: dict[UUID, str] = {}
+    adviser_departments_map: dict[UUID, list[str]] = {}
     for adviser_id, program_id in rows:
-        if adviser_id in adviser_department_map:
-            continue
         department_code = program_id_to_code.get(program_id)
-        if department_code:
-            adviser_department_map[adviser_id] = department_code
+        if not department_code:
+            continue
+        # Avoid duplicates while preserving the most-recently-updated ordering.
+        current_codes = adviser_departments_map.setdefault(adviser_id, [])
+        if department_code not in current_codes:
+            current_codes.append(department_code)
 
-    return adviser_department_map
+    return adviser_departments_map
+
 
 # The get_department_adviser_counts function retrieves a count of advisers assigned to each department for the active school year. 
 # It first retrieves the active school year ID and the program ID to department code mapping. 

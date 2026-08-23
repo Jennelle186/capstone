@@ -56,6 +56,7 @@ export default function AdvisersPage() {
         handleCreateDepartmentOption,
         handleCreateSchoolYearOption,
         handleDeleteAdviser,
+        handleDepartmentCodesChange,
         handleDepartmentSelect,
         handleEditAdviser,
         handleHistoryDialogOpenChange,
@@ -413,6 +414,7 @@ export default function AdvisersPage() {
                 schoolYears={schoolYears}
                 addDepartmentValue={addDepartmentValue}
                 addSchoolYearValue={addSchoolYearValue}
+                onDepartmentCodesChange={handleDepartmentCodesChange}
                 onDepartmentSelect={handleDepartmentSelect}
                 onSchoolYearSelect={handleSchoolYearSelect}
                 isFormValid={isFormValid}
@@ -430,6 +432,7 @@ export default function AdvisersPage() {
                 schoolYears={schoolYears}
                 addDepartmentValue={addDepartmentValue}
                 addSchoolYearValue={addSchoolYearValue}
+                onDepartmentCodesChange={handleDepartmentCodesChange}
                 onDepartmentSelect={handleDepartmentSelect}
                 onSchoolYearSelect={handleSchoolYearSelect}
                 isFormValid={isFormValid}

@@ -10,7 +10,13 @@ from sqlalchemy import select
 from ..database import SessionDep
 from ..models import DocumentSubmission, DocumentSubmissionHistory, Student, StudentClassification, User, UserRole
 from ..rbac import require_roles
-from ..services.adviser_core import get_department_ids_for_adviser, resolve_adviser
+from ..services.adviser_core import (
+    get_department_ids_for_adviser,
+    get_school_year_id,
+    list_adviser_departments,
+    resolve_adviser,
+)
+from ..services.helpers import get_active_school_year_id
 from ..services.analytics import get_analytics as svc_get_analytics, get_archived as svc_get_archived
 from ..services.school_years import list_adviser_school_years as svc_list_school_years
 from ..services.students import list_students as svc_list_students, get_student_detail as svc_get_student_detail
@@ -27,6 +33,24 @@ router = APIRouter(tags=["adviser"])
 
 
 CurrentAdviser = Depends(require_roles(UserRole.ADVISER))
+
+
+async def _ensure_department_access(
+    db: SessionDep,
+    adviser,
+    school_year_id: UUID | None,
+    department_id: UUID | None,
+) -> None:
+    """Raise 403 when ``department_id`` is provided but not assigned to the adviser.
+
+    Uses the given school year to resolve the adviser's assignments. When
+    ``department_id`` is ``None`` (no filter requested) this is a no-op.
+    """
+    if department_id is None:
+        return
+    dept_ids = await get_department_ids_for_adviser(db, adviser, school_year_id)
+    if department_id not in dept_ids:
+        raise HTTPException(status_code=403, detail="Department not assigned to this adviser")
 
 
 class AdviserSubmissionResponse(BaseModel):
@@ -174,13 +198,18 @@ class AdviserArchivedResponse(BaseModel):
 @router.get("/api/adviser/submissions", response_model=list[AdviserSubmissionResponse])
 async def list_adviser_submissions(
     school_year_id: Optional[str] = Query(None, description="Optional school year UUID. Defaults to active school year."),
+    department_id: Optional[UUID] = Query(None, description="Optional department UUID. Defaults to all assigned departments."),
     current_user: dict = CurrentAdviser,
     db: SessionDep = None,
 ) -> list[AdviserSubmissionResponse]:
     adviser = await resolve_adviser(db, current_user)
     if not adviser:
         return []
-    rows = await svc_list_submissions(db, adviser, school_year_id)
+    target_sy_id = await get_school_year_id(db, school_year_id)
+    if target_sy_id is None:
+        return []
+    await _ensure_department_access(db, adviser, target_sy_id, department_id)
+    rows = await svc_list_submissions(db, adviser, school_year_id, department_id)
     return [AdviserSubmissionResponse(**r) for r in rows]
 
 
@@ -255,18 +284,52 @@ async def list_adviser_school_years(
     return [AdviserSchoolYearResponse(**r) for r in rows]
 
 
+class AdviserDepartmentResponse(BaseModel):
+    id: str
+    name: str
+    code: str
+
+
+# ─── GET /api/adviser/departments ────────────────────────────────────────────
+
+@router.get("/api/adviser/departments", response_model=list[AdviserDepartmentResponse])
+async def list_adviser_departments_endpoint(
+    school_year_id: Optional[str] = Query(None, description="Optional school year UUID. Defaults to active school year."),
+    current_user: dict = CurrentAdviser,
+    db: SessionDep = None,
+) -> list[AdviserDepartmentResponse]:
+    """List the departments assigned to the adviser for a school year.
+
+    Used by the dashboard to render the program selector. Defaults to the
+    active school year when no ``school_year_id`` is provided.
+    """
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        return []
+    target_sy_id = await get_school_year_id(db, school_year_id)
+    if target_sy_id is None:
+        return []
+    departments = await list_adviser_departments(db, adviser, target_sy_id)
+    return [AdviserDepartmentResponse(**d) for d in departments]
+
+
 # ─── GET /api/adviser/students ──────────────────────────────────────────────
 
 @router.get("/api/adviser/students", response_model=list[AdviserStudentResponse])
 async def list_adviser_students(
     school_year_id: Optional[str] = Query(None, description="Optional school year UUID. Defaults to active school year."),
+    department_id: Optional[UUID] = Query(None, description="Optional department UUID. Defaults to all assigned departments."),
     current_user: dict = CurrentAdviser,
     db: SessionDep = None,
 ) -> list[AdviserStudentResponse]:
     adviser = await resolve_adviser(db, current_user)
     if not adviser:
         return []
-    rows = await svc_list_students(db, adviser, school_year_id)
+    target_sy_id = await get_school_year_id(db, school_year_id)
+    if target_sy_id is None:
+        return []
+    await _ensure_department_access(db, adviser, target_sy_id, department_id)
+    rows = await svc_list_students(db, adviser, school_year_id, department_id)
     return [AdviserStudentResponse(**r) for r in rows]
 
 
@@ -365,13 +428,17 @@ async def update_student_number(
 
 @router.get("/api/adviser/analytics", response_model=AdviserAnalyticsResponse)
 async def get_adviser_analytics(
+    department_id: Optional[UUID] = Query(None, description="Optional department UUID. Defaults to all assigned departments."),
     current_user: dict = CurrentAdviser,
     db: SessionDep = None,
 ) -> AdviserAnalyticsResponse:
     adviser = await resolve_adviser(db, current_user)
     if not adviser:
         return AdviserAnalyticsResponse(totalStudents=0, pendingReviews=0, submittedToday=0, verifiedCount=0, progressPercent=0)
-    data = await svc_get_analytics(db, adviser)
+    active_sy_id = await get_active_school_year_id(db)
+    if active_sy_id is not None:
+        await _ensure_department_access(db, adviser, active_sy_id, department_id)
+    data = await svc_get_analytics(db, adviser, department_id)
     return AdviserAnalyticsResponse(**data)
 
 
@@ -434,13 +501,19 @@ async def flag_adviser_submission(
 @router.get("/api/adviser/archived", response_model=AdviserArchivedResponse)
 async def get_adviser_archived(
     school_year_id: str = Query(..., description="School year UUID to query archived data for."),
+    department_id: Optional[UUID] = Query(None, description="Optional department UUID. Defaults to all assigned departments."),
     current_user: dict = CurrentAdviser,
     db: SessionDep = None,
 ) -> AdviserArchivedResponse:
     adviser = await resolve_adviser(db, current_user)
     if not adviser:
         raise HTTPException(404, "Adviser not found.")
-    result = await svc_get_archived(db, adviser, school_year_id)
+    try:
+        sy_id = UUID(school_year_id)
+    except ValueError:
+        raise HTTPException(404, "School year not found.")
+    await _ensure_department_access(db, adviser, sy_id, department_id)
+    result = await svc_get_archived(db, adviser, school_year_id, department_id)
     if result is None:
         raise HTTPException(404, "School year not found.")
     return AdviserArchivedResponse(

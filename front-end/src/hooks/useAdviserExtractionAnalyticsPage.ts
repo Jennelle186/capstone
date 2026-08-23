@@ -20,19 +20,14 @@ interface AdviserSchoolYear {
   is_current: boolean
 }
 
-interface AdviserDepartment {
-  id: string
-  name: string
-  code: string
-}
-
-export function useAdviserExtractionAnalyticsPage() {
+// Accepts the selected department filter from the program scope context so the
+// page can drive department filtering via the shared ProgramSelector component.
+export function useAdviserExtractionAnalyticsPage(departmentId?: string | null) {
   const { isLoaded, isSignedIn } = useAuth()
   const getTokenRef = useStableToken()
 
   const [schoolYears, setSchoolYears] = useState<AdviserSchoolYear[]>([])
   const [selectedSyId, setSelectedSyId] = useState<string>("")
-  const [departments, setDepartments] = useState<AdviserDepartment[]>([])
   const [snapshot, setSnapshot] = useState<SnapshotResponse | null>(null)
   const [canonicalKeys, setCanonicalKeys] = useState<CanonicalKeyItem[]>([])
   const [enrolment, setEnrolment] = useState<EnrolmentSeriesItem[]>([])
@@ -80,25 +75,14 @@ export function useAdviserExtractionAnalyticsPage() {
     }
   }, [requestWithAuth, apiBase])
 
-  const loadDepartments = useCallback(async (syId: string) => {
-    if (!syId) return
-    try {
-      const payload = (await requestWithAuth(
-        `${apiBase}/departments?school_year_id=${syId}`,
-      )) as AdviserDepartment[]
-      setDepartments(payload)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load departments.")
-    }
-  }, [requestWithAuth, apiBase])
-
   const loadSnapshot = useCallback(
-    async (syId: string) => {
+    async (syId: string, deptId?: string | null) => {
       if (!syId) return
       setIsLoadingSnapshot(true)
       try {
+        const deptQuery = deptId ? `&department_id=${deptId}` : ""
         const payload = (await requestWithAuth(
-          `${apiBase}/snapshot?school_year_id=${syId}`,
+          `${apiBase}/snapshot?school_year_id=${syId}${deptQuery}`,
         )) as SnapshotResponse
         setSnapshot(payload)
       } catch (error) {
@@ -125,11 +109,12 @@ export function useAdviserExtractionAnalyticsPage() {
   }, [requestWithAuth, apiBase])
 
   const loadEnrolment = useCallback(
-    async (from: string, to: string) => {
+    async (from: string, to: string, deptId?: string | null) => {
       setIsLoadingEnrolment(true)
       try {
+        const deptQuery = deptId ? `&department_id=${deptId}` : ""
         const payload = (await requestWithAuth(
-          `${apiBase}/enrolment?from_year=${from}&to_year=${to}`,
+          `${apiBase}/enrolment?from_year=${from}&to_year=${to}${deptQuery}`,
         )) as EnrolmentResponse
         setEnrolment(payload.series)
       } catch (error) {
@@ -142,12 +127,13 @@ export function useAdviserExtractionAnalyticsPage() {
   )
 
   const loadTrends = useCallback(
-    async (keys: string[], from: string, to: string) => {
+    async (keys: string[], from: string, to: string, deptId?: string | null) => {
       if (keys.length === 0) return
       setIsLoadingTrends(true)
       try {
+        const deptQuery = deptId ? `&department_id=${deptId}` : ""
         const payload = (await requestWithAuth(
-          `${apiBase}/trends?keys=${keys.join(",")}&from_year=${from}&to_year=${to}`,
+          `${apiBase}/trends?keys=${keys.join(",")}&from_year=${from}&to_year=${to}${deptQuery}`,
         )) as TrendResponse
         setTrends(payload)
       } catch (error) {
@@ -163,7 +149,6 @@ export function useAdviserExtractionAnalyticsPage() {
     if (!isLoaded) return
     if (!isSignedIn) {
       setSchoolYears([])
-      setDepartments([])
       setIsLoadingSnapshot(false)
       setIsLoadingCanonical(false)
       setIsLoadingEnrolment(false)
@@ -171,23 +156,22 @@ export function useAdviserExtractionAnalyticsPage() {
     }
     void loadSchoolYears()
     void loadCanonicalKeys()
-    void loadEnrolment("2023", "2026")
-  }, [isLoaded, isSignedIn, loadSchoolYears, loadCanonicalKeys, loadEnrolment])
+  }, [isLoaded, isSignedIn, loadSchoolYears, loadCanonicalKeys])
 
   useEffect(() => {
     if (!selectedSyId) return
-    void loadDepartments(selectedSyId)
-  }, [selectedSyId, loadDepartments])
+    void loadSnapshot(selectedSyId, departmentId)
+  }, [selectedSyId, departmentId, loadSnapshot])
 
   useEffect(() => {
-    if (!selectedSyId) return
-    void loadSnapshot(selectedSyId)
-  }, [selectedSyId, loadSnapshot])
+    if (!isLoaded || !isSignedIn) return
+    void loadEnrolment(trendFromYear, trendToYear, departmentId)
+  }, [isLoaded, isSignedIn, trendFromYear, trendToYear, departmentId, loadEnrolment])
 
   useEffect(() => {
     if (tab !== "trends") return
-    void loadTrends(selectedTrendKeys, trendFromYear, trendToYear)
-  }, [tab, selectedTrendKeys, trendFromYear, trendToYear, loadTrends])
+    void loadTrends(selectedTrendKeys, trendFromYear, trendToYear, departmentId)
+  }, [tab, selectedTrendKeys, trendFromYear, trendToYear, departmentId, loadTrends])
 
   const snapshotFieldsByGroup = useMemo(() => {
     if (!snapshot) return []
@@ -223,8 +207,6 @@ export function useAdviserExtractionAnalyticsPage() {
     schoolYearOptions,
     selectedSyId,
     setSelectedSyId,
-    departments,
-    departmentName: departments.map((d) => d.name).join(", ") || null,
     requestWithAuth,
     snapshot,
     isLoadingSnapshot,

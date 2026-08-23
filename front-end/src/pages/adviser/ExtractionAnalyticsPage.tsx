@@ -3,20 +3,22 @@ import { useUser } from "@clerk/clerk-react"
 
 import AdminEmptyState from "@/components/admin/AdminEmptyState"
 import PageHeader from "@/components/adviser/ui/PageHeader"
+import ProgramSelector from "@/components/adviser/dashboard/ProgramSelector"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import FieldsTab from "@/components/admin/analytics/FieldsTab"
 import GlobalAISummary from "@/components/admin/analytics/GlobalAISummary"
 import SnapshotTab from "@/components/admin/analytics/SnapshotTab"
 import TrendsTab from "@/components/admin/analytics/TrendsTab"
 import { useAdviserExtractionAnalyticsPage } from "@/hooks/useAdviserExtractionAnalyticsPage"
+import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope"
 
 export default function ExtractionAnalyticsPage() {
   const { user } = useUser()
+  const { selectedDepartmentId, setSelectedDepartmentId, activeDepartment } = useAdviserProgramScope()
   const {
     schoolYearOptions,
     selectedSyId,
     setSelectedSyId,
-    departmentName,
     requestWithAuth,
     snapshot,
     isLoadingSnapshot,
@@ -35,22 +37,26 @@ export default function ExtractionAnalyticsPage() {
     isLoadingEnrolment,
     trends,
     isLoadingTrends,
-  } = useAdviserExtractionAnalyticsPage()
+  } = useAdviserExtractionAnalyticsPage(selectedDepartmentId)
 
   const selectedSyName = schoolYearOptions.find((o) => o.value === selectedSyId)?.label ?? ""
+  const selectedDeptName = activeDepartment?.name ?? null
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Extraction Analytics"
-        subtitle={departmentName ? `Department: ${departmentName}` : "Schema-driven analytics filtered to your advisees"}
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="Extraction Analytics"
+          subtitle={selectedDeptName ? `Department: ${selectedDeptName}` : "Schema-driven analytics filtered to your advisees"}
+        />
+        <ProgramSelector schoolYearId={selectedSyId} />
+      </div>
 
       <GlobalAISummary
         selectedSyId={selectedSyId}
-        selectedDeptId={undefined}
+        selectedDeptId={selectedDepartmentId ?? undefined}
         schoolYearName={selectedSyName}
-        departmentName={departmentName ?? "All Departments"}
+        departmentName={selectedDeptName ?? "All Departments"}
         requestWithAdminAuth={requestWithAuth}
         insightsEndpoint="/api/adviser/extraction-analytics/insights"
         userId={user?.id}
@@ -72,7 +78,11 @@ export default function ExtractionAnalyticsPage() {
             {tab === "snapshot" && schoolYearOptions.length > 0 && (
               <select
                 value={selectedSyId}
-                onChange={(e) => setSelectedSyId(e.target.value)}
+                onChange={(e) => {
+                  const syId = e.target.value
+                  setSelectedSyId(syId)
+                  setSelectedDepartmentId(null)
+                }}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
               >
                 {schoolYearOptions.map((opt) => (

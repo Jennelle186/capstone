@@ -1,5 +1,6 @@
 import { useAdviserProfile } from "@/hooks/useAdviserProfile";
 import { useAdviserAnalytics } from "@/hooks/useAdviserAnalytics";
+import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope";
 import WelcomeSection from "@/components/adviser/dashboard/WelcomeSection";
 import StatCards from "@/components/adviser/dashboard/StatCards";
 import RecentSubmissionsTable from "@/components/adviser/dashboard/RecentSubmissionsTable";
@@ -7,7 +8,8 @@ import QuickAnalytics from "@/components/adviser/dashboard/QuickAnalytics";
 
 export default function AdviserDashboard() {
   const { profile, isLoading: profileLoading } = useAdviserProfile();
-  const { stats } = useAdviserAnalytics();
+  const { selectedDepartmentId } = useAdviserProgramScope();
+  const { stats } = useAdviserAnalytics(selectedDepartmentId);
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -15,7 +17,7 @@ export default function AdviserDashboard() {
       <StatCards stats={stats ?? undefined} />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
-          <RecentSubmissionsTable />
+          <RecentSubmissionsTable departmentId={selectedDepartmentId} />
         </div>
         <div className="lg:col-span-4">
           <QuickAnalytics

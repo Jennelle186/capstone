@@ -101,6 +101,7 @@ export function useAdvisersPage() {
                 lastName: adviser.last_name ?? null,
                 email: adviser.email,
                 department: adviser.department,
+                departments: adviser.departments ?? [],
                 schoolYear: adviser.school_year ?? schoolYearName,
                 isActive: adviser.is_active,
                 createdAt: adviser.created_at,
@@ -161,17 +162,19 @@ export function useAdvisersPage() {
         void loadPageData();
     }, [isLoaded, isSignedIn, loadPageData]);
 
-    const isFormValid = useMemo(
-        () =>
-            Boolean(
-                formData.firstName.trim() &&
-                formData.lastName.trim() &&
-                formData.email.trim() &&
-                formData.department.trim() &&
-                formData.schoolYear.trim(),
-            ),
-        [formData],
-    );
+    const isFormValid = useMemo(() => {
+        const baseFieldsValid = Boolean(
+            formData.firstName.trim() &&
+            formData.lastName.trim() &&
+            formData.email.trim() &&
+            formData.schoolYear.trim(),
+        );
+        // Add mode requires a single department selection; edit mode requires at least one department code.
+        const departmentValid = isEditDialogOpen
+            ? formData.departmentCodes.length > 0
+            : formData.department.trim().length > 0;
+        return baseFieldsValid && departmentValid;
+    }, [formData, isEditDialogOpen]);
 
     const filteredAdvisers = useMemo(() => {
         const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -241,7 +244,7 @@ export function useAdvisersPage() {
                     middle_name: formData.middleName.trim() || null,
                     last_name: formData.lastName.trim(),
                     email: formData.email.trim(),
-                    department_code: formData.department.trim() || null,
+                    department_codes: formData.departmentCodes,
                     school_year_name: formData.schoolYear.trim(),
                 }),
             });
@@ -286,6 +289,7 @@ export function useAdvisersPage() {
                                 lastName: payload.last_name ?? item.lastName ?? null,
                                 email: payload.email,
                                 department: payload.department,
+                                departments: payload.departments ?? [],
                                 schoolYear: payload.school_year ?? item.schoolYear,
                                 isActive: payload.is_active,
                             }
@@ -353,6 +357,7 @@ export function useAdvisersPage() {
                 lastName: adviser.lastName ?? fallbackSplitName.lastName,
                 email: adviser.email ?? "",
                 department: adviser.department || "",
+                departmentCodes: adviser.departments ?? (adviser.department ? [adviser.department] : []),
                 schoolYear: adviser.schoolYear || activeSchoolYearName || "",
             });
             setIsEditDialogOpen(true);
@@ -402,6 +407,10 @@ export function useAdvisersPage() {
             return;
         }
         setFormData((prev) => ({ ...prev, department: value }));
+    }, []);
+
+    const handleDepartmentCodesChange = useCallback((codes: string[]) => {
+        setFormData((prev) => ({ ...prev, departmentCodes: codes }));
     }, []);
 
     const handleSchoolYearSelect = useCallback((value: string) => {
@@ -529,6 +538,7 @@ export function useAdvisersPage() {
         handleCreateSchoolYearOption,
         handleDeleteAdviser,
         handleDepartmentSelect,
+        handleDepartmentCodesChange,
         handleEditAdviser,
         handleHistoryDialogOpenChange,
         handleSchoolYearSelect,
