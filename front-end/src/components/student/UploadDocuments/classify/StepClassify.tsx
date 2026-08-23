@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle } from "lucide-react";
+import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle, Files, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import SubmissionChecklist from "@/components/student/UploadDocuments/classify/S
 import JobProgress from "@/components/student/UploadDocuments/JobProgress";
 import type { ClassificationItem, ClassificationStatus } from "@/types/classification";
 import type { RequiredDocument } from "@/types/student";
-import { allSlotsVerified, type SlotStatusResponse } from "@/types/requirement";
+import { allSlotsVerified, getSlotDisplayName, type SlotStatusResponse } from "@/types/requirement";
 import type { SubmissionDetail } from "@/types/submission";
 
 type FilterTab = "all" | "needs-review" | "ready";
@@ -67,6 +67,7 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     originalStatus: s.status,
     classificationResult: result as ClassificationItem["classificationResult"],
     mimeType: s.mime_type,
+    createdAt: s.created_at,
   };
 }
 
@@ -80,6 +81,18 @@ function formatFileSize(bytes: number | null): string {
     unitIndex++;
   }
   return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatUploadedAt(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function confidenceBadgeColor(score: number): string {
@@ -580,7 +593,12 @@ export default function StepClassify({
         {duplicateSlots.map((slot) => {
           const matched = slot.matched_submission_ids
             .map((id) => items.find((i) => i.id === id))
-            .filter(Boolean);
+            .filter((i): i is ClassificationItem => Boolean(i))
+            .sort((a, b) => {
+              const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+              const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+              return tb - ta;
+            });
           if (matched.length < 2) return null;
 
           // A VERIFIED submission is definitive — the extras are auto-cleaned at
@@ -614,58 +632,101 @@ export default function StepClassify({
           }
 
           const selectedId = selectedKeepIds[slot.id] ?? null;
+          const slotName = getSlotDisplayName(slot);
           return (
             <div
               key={slot.id}
-              className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900"
+              className="overflow-hidden rounded-xl border border-rose-200 bg-white shadow-sm"
             >
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 flex-shrink-0 text-rose-600 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold">
-                    Multiple {slot.group_name || slot.description || "documents"} found
+              {/* Header */}
+              <div className="flex items-start gap-3 border-b border-rose-100 bg-rose-50/70 px-4 py-3.5">
+                <span className="mt-0.5 inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white">
+                  <Files className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Duplicate files detected
                   </p>
-                  <p className="text-xs text-rose-700 mt-0.5">
-                    You have {matched.length} documents for a slot that only needs 1. Choose the correct one to keep, then delete the others.
+                  <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                    You uploaded {matched.length} files for{" "}
+                    <span className="font-semibold text-slate-700">{slotName}</span>.
+                    Keep one, remove the rest.
                   </p>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 pl-8">
-                {matched.map((item) => (
-                  <label
-                    key={item!.id}
-                    className="flex items-center gap-3 rounded-lg border border-rose-100 bg-white px-3 py-2 cursor-pointer hover:bg-rose-50/50 transition-colors"
-                  >
-                    <input
-                      type="radio"
-                      name={`keep-slot-${slot.id}`}
-                      value={item!.id}
-                      checked={selectedId === item!.id}
-                      onChange={() =>
-                        setSelectedKeepIds((prev) => ({ ...prev, [slot.id]: item!.id }))
-                      }
-                      className="h-4 w-4 text-rose-600 border-rose-300 focus:ring-rose-500"
-                    />
-                    <span className="text-sm font-medium text-rose-900 flex-1 truncate">
-                      {item!.fileName || "Untitled"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handlePreview(item!.id)}
-                      className="text-xs font-semibold text-rose-600 hover:text-rose-800 underline underline-offset-2"
+
+              {/* Candidate rows */}
+              <div className="divide-y divide-rose-100/60 px-2 py-1">
+                {matched.map((item, idx) => {
+                  const isSelected = selectedId === item.id;
+                  const uploadedAt = formatUploadedAt(item.createdAt);
+                  const meta = [
+                    uploadedAt ? `Uploaded ${uploadedAt}` : null,
+                    item.fileSize ? formatFileSize(item.fileSize) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <label
+                      key={item.id}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 transition-colors",
+                        isSelected ? "bg-rose-50/70" : "hover:bg-slate-50",
+                      )}
                     >
-                      Preview
-                    </button>
-                  </label>
-                ))}
+                      <input
+                        type="radio"
+                        name={`keep-slot-${slot.id}`}
+                        value={item.id}
+                        checked={isSelected}
+                        onChange={() =>
+                          setSelectedKeepIds((prev) => ({ ...prev, [slot.id]: item.id }))
+                        }
+                        className="h-4 w-4 shrink-0 border-rose-300 text-rose-600 focus:ring-rose-500"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-slate-900">
+                            {item.fileName || "Untitled"}
+                          </span>
+                          {idx === 0 && (
+                            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                              Most recent
+                            </span>
+                          )}
+                        </div>
+                        {meta && <p className="mt-0.5 text-xs text-slate-400">{meta}</p>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handlePreview(item.id);
+                        }}
+                        className="shrink-0 text-xs font-semibold text-rose-600 hover:text-rose-800 hover:underline underline-offset-2"
+                      >
+                        Preview
+                      </button>
+                    </label>
+                  );
+                })}
               </div>
-              <div className="pl-8">
-                <button
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 border-t border-rose-100 bg-rose-50/40 px-4 py-3">
+                <span className="mr-auto text-xs text-slate-400">
+                  {selectedId
+                    ? `Keeping 1 of ${matched.length} — ${matched.length - 1} will be removed`
+                    : "Select the file you want to keep"}
+                </span>
+                <Button
                   type="button"
+                  size="sm"
                   onClick={async () => {
                     if (!selectedId) return;
                     const toDelete = matched
-                      .map((i) => i!.id)
+                      .map((i) => i.id)
                       .filter((id) => id !== selectedId);
                     for (const id of toDelete) {
                       await handleResolveDuplicate(id);
@@ -677,16 +738,11 @@ export default function StepClassify({
                     });
                   }}
                   disabled={isProcessing || !selectedId}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold transition-colors",
-                    selectedId
-                      ? "bg-rose-600 text-white hover:bg-rose-700 shadow-sm"
-                      : "bg-rose-200 text-rose-400 cursor-not-allowed",
-                  )}
+                  className="h-9 gap-1.5 rounded-lg"
                 >
-                  <X className="h-3.5 w-3.5" />
-                  Delete others
-                </button>
+                  <Check className="h-4 w-4" />
+                  Keep selected file
+                </Button>
               </div>
             </div>
           );

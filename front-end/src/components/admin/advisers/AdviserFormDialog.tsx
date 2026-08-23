@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import MultiSelectCombobox from "@/components/ui/multi-select-combobox";
 import {
     Select,
     SelectContent,
@@ -30,6 +31,7 @@ interface AdviserFormDialogProps {
     isFormValid: boolean;
     isSubmitting: boolean;
     mode: "add" | "edit";
+    onDepartmentCodesChange: (codes: string[]) => void;
     onDepartmentSelect: (value: string) => void;
     onFormChange: Dispatch<SetStateAction<AdviserFormState>>;
     onOpenChange: (open: boolean) => void;
@@ -48,6 +50,7 @@ export default function AdviserFormDialog({
     isFormValid,
     isSubmitting,
     mode,
+    onDepartmentCodesChange,
     onDepartmentSelect,
     onFormChange,
     onOpenChange,
@@ -112,21 +115,34 @@ export default function AdviserFormDialog({
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor={`${idPrefix}-department`}>Academic Program *</Label>
-                        <Select value={formData.department} onValueChange={onDepartmentSelect}>
-                            <SelectTrigger id={`${idPrefix}-department`}>
-                                <SelectValue placeholder="Select academic program" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {departments.map((department) => (
-                                    <SelectItem key={department.value} value={department.value}>
-                                        {department.label}
-                                    </SelectItem>
-                                ))}
-                                <div className="my-1 h-px bg-border" />
-                                <SelectItem value={addDepartmentValue}>+ Add new academic program</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <Label htmlFor={`${idPrefix}-department`}>
+                            {isEditMode ? "Academic Programs *" : "Academic Program *"}
+                        </Label>
+                        {isEditMode ? (
+                            <MultiSelectCombobox
+                                id={`${idPrefix}-department`}
+                                options={departments}
+                                value={formData.departmentCodes}
+                                onValueChange={onDepartmentCodesChange}
+                                placeholder="Select academic programs"
+                                emptyMessage="No academic programs found."
+                            />
+                        ) : (
+                            <Select value={formData.department} onValueChange={onDepartmentSelect}>
+                                <SelectTrigger id={`${idPrefix}-department`}>
+                                    <SelectValue placeholder="Select academic program" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {departments.map((department) => (
+                                        <SelectItem key={department.value} value={department.value}>
+                                            {department.label}
+                                        </SelectItem>
+                                    ))}
+                                    <div className="my-1 h-px bg-border" />
+                                    <SelectItem value={addDepartmentValue}>+ Add new academic program</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        )}
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor={`${idPrefix}-school-year`}>School Year *</Label>

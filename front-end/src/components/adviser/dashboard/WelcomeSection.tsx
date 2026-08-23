@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
 import { Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import ProgramSelector from "@/components/adviser/dashboard/ProgramSelector";
+import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope";
 import type { AdviserProfileResponse } from "@/types/adviser";
 
 interface WelcomeSectionProps {
@@ -22,6 +24,8 @@ function getGreeting(): string {
 }
 
 export default function WelcomeSection({ profile, isLoading }: WelcomeSectionProps) {
+  const { hasMultiplePrograms } = useAdviserProgramScope();
+
   if (isLoading) {
     return (
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -57,11 +61,25 @@ export default function WelcomeSection({ profile, isLoading }: WelcomeSectionPro
         </p>
       </div>
       <div className="flex gap-2">
-        {profile.department && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200 shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            {profile.department}
-          </span>
+        {hasMultiplePrograms ? (
+          <ProgramSelector />
+        ) : (
+          <>
+            {(profile.departments.length > 0
+              ? profile.departments
+              : profile.department
+                ? [profile.department]
+                : []
+            ).map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200 shadow-sm"
+              >
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                {name}
+              </span>
+            ))}
+          </>
         )}
         {profile.school_year && (
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 border border-slate-200 shadow-sm">

@@ -25,9 +25,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import PageHeader from "@/components/adviser/ui/PageHeader";
+import ProgramSelector from "@/components/adviser/dashboard/ProgramSelector";
 import DataTable from "@/components/common/data-table/DataTable";
 import { useAdviserStudents } from "@/hooks/useAdviserStudents";
 import { useAdviserProfile } from "@/hooks/useAdviserProfile";
+import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope";
 import { useUpdateStudentClassification } from "@/hooks/useUpdateStudentClassification";
 import {
   type AdviserStudent,
@@ -52,7 +54,8 @@ const classificationOptions = [
 
 export default function AdviseesPage() {
   const navigate = useNavigate();
-  const { students, loading } = useAdviserStudents();
+  const { selectedDepartmentId, hasMultiplePrograms } = useAdviserProgramScope();
+  const { students, loading } = useAdviserStudents(undefined, selectedDepartmentId);
   const { profile } = useAdviserProfile();
   const { updateClassification, isUpdating } = useUpdateStudentClassification();
 
@@ -237,13 +240,16 @@ export default function AdviseesPage() {
             title="My Advisees"
             subtitle={`Student listings for ${profile?.department ?? "your program"} (${profile?.school_year ?? "Current School Year"})`}
           />
-          <Badge className="bg-primary/15 text-primary text-sm font-extrabold px-3 py-0.5 rounded-lg mt-1 shrink-0">
-            {students.length} Active
-          </Badge>
+          <div className="flex items-center gap-2 shrink-0">
+            {hasMultiplePrograms && <ProgramSelector compact />}
+            <Badge className="bg-primary/15 text-primary text-sm font-extrabold px-3 py-0.5 rounded-lg mt-1">
+              {students.length} Active
+            </Badge>
+          </div>
         </div>
       </motion.div>
 
-      {loading ? (
+      {loading && students.length === 0 ? (
         <Card className="overflow-hidden border-slate-200 shadow-sm">
           <div className="overflow-x-auto">
             <Table>
@@ -304,7 +310,16 @@ export default function AdviseesPage() {
           </p>
         </div>
       ) : (
-        <motion.div variants={fadeInUp} initial="hidden" animate="visible">
+        <div className="relative">
+          {loading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/60 backdrop-blur-[1px]">
+              <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-md border border-slate-200">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-xs font-semibold text-slate-600">Loading advisees…</span>
+              </div>
+            </div>
+          )}
+          <motion.div variants={fadeInUp} initial="hidden" animate="visible">
           <DataTable
             data={students}
             columns={columns}
@@ -364,6 +379,7 @@ export default function AdviseesPage() {
             )}
           />
         </motion.div>
+        </div>
       )}
     </div>
   );

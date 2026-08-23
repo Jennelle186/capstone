@@ -10,12 +10,13 @@ from sqlalchemy import desc, func, select
 from ...database import SessionDep
 from ...models import Adviser, Department, Program, ProgramAdviserAssignment, SchoolYear, SchoolYearStatus, Student, User, UserRole
 from ...rbac import require_admin
+from ...services.adviser_core import reconcile_adviser_program_assignments
 from ...services.helpers import (
     get_active_school_year_id,
     program_uuid_for_department_code,
 )
 from .program_assignment import (
-    get_adviser_department_map_for_school_year,
+    get_adviser_departments_map_for_school_year,
     get_department_adviser_counts_for_school_year,
 )
 
@@ -70,21 +71,22 @@ class DepartmentUpdateRequest(BaseModel):
             raise ValueError("Department name is required.")
         return normalized
 
-# The AdviserDepartmentUpdateRequest model is used for updating an adviser’s department assignment,
-# where the department_code can be set to null to remove the adviser’s department assignment for the
+# The AdviserDepartmentUpdateRequest model is used for updating an adviser's program assignments,
+# where department_codes is the list of academic program codes the adviser should be assigned to
+# for the given school year. An empty list removes all assignments for that school year.
 class AdviserDepartmentUpdateRequest(BaseModel):
-    department_code: str | None = Field(default=None, max_length=30)
+    department_codes: list[str] = Field(default_factory=list)
     school_year_id: UUID
 
-    @field_validator("department_code")
+    @field_validator("department_codes")
     @classmethod
-    def normalize_department_code(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip().upper()
-        if not normalized:
-            return None
-        return normalized
+    def normalize_department_codes(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for code in value:
+            stripped = (code or "").strip().upper()
+            if stripped:
+                normalized.append(stripped)
+        return list(dict.fromkeys(normalized))
 
 # The DepartmentResponse model defines the structure of the response when retrieving department information,
 # including the department’s ID, code, name, active status, counts of advisers and students, and timestamps for creation and last update.
@@ -99,12 +101,14 @@ class DepartmentResponse(BaseModel):
     updated_at: datetime
 
 # The AdviserResponse model defines the structure of the response when retrieving adviser information for department assignment,
-# including the adviser’s ID, name, email, associated department, active status, and creation
+# including the adviser’s ID, name, email, associated department(s), active status, and creation.
+# department is the primary (first) code for backward compatibility while departments holds the full list.
 class AdviserResponse(BaseModel):
     id: str
     name: str
     email: str | None
     department: str | None
+    departments: list[str] = Field(default_factory=list)
     is_active: bool
     created_at: datetime
 
@@ -139,14 +143,16 @@ def _serialize_department(
         updated_at=department.updated_at,
     )
 
-# The function _serialize_adviser takes an Adviser object, the associated User object, and an optional department code,
-# and returns an AdviserResponse object that can be returned in API responses for adviser information related to
-def _serialize_adviser(adviser: Adviser, user: User, department_code: str | None) -> AdviserResponse:
+# The function _serialize_adviser takes an Adviser object, the associated User object, and the list of department codes,
+# and returns an AdviserResponse object that can be returned in API responses for adviser information related to department assignment.
+# The first code is surfaced in department for backward compatibility while the full list goes into departments.
+def _serialize_adviser(adviser: Adviser, user: User, department_codes: list[str]) -> AdviserResponse:
     return AdviserResponse(
         id=str(adviser.id),
         name=_build_adviser_name(user),
         email=user.email,
-        department=department_code,
+        department=department_codes[0] if department_codes else None,
+        departments=department_codes,
         is_active=user.role == UserRole.ADVISER,
         created_at=adviser.created_at,
     )
@@ -210,7 +216,7 @@ async def list_advisers_for_department_assignment(
 ):
     del current_user
 
-    # The code retrieves all advisers from the database, joining with their associated user information, and orders them by their creation date in descending order. It then resolves the school year ID to use for fetching department assignments (either the provided school year ID or the active school year ID). Next, it calls the helper function get_adviser_department_map_for_school_year to retrieve a mapping of adviser IDs to their assigned department codes for the specified school year. Finally, it constructs a list of AdviserResponse objects for each adviser, including their name, email, associated department code (if any), active status, and creation date, and returns this list as the API response.
+    # The code retrieves all advisers from the database, joining with their associated user information, and orders them by their creation date in descending order. It then resolves the school year ID to use for fetching department assignments (either the provided school year ID or the active school year ID). Next, it calls the helper function get_adviser_departments_map_for_school_year to retrieve a mapping of adviser IDs to their assigned department codes for the specified school year. Finally, it constructs a list of AdviserResponse objects for each adviser, including their name, email, associated department code (if any), active status, and creation date, and returns this list as the API response.
     # The response includes the adviser’s ID, name, email, associated department, active status, and creation date.
     stmt = (
         select(Adviser, User)
@@ -219,7 +225,7 @@ async def list_advisers_for_department_assignment(
     )
     rows = (await db.execute(stmt)).all()
     resolved_school_year_id = school_year_id or await get_active_school_year_id(db)
-    adviser_department_map = await get_adviser_department_map_for_school_year(
+    adviser_departments_map = await get_adviser_departments_map_for_school_year(
         db,
         [adviser.id for adviser, _ in rows],
         resolved_school_year_id,
@@ -229,7 +235,7 @@ async def list_advisers_for_department_assignment(
         _serialize_adviser(
             adviser,
             user,
-            department_code=adviser_department_map.get(adviser.id),
+            department_codes=adviser_departments_map.get(adviser.id, []),
         )
         for adviser, user in rows
     ]
@@ -376,67 +382,28 @@ async def update_adviser_department(
             detail="Closed school years cannot be used for adviser assignments.",
         )
 
-# The code then retrieves the adviser’s current program adviser assignments for the specified school year, ordered by their last update time in descending order.
-    assignment_stmt = (
-        select(ProgramAdviserAssignment)
-        .where(
-            ProgramAdviserAssignment.adviser_id == adviser.id,
-            ProgramAdviserAssignment.school_year_id == school_year.id,
-        )
-        .order_by(
-            desc(ProgramAdviserAssignment.updated_at),
-            desc(ProgramAdviserAssignment.created_at),
-        )
-    )
-    assignments = (await db.execute(assignment_stmt)).scalars().all()
-
-    # If the payload’s department_code is null, the code removes all existing program adviser assignments for the adviser in the specified school year, effectively unassigning the adviser from any department for that school year.
-    if payload.department_code is None:
-        for assignment in assignments:
-            await db.delete(assignment)
-
-        await db.commit()
-        return _serialize_adviser(adviser, user, department_code=None)
-
-    # If the payload includes a department_code, the code retrieves the corresponding department from the database using the helper function _get_department_by_code. 
-    # If the department is not found, it raises an HTTP 404 Not Found error indicating
-    department = await _get_department_by_code(db, payload.department_code)
-    if department is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f'Department code "{payload.department_code}" does not exist.',
-        )
-    # If the department is found but is inactive, it raises an HTTP 400 Bad Request error indicating that the department code is inactive and cannot be assigned to the adviser.
-    if not department.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f'Department code "{payload.department_code}" is inactive.',
-        )
-
-    # The code then determines the target program ID based on the new department code using the helper function program_uuid_for_department_code.
-    target_program_id = program_uuid_for_department_code(department.code)
-    program = await db.get(Program, target_program_id)
-    if program is None:
-        db.add(Program(id=target_program_id))
-        await db.flush()
-
-    # If there are existing program adviser assignments for the adviser in the specified school year, 
-    # the code updates the most recent assignment to point to the new target program ID, while any additional stale assignments are removed to maintain data integrity. If no existing assignments are found, a new ProgramAdviserAssignment is created for the adviser with the target program ID and school year.
-    if assignments:
-        latest_assignment = assignments[0]
-        latest_assignment.program_id = target_program_id
-        for stale_assignment in assignments[1:]:
-            await db.delete(stale_assignment)
-    else:
-        # If there are no existing program adviser assignments for the adviser in the specified school year, 
-        # a new assignment is created to associate the adviser with the target program ID and school year.
-        db.add(
-            ProgramAdviserAssignment(
-                adviser_id=adviser.id,
-                program_id=target_program_id,
-                school_year_id=school_year.id,
+# Validate that every requested department code exists and is active before
+    # touching any assignments, so a bad code never partially mutates the data.
+    for code in payload.department_codes:
+        _department = await _get_department_by_code(db, code)
+        if _department is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f'Department code "{code}" does not exist.',
             )
-        )
+        if not _department.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f'Department code "{code}" is inactive.',
+            )
+
+    # Reconcile diff-based: add missing assignments, remove ones not in the list.
+    assigned_codes = await reconcile_adviser_program_assignments(
+        db,
+        adviser_id=adviser.id,
+        school_year_id=school_year.id,
+        department_codes=payload.department_codes,
+    )
 
     await db.commit()
-    return _serialize_adviser(adviser, user, department_code=department.code)
+    return _serialize_adviser(adviser, user, department_codes=assigned_codes)

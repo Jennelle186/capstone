@@ -26,7 +26,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import PageHeader from "@/components/adviser/ui/PageHeader";
+import ProgramSelector from "@/components/adviser/dashboard/ProgramSelector";
 import { useAdviserSchoolYears } from "@/hooks/useAdviserSchoolYears";
+import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope";
 import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { AdviserStudent } from "@/types/adviser-students";
@@ -78,6 +80,7 @@ export default function ArchivedPage() {
   const navigate = useNavigate();
   const getTokenRef = useStableToken();
   const { years: schoolYears, loading: loadingYears } = useAdviserSchoolYears();
+  const { selectedDepartmentId, setSelectedDepartmentId } = useAdviserProgramScope();
 
   const [selectedYearId, setSelectedYearId] = useState("");
   const [students, setStudents] = useState<AdviserStudent[]>([]);
@@ -102,7 +105,7 @@ export default function ArchivedPage() {
         if (!token) return;
 
         const res = await fetchWithClerkAuth(
-          `/api/adviser/archived?school_year_id=${selectedYearId}`,
+          `/api/adviser/archived?school_year_id=${selectedYearId}${selectedDepartmentId ? `&department_id=${selectedDepartmentId}` : ""}`,
           token,
         );
         if (!res.ok) return;
@@ -119,11 +122,14 @@ export default function ArchivedPage() {
 
     void fetchArchivedData();
     return () => { isMounted = false; };
-  }, [selectedYearId, getTokenRef]);
+  }, [selectedYearId, selectedDepartmentId, getTokenRef]);
 
+  // Reset the department filter whenever the school year changes because a
+  // department may not be available for the newly selected school year.
   const handleYearChange = useCallback((value: string) => {
     setSelectedYearId(value);
-  }, []);
+    setSelectedDepartmentId(null);
+  }, [setSelectedDepartmentId]);
 
   return (
     <div className="space-y-6">
@@ -151,23 +157,26 @@ export default function ArchivedPage() {
               <p className="text-[10px] text-slate-400">Query archived cohorts</p>
             </div>
           </div>
-          <div className="w-full sm:w-64">
-            {loadingYears ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <Select value={selectedYearId} onValueChange={handleYearChange}>
-                <SelectTrigger className="font-bold text-xs h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolYears.map((sy) => (
-                    <SelectItem key={sy.id} value={sy.id}>
-                      School Year {sy.name} {sy.is_current ? "(Current)" : "(Archived)"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <div className="w-full sm:w-64">
+              {loadingYears ? (
+                <Skeleton className="h-10 w-full" />
+              ) : (
+                <Select value={selectedYearId} onValueChange={handleYearChange}>
+                  <SelectTrigger className="font-bold text-xs h-10">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {schoolYears.map((sy) => (
+                      <SelectItem key={sy.id} value={sy.id}>
+                        School Year {sy.name} {sy.is_current ? "(Current)" : "(Archived)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <ProgramSelector schoolYearId={selectedYearId} />
           </div>
         </Card>
       </motion.div>

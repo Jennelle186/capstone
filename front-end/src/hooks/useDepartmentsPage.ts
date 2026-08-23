@@ -43,7 +43,7 @@ export function useDepartmentsPage() {
     const [isEditDepartmentDialogOpen, setIsEditDepartmentDialogOpen] = useState(false);
 
     const [selectedAdviser, setSelectedAdviser] = useState<AdviserDepartmentRecord | null>(null);
-    const [selectedDepartment, setSelectedDepartment] = useState("");
+    const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
     const [editingDepartment, setEditingDepartment] = useState<DepartmentOption | null>(null);
 
     const [addDepartmentForm, setAddDepartmentForm] = useState<DepartmentCreateFormState>(DEFAULT_DEPARTMENT_FORM);
@@ -135,7 +135,8 @@ export function useDepartmentsPage() {
     const normalizedSearchQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
 
     const getAdvisersByDepartment = useCallback(
-        (departmentCode: string | null) => advisers.filter((adviser) => adviser.department === departmentCode),
+        (departmentCode: string | null) =>
+            advisers.filter((adviser) => (adviser.departments ?? []).includes(departmentCode ?? "")),
         [advisers],
     );
 
@@ -144,10 +145,13 @@ export function useDepartmentsPage() {
         [getAdvisersByDepartment],
     );
 
-    const unassignedAdvisers = useMemo(() => advisers.filter((adviser) => adviser.department === null), [advisers]);
+    const unassignedAdvisers = useMemo(
+        () => advisers.filter((adviser) => (adviser.departments ?? []).length === 0),
+        [advisers],
+    );
 
     const assignedAdvisersCount = useMemo(
-        () => advisers.filter((adviser) => adviser.department !== null).length,
+        () => advisers.filter((adviser) => (adviser.departments ?? []).length > 0).length,
         [advisers],
     );
 
@@ -162,6 +166,7 @@ export function useDepartmentsPage() {
                 `s.y. ${selectedSchoolYear?.name ?? ""}`,
                 adviser?.name ?? "",
                 adviser?.email ?? "",
+                adviser ? (adviser.departments ?? []).join(" ") : "",
             ]
                 .join(" ")
                 .toLowerCase();
@@ -178,6 +183,7 @@ export function useDepartmentsPage() {
                 const searchCorpus = [
                     adviser.name,
                     adviser.email ?? "",
+                    (adviser.departments ?? []).join(" "),
                     selectedSchoolYear?.name ?? "",
                     `s.y. ${selectedSchoolYear?.name ?? ""}`,
                 ]
@@ -194,7 +200,7 @@ export function useDepartmentsPage() {
                 if (matchesSearch(department)) return true;
                 return advisers.some(
                     (adviser) =>
-                        adviser.department === department.value &&
+                        (adviser.departments ?? []).includes(department.value) &&
                         matchesSearch(department, adviser),
                 );
             }),
@@ -205,7 +211,7 @@ export function useDepartmentsPage() {
         (department: DepartmentOption) =>
             advisers.filter(
                 (adviser) =>
-                    adviser.department === department.value &&
+                    (adviser.departments ?? []).includes(department.value) &&
                     matchesSearch(department, adviser),
             ),
         [advisers, matchesSearch],
@@ -219,7 +225,9 @@ export function useDepartmentsPage() {
 
     const openAssignDialog = useCallback((adviser: AdviserDepartmentRecord) => {
         setSelectedAdviser(adviser);
-        setSelectedDepartment(adviser.department ?? "");
+        setSelectedDepartments(
+            adviser.departments ?? (adviser.department ? [adviser.department] : []),
+        );
         setIsAssignDialogOpen(true);
     }, []);
 
@@ -240,7 +248,7 @@ export function useDepartmentsPage() {
     );
 
     const handleAssignDepartment = useCallback(async () => {
-        if (!selectedAdviser || !selectedDepartment || !selectedSchoolYearId) return;
+        if (!selectedAdviser || selectedDepartments.length === 0 || !selectedSchoolYearId) return;
 
         setIsUpdatingAssignment(true);
         try {
@@ -249,7 +257,7 @@ export function useDepartmentsPage() {
                 {
                     method: "PATCH",
                     body: JSON.stringify({
-                        department_code: selectedDepartment,
+                        department_codes: selectedDepartments,
                         school_year_id: selectedSchoolYearId,
                     }),
                 },
@@ -261,6 +269,7 @@ export function useDepartmentsPage() {
                         ? {
                             ...adviser,
                             department: payload.department,
+                            departments: payload.departments ?? (payload.department ? [payload.department] : []),
                             isActive: payload.is_active,
                         }
                         : adviser,
@@ -269,14 +278,14 @@ export function useDepartmentsPage() {
 
             setIsAssignDialogOpen(false);
             setSelectedAdviser(null);
-            setSelectedDepartment("");
+            setSelectedDepartments([]);
             toast.success("Adviser assignment updated.");
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to update adviser assignment.");
         } finally {
             setIsUpdatingAssignment(false);
         }
-    }, [requestWithAdminAuth, selectedAdviser, selectedDepartment, selectedSchoolYearId]);
+    }, [requestWithAdminAuth, selectedAdviser, selectedDepartments, selectedSchoolYearId]);
 
     const handleUnassign = useCallback(
         async (adviser: AdviserDepartmentRecord) => {
@@ -292,7 +301,7 @@ export function useDepartmentsPage() {
                     {
                         method: "PATCH",
                         body: JSON.stringify({
-                            department_code: null,
+                            department_codes: [],
                             school_year_id: selectedSchoolYearId,
                         }),
                     },
@@ -304,6 +313,7 @@ export function useDepartmentsPage() {
                             ? {
                                 ...item,
                                 department: payload.department,
+                                departments: [],
                                 isActive: payload.is_active,
                             }
                             : item,
@@ -418,11 +428,16 @@ export function useDepartmentsPage() {
 
             if (editingDepartment.value !== payload.code) {
                 setAdvisers((prev) =>
-                    prev.map((adviser) =>
-                        adviser.department === editingDepartment.value
-                            ? { ...adviser, department: payload.code }
-                            : adviser,
-                    ),
+                    prev.map((adviser) => ({
+                        ...adviser,
+                        department:
+                            adviser.department === editingDepartment.value
+                                ? payload.code
+                                : adviser.department,
+                        departments: (adviser.departments ?? []).map((code) =>
+                            code === editingDepartment.value ? payload.code : code,
+                        ),
+                    })),
                 );
             }
 
@@ -472,7 +487,7 @@ export function useDepartmentsPage() {
         schoolYears,
         searchQuery,
         selectedAdviser,
-        selectedDepartment,
+        selectedDepartments,
         selectedSchoolYearId,
         selectedSchoolYearName: selectedSchoolYear?.name ?? null,
         setSearchQuery,
@@ -482,7 +497,7 @@ export function useDepartmentsPage() {
         setIsAddDepartmentDialogOpen,
         setIsAssignDialogOpen,
         setIsEditDepartmentDialogOpen,
-        setSelectedDepartment,
+        setSelectedDepartments,
         unassignedAdvisers,
     };
 }

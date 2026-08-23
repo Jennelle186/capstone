@@ -18,7 +18,7 @@ interface ArchivedAnalytics {
   student_completion_rate: number;
 }
 
-export function useAdviserAnalytics() {
+export function useAdviserAnalytics(departmentId?: string | null) {
   const getTokenRef = useStableToken();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [archived, setArchived] = useState<ArchivedAnalytics | null>(null);
@@ -28,21 +28,25 @@ export function useAdviserAnalytics() {
   const fetchForYear = useCallback(async (yearId: string) => {
     const token = await getTokenRef.current();
     if (!token) return;
-    const res = await fetchWithClerkAuth(`/api/adviser/archived?school_year_id=${yearId}`, token);
+    const params = new URLSearchParams({ school_year_id: yearId });
+    if (departmentId) params.set("department_id", departmentId);
+    const res = await fetchWithClerkAuth(`/api/adviser/archived?${params.toString()}`, token);
     if (res.ok) {
       const data = await res.json() as { analytics: ArchivedAnalytics };
       setArchived(data.analytics);
     }
-  }, [getTokenRef]);
+  }, [getTokenRef, departmentId]);
 
   useEffect(() => {
     let mounted = true;
+    setLoading(true);
     const load = async () => {
       try {
         const token = await getTokenRef.current();
         if (!token) return;
+        const analyticsPath = departmentId ? `?department_id=${departmentId}` : "";
         const [statsRes, yearsRes] = await Promise.all([
-          fetchWithClerkAuth("/api/adviser/analytics", token),
+          fetchWithClerkAuth(`/api/adviser/analytics${analyticsPath}`, token),
           fetchWithClerkAuth("/api/adviser/school-years", token),
         ]);
         if (!mounted) return;
@@ -52,7 +56,9 @@ export function useAdviserAnalytics() {
           if (!mounted) return;
           const active = years.find((y) => y.is_current) || years[0];
           if (active) {
-            const aRes = await fetchWithClerkAuth(`/api/adviser/archived?school_year_id=${active.id}`, token);
+            const params = new URLSearchParams({ school_year_id: active.id });
+            if (departmentId) params.set("department_id", departmentId);
+            const aRes = await fetchWithClerkAuth(`/api/adviser/archived?${params.toString()}`, token);
             if (aRes.ok && mounted) {
               const d = await aRes.json() as { analytics: ArchivedAnalytics };
               setArchived(d.analytics);
@@ -67,7 +73,7 @@ export function useAdviserAnalytics() {
     };
     void load();
     return () => { mounted = false; };
-  }, [getTokenRef]);
+  }, [getTokenRef, departmentId]);
 
   return { stats, archived, loading, error, fetchForYear };
 }

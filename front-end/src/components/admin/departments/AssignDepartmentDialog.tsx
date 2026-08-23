@@ -9,44 +9,40 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import MultiSelectCombobox from "@/components/ui/multi-select-combobox";
 import type { DepartmentOption } from "@/types/department";
 
-/// Dialog for assigning an adviser to a department. The dialog is used in the adviser table and the adviser details page.
+/// Dialog for assigning an adviser to one or more departments. The dialog is used in the adviser table and the adviser details page.
 interface AssignDepartmentDialogProps {
     departments: DepartmentOption[];
     isSubmitting: boolean;
     isSubmissionDisabled?: boolean;
+    onDepartmentsChange: (codes: string[]) => void;
     onOpenChange: (open: boolean) => void;
     onSubmit: () => void | Promise<void>;
-    onValueChange: (value: string) => void;
     open: boolean;
     selectedAdviserName: string | null;
-    selectedDepartment: string;
+    selectedDepartments: string[];
     selectedSchoolYearName: string | null;
-    getDepartmentAdviserCount: (departmentCode: string) => number;
 }
 
-// The dialog is used in the adviser table and the adviser details page. It allows the user to assign an adviser to a department. The user can select a department from a dropdown list. The dropdown list shows the number of advisers in each department. The user can cancel the assignment or confirm it by clicking the "Assign" button.
+// The dialog is used in the adviser table and the adviser details page. It allows the user to assign an adviser to one or more departments. The user can select departments from a multi-select combobox list. The user can cancel the assignment or confirm it by clicking the "Assign" button.
 export default function AssignDepartmentDialog({
     departments,
-    getDepartmentAdviserCount,
     isSubmitting,
     isSubmissionDisabled = false,
+    onDepartmentsChange,
     onOpenChange,
     onSubmit,
-    onValueChange,
     open,
     selectedAdviserName,
-    selectedDepartment,
+    selectedDepartments,
     selectedSchoolYearName,
 }: AssignDepartmentDialogProps) {
+    const activeDepartmentOptions = departments
+        .filter((department) => department.isActive)
+        .map((department) => ({ value: department.value, label: department.label }));
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-xl">
@@ -55,7 +51,7 @@ export default function AssignDepartmentDialog({
                     <DialogDescription className="wrap-break-word">
                         {selectedAdviserName ? (
                             <>
-                                Assign <strong>{selectedAdviserName}</strong> to an academic program
+                                Assign <strong>{selectedAdviserName}</strong> to one or more academic programs
                             </>
                         ) : null}
                     </DialogDescription>
@@ -66,25 +62,13 @@ export default function AssignDepartmentDialog({
                             ? `Assignment will be saved for S.Y. ${selectedSchoolYearName}.`
                             : "Select a school year first before assigning."}
                     </p>
-                    <Select value={selectedDepartment} onValueChange={onValueChange}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select academic program" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {departments
-                                .filter((department) => department.isActive)
-                                .map((department) => (
-                                    <SelectItem key={department.id} value={department.value}>
-                                        <div className="flex w-full min-w-0 items-center justify-between gap-2">
-                                            <span className="min-w-0 wrap-break-word text-left">{department.label}</span>
-                                            <span className="text-muted-foreground shrink-0 text-xs">
-                                                ({getDepartmentAdviserCount(department.value)} advisers)
-                                            </span>
-                                        </div>
-                                    </SelectItem>
-                                ))}
-                        </SelectContent>
-                    </Select>
+                    <MultiSelectCombobox
+                        options={activeDepartmentOptions}
+                        value={selectedDepartments}
+                        onValueChange={onDepartmentsChange}
+                        placeholder="Select academic programs"
+                        emptyMessage="No academic programs found."
+                    />
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -92,7 +76,7 @@ export default function AssignDepartmentDialog({
                     </Button>
                     <Button
                         onClick={() => void onSubmit()}
-                        disabled={!selectedDepartment || isSubmitting || isSubmissionDisabled}
+                        disabled={selectedDepartments.length === 0 || isSubmitting || isSubmissionDisabled}
                     >
                         <CheckCircle2 className="w-4 h-4 mr-2" />
                         Assign

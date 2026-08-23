@@ -31,4 +31,5 @@ export interface ClassificationItem {
   previewUrl?: string;
   classificationResult?: ClassificationResult | null;
   mimeType?: string | null;
+  createdAt?: string | null;
 }

@@ -5,7 +5,7 @@ import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { AdviserStudent } from "@/types/adviser-students";
 
-export function useAdviserStudents(schoolYearId?: string) {
+export function useAdviserStudents(schoolYearId?: string, departmentId?: string | null) {
   const getTokenRef = useStableToken();
   const [students, setStudents] = useState<AdviserStudent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -13,12 +13,16 @@ export function useAdviserStudents(schoolYearId?: string) {
 
   useEffect(() => {
     let mounted = true;
+    setLoading(true);
     const load = async () => {
       try {
         const token = await getTokenRef.current();
         if (!token) return;
-        const params = schoolYearId ? `?school_year_id=${schoolYearId}` : "";
-        const res = await fetchWithClerkAuth(`/api/adviser/students${params}`, token);
+        const params = new URLSearchParams();
+        if (schoolYearId) params.set("school_year_id", schoolYearId);
+        if (departmentId) params.set("department_id", departmentId);
+        const qs = params.toString();
+        const res = await fetchWithClerkAuth(`/api/adviser/students${qs ? `?${qs}` : ""}`, token);
         if (!res.ok) throw new Error(`Failed: ${res.status}`);
         const data = await res.json() as AdviserStudent[];
         if (mounted) setStudents(data);
@@ -30,7 +34,7 @@ export function useAdviserStudents(schoolYearId?: string) {
     };
     void load();
     return () => { mounted = false; };
-  }, [getTokenRef, schoolYearId]);
+  }, [getTokenRef, schoolYearId, departmentId]);
 
   return { students, loading, error };
 }

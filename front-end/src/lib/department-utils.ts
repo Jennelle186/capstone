@@ -68,6 +68,7 @@ export function mapAdvisersForDepartments(payload: AdviserDepartmentResponse[]):
         name: adviser.name,
         email: adviser.email,
         department: adviser.department,
+        departments: adviser.departments ?? [],
         isActive: adviser.is_active,
     }));
 }

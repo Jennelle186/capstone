@@ -274,6 +274,15 @@ class AdminAuditLog(Base):
 
 class ProgramAdviserAssignment(Base):
     __tablename__ = "program_adviser_assignments"
+    __table_args__ = (
+        # At most one assignment row per adviser, program, and school year.
+        UniqueConstraint(
+            "adviser_id",
+            "program_id",
+            "school_year_id",
+            name="uq_program_adviser_assignment",
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     adviser_id = Column(

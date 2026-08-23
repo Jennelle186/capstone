@@ -8,20 +8,22 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.orm import selectinload
 
 from ..database import SessionDep
 from ..models import (
-    Adviser,
     AdminAuditLog,
+    Adviser,
     Department,
     DocumentType,
     ProgramAdviserAssignment,
+    RequirementSlot,
+    RequirementSlotItem,
     SchoolYear,
     SchoolYearRequirement,
     SchoolYearStatus,
     User,
 )
-from .helpers import program_uuid_for_department_code
 from ..schemas.school_years import (
     AdminAuditLogResponse,
     SchoolYearActivationPreviewResponse,
@@ -32,6 +34,8 @@ from ..schemas.school_years import (
     SchoolYearRolloverRequest,
     SchoolYearUpdateRequest,
 )
+from .helpers import program_uuid_for_department_code
+
 
 # Helper function to create a snapshot of a school year's key attributes for logging purposes
 def school_year_snapshot(school_year: SchoolYear) -> dict[str, object]:
@@ -689,17 +693,42 @@ async def rollover_school_year(
             )
 
     if payload.copy_requirements:
-        requirement_stmt = select(SchoolYearRequirement.document_type_id).where(
-            SchoolYearRequirement.school_year_id == source_school_year.id
-        )
-        document_type_ids = (await db.execute(requirement_stmt)).scalars().all()
-        for document_type_id in document_type_ids:
-            db.add(
-                SchoolYearRequirement(
-                    school_year_id=new_school_year.id,
-                    document_type_id=document_type_id,
-                )
+        # Deep-copy the slot-based requirement system (RequirementSlot +
+        # RequirementSlotItem), which is what the Requirements page reads via
+        # GET /api/admin/requirement-slots. The legacy school_year_requirements
+        # table was superseded by slots, so it is intentionally not copied.
+        source_slots = (
+            await db.execute(
+                select(RequirementSlot)
+                .where(RequirementSlot.school_year_id == source_school_year.id)
+                .order_by(RequirementSlot.display_order)
+                .options(selectinload(RequirementSlot.items))
             )
+        ).scalars().all()
+
+        for source_slot in source_slots:
+            new_slot = RequirementSlot(
+                school_year_id=new_school_year.id,
+                slot_type=source_slot.slot_type,
+                group_name=source_slot.group_name,
+                description=source_slot.description,
+                min_required=source_slot.min_required,
+                display_order=source_slot.display_order,
+                snapshot_fields_json=source_slot.snapshot_fields_json,
+            )
+            db.add(new_slot)
+            await db.flush()
+
+            for source_item in source_slot.items:
+                db.add(
+                    RequirementSlotItem(
+                        requirement_slot_id=new_slot.id,
+                        document_type_id=source_item.document_type_id,
+                        extraction_schema_id=source_item.extraction_schema_id,
+                        is_primary=source_item.is_primary,
+                        display_order=source_item.display_order,
+                    )
+                )
 
     await log_school_year_action(
         db,

@@ -206,27 +206,17 @@ async def _promote_and_finalize_adviser_invitation(db: AsyncSession, user: User)
             await db.flush()
             changed = True
 
-        assignment_stmt = (
-            select(ProgramAdviserAssignment)
-            .where(
-                ProgramAdviserAssignment.adviser_id == adviser.id,
-                ProgramAdviserAssignment.school_year_id == invitation.school_year_id,
-            )
-            .order_by(
-                desc(ProgramAdviserAssignment.updated_at),
-                desc(ProgramAdviserAssignment.created_at),
-            )
+        # Append-only: add an assignment row for the invited program if one does
+        # not already exist for this adviser + school year. Never removes or
+        # rewrites other assignments, so accepting an invitation to a second
+        # program keeps the adviser's existing programs intact.
+        existing_stmt = select(ProgramAdviserAssignment.id).where(
+            ProgramAdviserAssignment.adviser_id == adviser.id,
+            ProgramAdviserAssignment.school_year_id == invitation.school_year_id,
+            ProgramAdviserAssignment.program_id == program_id,
         )
-        assignments = (await db.execute(assignment_stmt)).scalars().all()
-        if assignments:
-            latest_assignment = assignments[0]
-            if latest_assignment.program_id != program_id:
-                latest_assignment.program_id = program_id
-                changed = True
-            for stale_assignment in assignments[1:]:
-                await db.delete(stale_assignment)
-                changed = True
-        else:
+        existing_id = (await db.execute(existing_stmt)).scalar_one_or_none()
+        if existing_id is None:
             db.add(
                 ProgramAdviserAssignment(
                     adviser_id=adviser.id,
