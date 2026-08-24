@@ -41,6 +41,19 @@ def extract_values(
             continue
         if raw == "" or raw == []:
             continue
+
+        if isinstance(raw, str):
+            raw = raw.strip()
+            if not raw:
+                continue
+
+        if field_type == "boolean" and isinstance(raw, str):
+            raw_lower = raw.lower()
+            if raw_lower in ("true", "yes", "1"):
+                raw = True
+            elif raw_lower in ("false", "no", "0"):
+                raw = False
+
         if field_type == "multi-select" and isinstance(raw, list):
             values.append(raw)
         elif field_type in ("number", "integer") and not isinstance(raw, (int, float)):

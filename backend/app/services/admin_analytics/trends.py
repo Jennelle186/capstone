@@ -161,7 +161,14 @@ async def get_trends(
                 series.append(None)
                 continue
 
-            field_options = first.get("options")
+            merged_options: dict[str, str] = {}
+            for fe in field_entries:
+                for opt in (fe.get("options") or []):
+                    raw = str(opt.get("value", "")).strip().lower()
+                    label = opt.get("label", "")
+                    if raw and label and raw not in merged_options:
+                        merged_options[raw] = label
+            field_options = [{"value": k, "label": v} for k, v in merged_options.items()] if merged_options else None
             buckets_config = first.get("buckets")
             agg_result = aggregator.aggregate(values, options=field_options, buckets=buckets_config)
             entry: dict = {
