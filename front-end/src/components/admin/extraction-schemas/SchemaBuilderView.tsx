@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import {
+    BarChart3,
     ChevronDown,
     ChevronRight,
     Code,
@@ -22,16 +23,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { getPreviewSchema, statusLabel } from "@/lib/schema-utils";
+import { findDuplicateCanonicalKeys } from "@/lib/analytics-utils";
+import { getPreviewSchema, groupBySection, statusLabel } from "@/lib/schema-utils";
+import type { CanonicalKeyItem } from "@/types/analytics";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
 import type { ExtractionSchemaField, ExtractionSchemaPayload } from "@/types/extractionSchema";
 import FieldEditorRow from "./FieldEditorRow";
-
-interface SectionGroup {
-    sectionId: string | null;
-    sectionTitle: string | null;
-    fields: ExtractionSchemaField[];
-}
+import InsertZone from "./InsertZone";
 
 interface SchemaBuilderViewProps {
     formState: ExtractionSchemaPayload;
@@ -52,71 +50,8 @@ interface SchemaBuilderViewProps {
     onAddSection: (afterFieldId?: string) => void;
     onFieldUpdate: (fieldId: string, next: Partial<ExtractionSchemaField>) => void;
     onRemoveField: (fieldId: string) => void;
-}
-
-function InsertZone({
-    afterFieldId,
-    onAddField,
-    onAddSection,
-}: {
-    afterFieldId?: string;
-    onAddField: (afterFieldId?: string) => void;
-    onAddSection: (afterFieldId?: string) => void;
-}) {
-    const [isHovered, setIsHovered] = useState(false);
-
-    return (
-        <div
-            className="relative flex items-center justify-center"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-        >
-            <div className="h-2 w-full" />
-            {isHovered && (
-                <div className="absolute inset-x-0 -top-1 z-10 flex items-center justify-center gap-1">
-                    <div className="h-px flex-1 bg-slate-200" />
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-600 shadow-sm hover:bg-slate-50"
-                        onClick={() => onAddField(afterFieldId)}
-                    >
-                        <Plus className="h-3 w-3" />
-                        Add Field
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-600 shadow-sm hover:bg-slate-50"
-                        onClick={() => onAddSection(afterFieldId)}
-                    >
-                        <Plus className="h-3 w-3" />
-                        Add Section
-                    </Button>
-                    <div className="h-px flex-1 bg-slate-200" />
-                </div>
-            )}
-        </div>
-    );
-}
-
-function groupBySection(fields: ExtractionSchemaField[]): SectionGroup[] {
-    const grouped: Record<string, SectionGroup> = {};
-    for (const field of fields) {
-        const sid = field.section_id ?? "__nosection__";
-        if (!grouped[sid]) {
-            grouped[sid] = {
-                sectionId: field.section_id ?? null,
-                sectionTitle: field.section_title ?? null,
-                fields: [],
-            };
-        }
-        grouped[sid].fields.push(field);
-    }
-    const order = ["__nosection__", ...Object.keys(grouped).filter((k) => k !== "__nosection__")];
-    return order.filter((k) => grouped[k]).map((k) => grouped[k]);
+    canonicalKeySuggestions?: CanonicalKeyItem[];
+    analyticsGroupSuggestions?: string[];
 }
 
 export default function SchemaBuilderView({
@@ -136,6 +71,8 @@ export default function SchemaBuilderView({
     onAddSection,
     onFieldUpdate,
     onRemoveField,
+    canonicalKeySuggestions = [],
+    analyticsGroupSuggestions = [],
 }: SchemaBuilderViewProps) {
     const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
     const [showJsonPreview, setShowJsonPreview] = useState(false);
@@ -143,6 +80,12 @@ export default function SchemaBuilderView({
 
     const activeDocTypes = documentTypes.filter((dt) => dt.status === "active");
     const sections = groupBySection(formState.fields_json);
+
+    const analyticsEnabledFields = formState.fields_json.filter((f) => f.is_analytics);
+    const fieldsWithSuggestion = formState.fields_json.filter(
+        (f) => !f.is_analytics && f.canonical_key,
+    );
+    const duplicateKeyFields = findDuplicateCanonicalKeys(formState.fields_json);
 
     const toggleSection = (sid: string) => {
         setCollapsedSections((prev) => {
@@ -282,6 +225,31 @@ export default function SchemaBuilderView({
                 </CardContent>
             </Card>
 
+            {(analyticsEnabledFields.length > 0 || fieldsWithSuggestion.length > 0) && (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-xs">
+                    <BarChart3 className="h-4 w-4 text-emerald-600" />
+                    <span className="font-semibold text-emerald-800">
+                        {analyticsEnabledFields.length} analytics field{analyticsEnabledFields.length !== 1 ? "s" : ""} configured
+                    </span>
+                    {fieldsWithSuggestion.length > 0 && (
+                        <>
+                            <span className="text-emerald-700/60">·</span>
+                            <span className="text-emerald-700">
+                                {fieldsWithSuggestion.length} suggested (enable to apply)
+                            </span>
+                        </>
+                    )}
+                    {duplicateKeyFields.size > 0 && (
+                        <>
+                            <span className="text-emerald-700/60">·</span>
+                            <span className="font-semibold text-destructive">
+                                {duplicateKeyFields.size} field{duplicateKeyFields.size !== 1 ? "s" : ""} with duplicate keys
+                            </span>
+                        </>
+                    )}
+                </div>
+            )}
+
             <Card className="border-slate-200 shadow-xs">
                 <CardHeader className="border-b border-slate-100 pb-4 bg-slate-50/50">
                     <div className="flex items-center justify-between">
@@ -357,6 +325,9 @@ export default function SchemaBuilderView({
                                                 isLast={formState.fields_json.length === 1}
                                                 onUpdate={onFieldUpdate}
                                                 onDelete={onRemoveField}
+                                                canonicalKeySuggestions={canonicalKeySuggestions}
+                                                analyticsGroupSuggestions={analyticsGroupSuggestions}
+                                                duplicateWith={duplicateKeyFields.get(field.id) ?? []}
                                             />
                                             <InsertZone
                                                 afterFieldId={field.id}

@@ -41,6 +41,29 @@ export function normalizeFieldKey(value: string): string {
     return value.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_.]/g, "");
 }
 
+export interface SectionGroup {
+    sectionId: string | null;
+    sectionTitle: string | null;
+    fields: ExtractionSchemaField[];
+}
+
+export function groupBySection(fields: ExtractionSchemaField[]): SectionGroup[] {
+    const grouped: Record<string, SectionGroup> = {};
+    for (const field of fields) {
+        const sid = field.section_id ?? "__nosection__";
+        if (!grouped[sid]) {
+            grouped[sid] = {
+                sectionId: field.section_id ?? null,
+                sectionTitle: field.section_title ?? null,
+                fields: [],
+            };
+        }
+        grouped[sid].fields.push(field);
+    }
+    const order = ["__nosection__", ...Object.keys(grouped).filter((k) => k !== "__nosection__")];
+    return order.filter((k) => grouped[k]).map((k) => grouped[k]);
+}
+
 export function hasSchemaProperties(schema: Record<string, unknown>): boolean {
     const properties = getSchemaProperties(schema);
     return properties !== null && Object.keys(properties).length > 0;

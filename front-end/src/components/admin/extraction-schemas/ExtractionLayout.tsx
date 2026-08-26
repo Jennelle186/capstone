@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Play, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { CanonicalKeyItem } from "@/types/analytics";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
 import type {
     ExtractionSchemaField,
@@ -44,6 +45,8 @@ interface ExtractionLayoutProps {
     onSampleFilesChange: (files: File[]) => void;
     onNewSchema: () => void;
     onRunExtraction?: () => void;
+    canonicalKeySuggestions?: CanonicalKeyItem[];
+    analyticsGroupSuggestions?: string[];
 }
 
 export default function ExtractionLayout(props: ExtractionLayoutProps) {
@@ -114,6 +117,8 @@ export default function ExtractionLayout(props: ExtractionLayoutProps) {
                             onAddSection={props.onAddSection}
                             onFieldUpdate={props.onFieldUpdate}
                             onRemoveField={props.onRemoveField}
+                            canonicalKeySuggestions={props.canonicalKeySuggestions}
+                            analyticsGroupSuggestions={props.analyticsGroupSuggestions}
                         />
                     ) : (
                         <SandboxTestingView
