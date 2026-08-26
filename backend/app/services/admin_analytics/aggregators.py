@@ -182,8 +182,8 @@ class BooleanAggregator(Aggregator):
     """Count true/false occurrences and return counts with percentages."""
 
     def aggregate(self, values: list, **kwargs) -> dict[str, Any]:
-        trues = sum(1 for v in values if v is True)
-        falses = sum(1 for v in values if v is False)
+        trues = sum(1 for v in values if v is True or (isinstance(v, str) and v.strip().lower() in ("true", "yes", "1")))
+        falses = sum(1 for v in values if v is False or (isinstance(v, str) and v.strip().lower() in ("false", "no", "0")))
         total = trues + falses
         return {
             "true": (

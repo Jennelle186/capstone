@@ -54,6 +54,20 @@ class TestDistributionAggregator:
         assert result["student_count"] == 3
         assert len(result["distribution"]) == 3
 
+    def test_merged_options_from_multiple_schemas(self):
+        merged_options = [
+            {"value": "male", "label": "Male"},
+            {"value": "female", "label": "Female"},
+            {"value": "non_binary", "label": "Non-Binary"},
+        ]
+        values = ["male", "female", "non_binary", "male"]
+        result = DistributionAggregator().aggregate(values, options=merged_options)
+        assert result["student_count"] == 4
+        labels = {d["label"]: d["count"] for d in result["distribution"]}
+        assert labels["Male"] == 2
+        assert labels["Female"] == 1
+        assert labels["Non-Binary"] == 1
+
     def test_empty_values(self):
         result = DistributionAggregator().aggregate([])
         assert result["student_count"] == 0
@@ -110,6 +124,20 @@ class TestBooleanAggregator:
         result = BooleanAggregator().aggregate([])
         assert result["count"] == 0
         assert result["true"]["percentage"] is None
+
+    def test_accepts_string_true(self):
+        values = ["true", True, "false"]
+        result = BooleanAggregator().aggregate(values)
+        assert result["count"] == 3
+        assert result["true"]["count"] == 2
+        assert result["false"]["count"] == 1
+
+    def test_accepts_string_yes_no(self):
+        values = ["yes", "no", True]
+        result = BooleanAggregator().aggregate(values)
+        assert result["count"] == 3
+        assert result["true"]["count"] == 2
+        assert result["false"]["count"] == 1
 
 
 class TestAggregatorsRegistry:
@@ -230,3 +258,38 @@ class TestExtractValues:
     def test_empty_submissions(self):
         result = extract_values([], "field_1", "string")
         assert result == []
+
+    def test_strips_string_values(self):
+        subs = [self._make_submission({"field_1": {"value": "  male  "}})]
+        result = extract_values(subs, "field_1", "string")
+        assert result == ["male"]
+
+    def test_normalizes_boolean_string_true(self):
+        subs = [self._make_submission({"field_1": {"value": "true"}})]
+        result = extract_values(subs, "field_1", "boolean")
+        assert result == [True]
+
+    def test_normalizes_boolean_string_false(self):
+        subs = [self._make_submission({"field_1": {"value": "false"}})]
+        result = extract_values(subs, "field_1", "boolean")
+        assert result == [False]
+
+    def test_normalizes_boolean_string_yes(self):
+        subs = [self._make_submission({"field_1": {"value": "yes"}})]
+        result = extract_values(subs, "field_1", "boolean")
+        assert result == [True]
+
+    def test_normalizes_boolean_string_no(self):
+        subs = [self._make_submission({"field_1": {"value": "no"}})]
+        result = extract_values(subs, "field_1", "boolean")
+        assert result == [False]
+
+    def test_normalizes_boolean_string_one(self):
+        subs = [self._make_submission({"field_1": {"value": "1"}})]
+        result = extract_values(subs, "field_1", "boolean")
+        assert result == [True]
+
+    def test_normalizes_boolean_string_zero(self):
+        subs = [self._make_submission({"field_1": {"value": "0"}})]
+        result = extract_values(subs, "field_1", "boolean")
+        assert result == [False]
