@@ -13,6 +13,7 @@ from app.services.admin_analytics.aggregators import (
     NumericAggregator,
     infer_mode,
 )
+from app.services.admin_analytics.alignment import build_alignment_report
 from app.services.admin_analytics.field_values import extract_values
 
 
@@ -293,3 +294,83 @@ class TestExtractValues:
         subs = [self._make_submission({"field_1": {"value": "0"}})]
         result = extract_values(subs, "field_1", "boolean")
         assert result == [False]
+
+
+class TestBuildAlignmentReport:
+    def _field(self, key="gender", canonical_key="gender", field_type="select", options=None, label=None):
+        field = {"key": key, "type": field_type, "is_analytics": True, "canonical_key": canonical_key}
+        if label is not None:
+            field["analytics_label"] = label
+        if options is not None:
+            field["options"] = options
+        return field
+
+    def _schema(self, schema_id, name, fields):
+        return {"id": schema_id, "name": name, "fields": fields}
+
+    def test_aligned_group_across_two_years(self):
+        schemas = [
+            self._schema("s1", "Enrollment 2024", [self._field()]),
+            self._schema("s2", "Enrollment 2026", [self._field()]),
+        ]
+        year_names = {"s1": ["2023-2024"], "s2": ["2026-2027"]}
+        report = build_alignment_report(schemas, year_names)
+        assert report["total_keys"] == 1
+        assert report["isolated_keys"] == 0
+        assert report["diverged_keys"] == 0
+        group = report["groups"][0]
+        assert group["status"] == "aligned"
+        assert group["school_year_count"] == 2
+        assert group["school_year_names"] == ["2023-2024", "2026-2027"]
+
+    def test_isolated_single_year(self):
+        schemas = [self._schema("s1", "Enrollment 2024", [self._field()])]
+        report = build_alignment_report(schemas, {"s1": ["2023-2024"]})
+        assert report["isolated_keys"] == 1
+        assert report["groups"][0]["status"] == "isolated"
+
+    def test_diverges_on_field_type(self):
+        schemas = [
+            self._schema("s1", "Enrollment 2024", [self._field(field_type="string")]),
+            self._schema("s2", "Enrollment 2026", [self._field(field_type="select")]),
+        ]
+        year_names = {"s1": ["2023-2024"], "s2": ["2026-2027"]}
+        report = build_alignment_report(schemas, year_names)
+        group = report["groups"][0]
+        assert group["status"] == "diverges"
+        assert report["diverged_keys"] == 1
+        assert any("field_type differs" in d for d in group["divergences"])
+
+    def test_diverges_on_options(self):
+        opts_a = [{"value": "male", "label": "Male"}, {"value": "female", "label": "Female"}]
+        opts_b = [{"value": "male", "label": "Male"}, {"value": "female", "label": "Female"}, {"value": "non_binary", "label": "Non-Binary"}]
+        schemas = [
+            self._schema("s1", "Enrollment 2024", [self._field(options=opts_a)]),
+            self._schema("s2", "Enrollment 2026", [self._field(options=opts_b)]),
+        ]
+        year_names = {"s1": ["2023-2024"], "s2": ["2026-2027"]}
+        report = build_alignment_report(schemas, year_names)
+        group = report["groups"][0]
+        assert group["status"] == "diverges"
+        assert "options differ" in group["divergences"]
+
+    def test_falls_back_to_field_key(self):
+        schemas = [self._schema("s1", "Enrollment 2024", [self._field(canonical_key=None)])]
+        report = build_alignment_report(schemas, {"s1": ["2023-2024"]})
+        assert report["groups"][0]["canonical_key"] == "gender"
+
+    def test_skips_non_analytics_fields(self):
+        non_analytics = {"key": "notes", "type": "string", "is_analytics": False}
+        schemas = [self._schema("s1", "Enrollment 2024", [non_analytics])]
+        report = build_alignment_report(schemas, {"s1": ["2023-2024"]})
+        assert report["total_keys"] == 0
+
+    def test_skips_fields_with_no_key_and_no_canonical_key(self):
+        field = {"key": "", "type": "string", "is_analytics": True, "canonical_key": None}
+        schemas = [self._schema("s1", "Enrollment 2024", [field])]
+        report = build_alignment_report(schemas, {"s1": ["2023-2024"]})
+        assert report["total_keys"] == 0
+
+    def test_empty_schemas(self):
+        report = build_alignment_report([], {})
+        assert report == {"groups": [], "total_keys": 0, "isolated_keys": 0, "diverged_keys": 0}

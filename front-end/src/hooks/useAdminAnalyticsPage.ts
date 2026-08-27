@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { useStableToken } from "@/hooks/useStableToken"
 import { fetchWithClerkAuth } from "@/lib/api"
 import type {
+  AlignmentReport,
   CanonicalKeyItem,
   CanonicalKeysResponse,
   EnrolmentResponse,
@@ -28,13 +29,15 @@ export function useAdminAnalyticsPage() {
   const [canonicalKeys, setCanonicalKeys] = useState<CanonicalKeyItem[]>([])
   const [enrolment, setEnrolment] = useState<EnrolmentSeriesItem[]>([])
   const [trends, setTrends] = useState<TrendResponse | null>(null)
+  const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
 
   const [isLoadingSnapshot, setIsLoadingSnapshot] = useState(true)
   const [isLoadingCanonical, setIsLoadingCanonical] = useState(true)
   const [isLoadingEnrolment, setIsLoadingEnrolment] = useState(true)
   const [isLoadingTrends, setIsLoadingTrends] = useState(false)
+  const [isLoadingAlignment, setIsLoadingAlignment] = useState(true)
 
-  const [tab, setTab] = useState<"snapshot" | "trends" | "fields">("snapshot")
+  const [tab, setTab] = useState<"snapshot" | "trends" | "fields" | "alignment">("snapshot")
   const [trendFromYear, setTrendFromYear] = useState("2023")
   const [trendToYear, setTrendToYear] = useState("2026")
   const [selectedTrendKeys, setSelectedTrendKeys] = useState<string[]>(["gender"])
@@ -147,6 +150,20 @@ export function useAdminAnalyticsPage() {
     [requestWithAdminAuth, deptQuery],
   )
 
+  const loadAlignment = useCallback(async () => {
+    setIsLoadingAlignment(true)
+    try {
+      const payload = (await requestWithAdminAuth(
+        "/api/admin/analytics/alignment",
+      )) as AlignmentReport
+      setAlignment(payload)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load alignment report.")
+    } finally {
+      setIsLoadingAlignment(false)
+    }
+  }, [requestWithAdminAuth])
+
   useEffect(() => {
     if (!isLoaded) return
     if (!isSignedIn) {
@@ -155,13 +172,15 @@ export function useAdminAnalyticsPage() {
       setIsLoadingSnapshot(false)
       setIsLoadingCanonical(false)
       setIsLoadingEnrolment(false)
+      setIsLoadingAlignment(false)
       return
     }
     void loadSchoolYears()
     void loadDepartments()
     void loadCanonicalKeys()
     void loadEnrolment("2023", "2026")
-  }, [isLoaded, isSignedIn, loadSchoolYears, loadDepartments, loadCanonicalKeys, loadEnrolment])
+    void loadAlignment()
+  }, [isLoaded, isSignedIn, loadSchoolYears, loadDepartments, loadCanonicalKeys, loadEnrolment, loadAlignment])
 
   useEffect(() => {
     if (!selectedSyId) return
@@ -231,6 +250,8 @@ export function useAdminAnalyticsPage() {
     isLoadingEnrolment,
     trends,
     isLoadingTrends,
+    alignment,
+    isLoadingAlignment,
     tab,
     setTab,
     trendFromYear,

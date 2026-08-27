@@ -7,14 +7,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ...database import SessionDep
 from ...rbac import require_admin
 from ...services.admin_analytics import (
+    generate_insights as svc_generate_insights,
+    get_alignment_report as svc_get_alignment_report,
     get_canonical_keys as svc_get_canonical_keys,
     get_dashboard_kpi as svc_get_dashboard_kpi,
     get_enrolment_trends as svc_get_enrolment_trends,
     get_extraction_analytics as svc_get_extraction_analytics,
-    generate_insights as svc_generate_insights,
     get_trends as svc_get_trends,
 )
 from ...services.admin_analytics.response import (
+    AlignmentReport,
     CanonicalKeysResponse,
     DashboardKPIResponse,
     EnrolmentResponse,
@@ -33,6 +35,16 @@ async def canonical_keys(
     del current_user
     keys = await svc_get_canonical_keys(db)
     return CanonicalKeysResponse(keys=keys)
+
+
+@router.get("/alignment", response_model=AlignmentReport)
+async def alignment_report(
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    del current_user
+    result = await svc_get_alignment_report(db)
+    return AlignmentReport(**result)
 
 
 @router.get("/extractions", response_model=SnapshotResponse)
