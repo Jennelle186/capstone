@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class CanonicalKeyItem(BaseModel):
@@ -16,6 +16,30 @@ class CanonicalKeyItem(BaseModel):
 
 class CanonicalKeysResponse(BaseModel):
     keys: list[CanonicalKeyItem]
+
+
+class AlignmentFieldDetail(BaseModel):
+    field_key: str
+    field_label: str
+    field_type: str
+    schema_name: str
+    school_year_names: list[str] = []
+
+
+class AlignmentGroup(BaseModel):
+    canonical_key: str
+    field_details: list[AlignmentFieldDetail]
+    school_year_count: int
+    school_year_names: list[str] = []
+    status: str = "aligned"  # aligned | diverges | isolated
+    divergences: list[str] = []
+
+
+class AlignmentReport(BaseModel):
+    groups: list[AlignmentGroup]
+    total_keys: int
+    isolated_keys: int
+    diverged_keys: int
 
 
 class FieldInsights(BaseModel):

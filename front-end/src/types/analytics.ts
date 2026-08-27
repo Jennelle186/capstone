@@ -11,6 +11,30 @@ export interface CanonicalKeysResponse {
   keys: CanonicalKeyItem[]
 }
 
+export interface AlignmentFieldDetail {
+  field_key: string
+  field_label: string
+  field_type: string
+  schema_name: string
+  school_year_names: string[]
+}
+
+export interface AlignmentGroup {
+  canonical_key: string
+  field_details: AlignmentFieldDetail[]
+  school_year_count: number
+  school_year_names: string[]
+  status: "aligned" | "diverges" | "isolated"
+  divergences: string[]
+}
+
+export interface AlignmentReport {
+  groups: AlignmentGroup[]
+  total_keys: number
+  isolated_keys: number
+  diverged_keys: number
+}
+
 export interface FieldInsights {
   total_students: number
   values_present: number

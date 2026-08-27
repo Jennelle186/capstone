@@ -1,13 +1,17 @@
-import { BarChart3, GripVertical, Lock, Plus, Sigma, Trash2, Unlock, X } from "lucide-react";
-import { useState } from "react";
+import { BarChart3, GripVertical, Lock, Sigma, Trash2, Unlock } from "lucide-react";
+import { useId, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { findSuggestedKey } from "@/lib/analytics-utils";
 import { FIELD_TYPES, normalizeFieldKey } from "@/lib/schema-utils";
-import type { BucketConfig, ExtractionSchemaField, ExtractionSchemaFieldType } from "@/types/extractionSchema";
+import type { CanonicalKeyItem } from "@/types/analytics";
+import type { ExtractionSchemaField, ExtractionSchemaFieldType } from "@/types/extractionSchema";
+import BucketEditor from "./BucketEditor";
+import CanonicalKeyInput from "./CanonicalKeyInput";
+import FieldOptionEditor from "./FieldOptionEditor";
 
 interface FieldEditorRowProps {
     field: ExtractionSchemaField;
@@ -16,318 +20,9 @@ interface FieldEditorRowProps {
     onUpdate: (fieldId: string, next: Partial<ExtractionSchemaField>) => void;
     onDelete: (fieldId: string) => void;
     isLast: boolean;
-}
-
-function FieldOptionEditor({
-    options,
-    onOptionsChange,
-    readOnly,
-}: {
-    options: ExtractionSchemaField["options"];
-    onOptionsChange: (options: ExtractionSchemaField["options"]) => void;
-    readOnly?: boolean;
-}) {
-    const [newLabel, setNewLabel] = useState("");
-    const [newValue, setNewValue] = useState("");
-    const [showAdvanced, setShowAdvanced] = useState(false);
-
-    const currentOptions = options ?? [];
-
-    const addOption = () => {
-        if (!newLabel.trim()) return;
-        const value = showAdvanced && newValue.trim()
-            ? newValue.trim()
-            : normalizeFieldKey(newLabel);
-        onOptionsChange([...currentOptions, { value, label: newLabel.trim() }]);
-        setNewLabel("");
-        setNewValue("");
-    };
-
-    const removeOption = (index: number) => {
-        onOptionsChange(currentOptions.filter((_, i) => i !== index));
-    };
-
-    return (
-        <div className="space-y-1.5 mt-2">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Options</p>
-            {currentOptions.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                    {currentOptions.map((opt, i) => (
-                        <Badge key={opt.value} variant="secondary" className="gap-1 pr-1 text-[10px]">
-                            {opt.label}
-                            <button
-                                type="button"
-                                onClick={() => removeOption(i)}
-                                disabled={readOnly}
-                                className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:pointer-events-none"
-                            >
-                                <X className="h-3 w-3" />
-                            </button>
-                        </Badge>
-                    ))}
-                </div>
-            )}
-            {showAdvanced ? (
-                <div className="space-y-2 pt-2 border-t border-slate-200">
-                    <div className="grid grid-cols-2 gap-2">
-                        <Input
-                            placeholder="Display Label (e.g., First Year Student)"
-                            value={newLabel}
-                            onChange={(e) => setNewLabel(e.target.value)}
-                            disabled={readOnly}
-                            className="h-7 text-xs"
-                        />
-                        <Input
-                            placeholder="Stored Value (e.g., freshman_year_1)"
-                            value={newValue}
-                            onChange={(e) => setNewValue(e.target.value)}
-                            disabled={readOnly}
-                            className="h-7 text-xs"
-                        />
-                    </div>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="w-full text-xs gap-1"
-                        onClick={addOption}
-                        disabled={readOnly}
-                    >
-                        <Plus className="h-3.5 w-3.5" /> Add
-                    </Button>
-                </div>
-            ) : (
-                <div className="flex items-center gap-1.5">
-                    <Input
-                        placeholder="Type option and press Enter (e.g., Regular, Probational)"
-                        value={newLabel}
-                        onChange={(e) => setNewLabel(e.target.value)}
-                        disabled={readOnly}
-                        className="h-8 text-xs flex-1"
-                        onKeyDown={(e) => { if (e.key === "Enter") addOption(); }}
-                    />
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8 shrink-0"
-                        onClick={addOption}
-                        disabled={readOnly}
-                    >
-                        <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                </div>
-            )}
-            <button
-                type="button"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-            >
-                {showAdvanced ? "Hide advanced" : "Show advanced (separate label/value)"}
-            </button>
-        </div>
-    );
-}
-
-function BucketEditor({
-    buckets,
-    onBucketsChange,
-    readOnly,
-}: {
-    buckets: BucketConfig[] | null | undefined;
-    onBucketsChange: (buckets: BucketConfig[]) => void;
-    readOnly?: boolean;
-}) {
-    const current = buckets ?? [];
-
-    const [showAutoGen, setShowAutoGen] = useState(false);
-    const [genMin, setGenMin] = useState("");
-    const [genMax, setGenMax] = useState("");
-    const [genStep, setGenStep] = useState("");
-
-    const [minStr, setMinStr] = useState("");
-    const [maxStr, setMaxStr] = useState("");
-    const [label, setLabel] = useState("");
-
-    const generateBuckets = () => {
-        const start = parseFloat(genMin);
-        const end = parseFloat(genMax);
-        const step = parseFloat(genStep);
-        if (isNaN(start) || isNaN(end) || isNaN(step) || step <= 0) return;
-
-        const generated: BucketConfig[] = [];
-        let lo = start;
-        while (lo < end) {
-            const hi = Math.min(lo + step, end);
-            generated.push({ min: lo, max: hi, label: `${lo}-${hi}` });
-            lo = hi;
-        }
-        onBucketsChange(generated);
-        setShowAutoGen(false);
-        setGenMin("");
-        setGenMax("");
-        setGenStep("");
-    };
-
-    const updateBucket = (index: number, next: Partial<BucketConfig>) => {
-        const updated = current.map((b, i) => (i === index ? { ...b, ...next } : b));
-        onBucketsChange(updated);
-    };
-
-    const addBucket = () => {
-        const min = minStr.trim() === "" ? undefined : parseFloat(minStr);
-        const max = maxStr.trim() === "" ? undefined : parseFloat(maxStr);
-        const lbl = label.trim();
-        if (!lbl && min === undefined && max === undefined) return;
-        const computedLabel = lbl || `${min ?? ""}-${max ?? ""}`;
-        onBucketsChange([...current, { min, max, label: computedLabel }]);
-        setMinStr("");
-        setMaxStr("");
-        setLabel("");
-    };
-
-    const removeBucket = (index: number) => {
-        onBucketsChange(current.filter((_, i) => i !== index));
-    };
-
-    return (
-        <div className="space-y-2 mt-2">
-            <div className="flex items-center justify-between">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Buckets</p>
-                <button
-                    type="button"
-                    onClick={() => setShowAutoGen(!showAutoGen)}
-                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                    {showAutoGen ? "Hide auto-generate" : "Auto-generate"}
-                </button>
-            </div>
-
-            {showAutoGen && (
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-2 space-y-1.5">
-                    <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide">Generate evenly-spaced buckets</p>
-                    <div className="grid grid-cols-3 gap-1.5">
-                        <Input
-                            placeholder="Start min"
-                            value={genMin}
-                            onChange={(e) => setGenMin(e.target.value)}
-                            disabled={readOnly}
-                            className="h-7 text-xs"
-                            type="number"
-                        />
-                        <Input
-                            placeholder="End max"
-                            value={genMax}
-                            onChange={(e) => setGenMax(e.target.value)}
-                            disabled={readOnly}
-                            className="h-7 text-xs"
-                            type="number"
-                        />
-                        <Input
-                            placeholder="Step size"
-                            value={genStep}
-                            onChange={(e) => setGenStep(e.target.value)}
-                            disabled={readOnly}
-                            className="h-7 text-xs"
-                            type="number"
-                        />
-                    </div>
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="w-full text-xs gap-1"
-                        onClick={generateBuckets}
-                        disabled={readOnly}
-                    >
-                        <Plus className="h-3.5 w-3.5" /> Generate
-                    </Button>
-                </div>
-            )}
-
-            {current.length > 0 && (
-                <div className="space-y-1.5">
-                    {current.map((b, i) => (
-                        <div key={i} className="grid grid-cols-[1fr_1fr_1.5fr_auto] gap-1 items-center">
-                            <Input
-                                value={b.min ?? ""}
-                                placeholder="Min"
-                                onChange={(e) => {
-                                    const val = e.target.value.trim() === "" ? undefined : parseFloat(e.target.value);
-                                    updateBucket(i, { min: val });
-                                }}
-                                disabled={readOnly}
-                                className="h-7 text-xs"
-                                type="number"
-                            />
-                            <Input
-                                value={b.max ?? ""}
-                                placeholder="Max"
-                                onChange={(e) => {
-                                    const val = e.target.value.trim() === "" ? undefined : parseFloat(e.target.value);
-                                    updateBucket(i, { max: val });
-                                }}
-                                disabled={readOnly}
-                                className="h-7 text-xs"
-                                type="number"
-                            />
-                            <Input
-                                value={b.label}
-                                placeholder="Label"
-                                onChange={(e) => updateBucket(i, { label: e.target.value })}
-                                disabled={readOnly}
-                                className="h-7 text-xs"
-                            />
-                            <button
-                                type="button"
-                                onClick={() => removeBucket(i)}
-                                disabled={readOnly}
-                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-red-50 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                            >
-                                <X className="h-3.5 w-3.5" />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-1.5">
-                <Input
-                    placeholder="Min"
-                    value={minStr}
-                    onChange={(e) => setMinStr(e.target.value)}
-                    disabled={readOnly}
-                    className="h-7 text-xs"
-                    type="number"
-                />
-                <Input
-                    placeholder="Max"
-                    value={maxStr}
-                    onChange={(e) => setMaxStr(e.target.value)}
-                    disabled={readOnly}
-                    className="h-7 text-xs"
-                    type="number"
-                />
-                <Input
-                    placeholder="Label (e.g. 75-80)"
-                    value={label}
-                    onChange={(e) => setLabel(e.target.value)}
-                    disabled={readOnly}
-                    className="h-7 text-xs"
-                />
-            </div>
-            <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full text-xs gap-1"
-                onClick={addBucket}
-                disabled={readOnly}
-            >
-                <Plus className="h-3.5 w-3.5" /> Add Bucket
-            </Button>
-        </div>
-    );
+    canonicalKeySuggestions?: CanonicalKeyItem[];
+    analyticsGroupSuggestions?: string[];
+    duplicateWith?: string[];
 }
 
 export default function FieldEditorRow({
@@ -337,9 +32,13 @@ export default function FieldEditorRow({
     onUpdate,
     onDelete,
     isLast,
+    canonicalKeySuggestions = [],
+    analyticsGroupSuggestions = [],
+    duplicateWith = [],
 }: FieldEditorRowProps) {
     const [showAnalytics, setShowAnalytics] = useState(!!field.is_analytics);
     const [showComputed, setShowComputed] = useState(!!field.is_computed);
+    const analyticsGroupDatalistId = useId();
     const analyticsModeOptions = [
         { value: "__auto__", label: "Auto (inferred from type)" },
         { value: "distribution", label: "Distribution" },
@@ -351,10 +50,28 @@ export default function FieldEditorRow({
     const toggleAnalytics = () => {
         const next = !field.is_analytics;
         setShowAnalytics(next);
-        onUpdate(field.id, {
-            is_analytics: next,
-            canonical_key: next ? (field.canonical_key ?? normalizeFieldKey(field.key)) : null,
-        });
+        if (!next) {
+            onUpdate(field.id, { is_analytics: false, canonical_key: null });
+            return;
+        }
+        const existing = field.canonical_key;
+        if (existing) {
+            onUpdate(field.id, { is_analytics: true });
+            return;
+        }
+        const match = findSuggestedKey(field, canonicalKeySuggestions);
+        if (match) {
+            onUpdate(field.id, {
+                is_analytics: true,
+                canonical_key: match.item.canonical_key,
+                analytics_group: match.item.analytics_group ?? field.analytics_group,
+            });
+        } else {
+            onUpdate(field.id, {
+                is_analytics: true,
+                canonical_key: normalizeFieldKey(field.key),
+            });
+        }
     };
 
     const toggleComputed = () => {
@@ -542,14 +259,12 @@ export default function FieldEditorRow({
             <div className="mt-3 grid grid-cols-12 gap-x-3 gap-y-3 rounded-md bg-slate-50 p-3">
                 <div className="col-span-4 space-y-1">
                     <p className="text-[11px] font-medium text-muted-foreground">Canonical Key</p>
-                    <Input
-                        value={field.canonical_key ?? ""}
-                        placeholder="e.g. gender, gpa"
-                        onChange={(e) =>
-                            onUpdate(field.id, { canonical_key: e.target.value || null })
-                        }
+                    <CanonicalKeyInput
+                        value={field.canonical_key ?? null}
+                        onChange={(value) => onUpdate(field.id, { canonical_key: value })}
+                        suggestions={canonicalKeySuggestions}
                         disabled={field.readOnly}
-                        className="h-8 text-sm font-mono bg-white"
+                        duplicateWith={duplicateWith}
                     />
                 </div>
                 <div className="col-span-3 space-y-1">
@@ -561,8 +276,16 @@ export default function FieldEditorRow({
                             onUpdate(field.id, { analytics_group: e.target.value || null })
                         }
                         disabled={field.readOnly}
+                        list={analyticsGroupDatalistId}
                         className="h-8 text-sm bg-white"
                     />
+                    {analyticsGroupSuggestions.length > 0 && (
+                        <datalist id={analyticsGroupDatalistId}>
+                            {analyticsGroupSuggestions.map((group) => (
+                                <option key={group} value={group} />
+                            ))}
+                        </datalist>
+                    )}
                 </div>
                 <div className="col-span-3 space-y-1">
                     <p className="text-[11px] font-medium text-muted-foreground">Display Label</p>

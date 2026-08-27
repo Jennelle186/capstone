@@ -1,6 +1,6 @@
 """
 Seed 120 sample students (30 per department) with varying document submissions
-across the 2025-2026 school year for testing the adviser DocumentReviewDesk,
+across the 2026-2027 school year for testing the adviser DocumentReviewDesk,
 dashboard, and analytics views.
 
 Usage:
@@ -34,7 +34,7 @@ random.seed(42)
 
 # ─── Hardcoded UUIDs from the existing database ──────────────────────────
 
-SCHOOL_YEAR_ID = uuid.UUID("bcc5c3c5-e702-4f87-939b-e8f8dcd2eca5")
+SCHOOL_YEAR_ID = uuid.UUID("27f1362d-41c5-4266-b9a7-cfa09d8297ed")  # 2026-2027
 
 DEPARTMENTS = {
     "ACT-NT": uuid.UUID("93786b9f-1c77-48a7-bcdd-fc6c0795e142"),
@@ -204,7 +204,7 @@ def _pick_name_pool(gender: str):
 
 
 def build_student_number(dept_code: str, counter: int) -> str:
-    return f"2025-{dept_code}-{counter:04d}"
+    return f"2026-{dept_code}-{counter:04d}"
 
 
 def build_file_key(student_id: uuid.UUID, doc_code: str, filename: str) -> str:
@@ -534,7 +534,7 @@ def _build_extracted_data(doc_code: str, student_info: dict | None = None) -> di
     fn = (student_info or {}).get("first_name", "JUAN")
     ln = (student_info or {}).get("last_name", "DELA CRUZ")
     gender_val = (student_info or {}).get("gender", "male")
-    sn = (student_info or {}).get("student_number", "2025-0000")
+    sn = (student_info or {}).get("student_number", "2026-0000")
     dept = (student_info or {}).get("dept_code", "BSIT")
     classification = (student_info or {}).get("classification", "freshman")
 
@@ -551,7 +551,7 @@ def _build_extracted_data(doc_code: str, student_info: dict | None = None) -> di
 
         data.update({
             "gen_0_college": make_value("COLLEGE OF COMPUTING STUDIES", "college"),
-            "gen_1_school_year": make_value("2025-2026", "school_year"),
+            "gen_1_school_year": make_value("2026-2027", "school_year"),
             "gen_2_type_of_admission": make_value(
                 random.choice(["regular", "probational"]), "type_of_admission"),
             "gen_3_enrollment_status": make_value(classification, "enrollment_status"),
@@ -652,7 +652,7 @@ def _build_extracted_data(doc_code: str, student_info: dict | None = None) -> di
     elif doc_code == "CET":
         data.update({
             "gen_0_application_no": make_value(f"APP-{random.randint(10000, 99999)}", "application_no"),
-            "gen_1_school_year": make_value("2025-2026", "school_year"),
+            "gen_1_school_year": make_value("2026-2027", "school_year"),
             "gen_2_examinee_name": make_value(f"{fn.upper()} {ln.upper()}", "examinee_name"),
             "gen_3_university_college": make_value(
                 random.choice(["", "WMSU", "Ateneo de Zamboanga", "UZ"]), "university_college"),

@@ -14,6 +14,7 @@ import FieldsTab from "@/components/admin/analytics/FieldsTab"
 import GlobalAISummary from "@/components/admin/analytics/GlobalAISummary"
 import SnapshotTab from "@/components/admin/analytics/SnapshotTab"
 import TrendsTab from "@/components/admin/analytics/TrendsTab"
+import AlignmentTab from "@/components/admin/analytics/AlignmentTab"
 
 export default function AnalyticsPage() {
   const {
@@ -41,6 +42,8 @@ export default function AnalyticsPage() {
     isLoadingEnrolment,
     trends,
     isLoadingTrends,
+    alignment,
+    isLoadingAlignment,
   } = useAdminAnalyticsPage()
 
   const { getToken, isLoaded } = useAuth()
@@ -103,7 +106,7 @@ export default function AnalyticsPage() {
 
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as "snapshot" | "trends" | "fields")}
+        onValueChange={(v) => setTab(v as "snapshot" | "trends" | "fields" | "alignment")}
         className="space-y-6"
       >
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -111,6 +114,7 @@ export default function AnalyticsPage() {
             <TabsTrigger value="snapshot">Snapshot</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
             <TabsTrigger value="fields">Fields</TabsTrigger>
+            <TabsTrigger value="alignment">Alignment</TabsTrigger>
           </TabsList>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -186,6 +190,10 @@ export default function AnalyticsPage() {
 
         <TabsContent value="fields">
           <FieldsTab keys={canonicalKeys} isLoading={isLoadingCanonical} />
+        </TabsContent>
+
+        <TabsContent value="alignment">
+          <AlignmentTab report={alignment} isLoading={isLoadingAlignment} />
         </TabsContent>
       </Tabs>
     </div>

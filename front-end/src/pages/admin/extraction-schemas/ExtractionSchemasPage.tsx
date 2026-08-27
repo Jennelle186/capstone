@@ -17,6 +17,7 @@ import {
     removeSchemaField,
 } from "@/lib/schema-utils";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
+import type { CanonicalKeyItem, CanonicalKeysResponse } from "@/types/analytics";
 import type {
     ExtractionSchemaField,
     ExtractionSchemaGenerateResponse,
@@ -44,6 +45,8 @@ export default function ExtractionSchemasPage() {
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [isExtracting, setIsExtracting] = useState(false);
     const [sandboxResponse, setSandboxResponse] = useState<unknown>(null);
+    const [canonicalKeySuggestions, setCanonicalKeySuggestions] = useState<CanonicalKeyItem[]>([]);
+    const [analyticsGroupSuggestions, setAnalyticsGroupSuggestions] = useState<string[]>([]);
 
     const requestWithAdminAuth = useCallback(
         async (path: string, init?: RequestInit): Promise<unknown> => {
@@ -69,13 +72,35 @@ export default function ExtractionSchemasPage() {
     const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const [schemaPayload, docTypePayload] = await Promise.all([
+            const [schemaPayload, docTypePayload, canonicalKeysResult] = await Promise.allSettled([
                 requestWithAdminAuth("/api/admin/extraction-schemas?status=all"),
                 requestWithAdminAuth("/api/admin/document-types?status=all"),
+                requestWithAdminAuth("/api/admin/analytics/canonical-keys"),
             ]);
-            const payload = schemaPayload as ExtractionSchemaRecord[];
-            setDocumentTypes(docTypePayload as DocumentTypeApiRecord[]);
+
+            if (schemaPayload.status === "rejected") {
+                toast.error(schemaPayload.reason instanceof Error ? schemaPayload.reason.message : "Failed to load extraction schemas.");
+            }
+            if (docTypePayload.status === "rejected") {
+                toast.error(docTypePayload.reason instanceof Error ? docTypePayload.reason.message : "Failed to load document types.");
+            }
+
+            const payload = (schemaPayload.status === "fulfilled" ? schemaPayload.value : []) as ExtractionSchemaRecord[];
+            setDocumentTypes((docTypePayload.status === "fulfilled" ? docTypePayload.value : []) as DocumentTypeApiRecord[]);
             setSchemas(payload);
+
+            const canonicalKeys = canonicalKeysResult.status === "fulfilled"
+                ? ((canonicalKeysResult.value as CanonicalKeysResponse | null)?.keys ?? [])
+                : [];
+            setCanonicalKeySuggestions(canonicalKeys);
+            const groups = Array.from(
+                new Set(
+                    canonicalKeys
+                        .map((item) => item.analytics_group)
+                        .filter((g): g is string => typeof g === "string" && g.length > 0),
+                ),
+            ).sort();
+            setAnalyticsGroupSuggestions(groups);
 
             const hasSchemaQuery = window.location.search.includes("s=");
             if (!hasSchemaQuery && payload.length > 0) {
@@ -543,6 +568,8 @@ export default function ExtractionSchemasPage() {
             onSampleFilesChange={handleSampleFilesChange}
             onNewSchema={startNewSchema}
             onRunExtraction={handleRunExtraction}
+            canonicalKeySuggestions={canonicalKeySuggestions}
+            analyticsGroupSuggestions={analyticsGroupSuggestions}
         />
     );
 }
