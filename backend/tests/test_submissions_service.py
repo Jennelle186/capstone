@@ -247,7 +247,7 @@ async def test_flag_submission_downgrades_application_status() -> None:
 
 
 def test_sync_extracted_to_student_sets_student_number() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -266,7 +266,7 @@ def test_sync_extracted_to_student_sets_student_number() -> None:
 
 
 def test_sync_extracted_to_student_sets_gender() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -285,7 +285,7 @@ def test_sync_extracted_to_student_sets_gender() -> None:
 
 
 def test_sync_extracted_to_student_sets_birth_date() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -304,7 +304,7 @@ def test_sync_extracted_to_student_sets_birth_date() -> None:
 
 
 def test_sync_extracted_to_student_sets_address() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -323,7 +323,7 @@ def test_sync_extracted_to_student_sets_address() -> None:
 
 
 def test_sync_extracted_to_student_sets_admission_form_name() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -343,7 +343,7 @@ def test_sync_extracted_to_student_sets_admission_form_name() -> None:
 
 
 def test_sync_extracted_to_student_skips_empty_values() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number="EXISTING-001",
@@ -366,7 +366,7 @@ def test_sync_extracted_to_student_skips_empty_values() -> None:
 
 
 def test_sync_extracted_to_student_no_extracted_data() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
