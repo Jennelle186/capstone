@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 
 from ...database import SessionDep
-from ...models import Adviser, Department, ProgramAdviserAssignment, SchoolYear, Student, User
+from ...models import Adviser, Department, ProgramAdviserAssignment, SchoolYear, Student, StudentClassification, User
 from ...services.helpers import program_uuid_for_department_code
 from ...services.document_requirements import get_required_document_types_for_student
 from ...services.user_sync import ensure_user_row
@@ -119,6 +119,42 @@ async def update_program(
     student.program_id = dept.id
     await db.commit()
     return {"program_id": str(student.program_id)}
+
+
+class ClassificationUpdateRequest(BaseModel):
+    classification: str
+
+
+@router.patch("/api/me/classification")
+async def update_student_classification(
+    body: ClassificationUpdateRequest,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> dict:
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+
+    if student is None:
+        raise HTTPException(404, "Student profile not found.")
+
+    if student.classification_set_by_user or (
+        student.classification is not None and student.classification != StudentClassification.FRESHMAN
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Classification has already been set and cannot be changed. Contact your adviser if you need to make changes.",
+        )
+
+    try:
+        classification_value = StudentClassification(body.classification)
+    except ValueError:
+        raise HTTPException(400, f"Invalid classification: {body.classification}")
+
+    student.classification = classification_value
+    student.classification_set_by_user = True
+    await db.commit()
+    return {"classification": student.classification.value}
 
 
 class AdviserResponse(BaseModel):

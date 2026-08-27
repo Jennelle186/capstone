@@ -842,3 +842,165 @@ def test_resolve_duplicate_rejects_verified(client, mock_user, mock_student):
 
     assert response.status_code == 409
     assert "submitted or verified" in response.json()["detail"]
+
+
+# ── Tests for PATCH /api/me/classification ──────────────────────────────────
+
+
+def test_patch_classification_succeeds_when_not_set(client, mock_user, mock_student):
+    """A student with default FRESHMAN classification and classification_set_by_user=False
+    should be able to set their classification."""
+    mock_student.classification = "freshman"
+    mock_student.classification_set_by_user = False
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    with patch("app.routers.documents.requirements.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.patch("/api/me/classification", json={"classification": "transferee"})
+
+    assert response.status_code == 200
+    assert response.json()["classification"] == "transferee"
+    session.commit.assert_awaited_once()
+
+
+def test_patch_classification_409_when_already_set(client, mock_user, mock_student):
+    """A student who already set their classification should get 409."""
+    mock_student.classification = SimpleNamespace(value="transferee")
+    mock_student.classification_set_by_user = True
+
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    with patch("app.routers.documents.requirements.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.patch("/api/me/classification", json={"classification": "shifter"})
+
+    assert response.status_code == 409
+    assert "already been set" in response.json()["detail"]
+    session.add.assert_not_called()
+
+
+def test_patch_classification_409_when_non_freshman(client, mock_user, mock_student):
+    """A student with a non-freshman classification but classification_set_by_user=False
+    should get 409 (non-freshman counts as 'already set')."""
+    mock_student.classification = "shifter"
+    mock_student.classification_set_by_user = False
+
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    with patch("app.routers.documents.requirements.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.patch("/api/me/classification", json={"classification": "transferee"})
+
+    assert response.status_code == 409
+    assert "already been set" in response.json()["detail"]
+    session.add.assert_not_called()
+
+
+def test_patch_classification_400_for_invalid_value(client, mock_user, mock_student):
+    """An invalid classification value should return 400."""
+    mock_student.classification = "freshman"
+    mock_student.classification_set_by_user = False
+
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    with patch("app.routers.documents.requirements.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.patch("/api/me/classification", json={"classification": "invalid_value"})
+
+    assert response.status_code == 400
+    assert "Invalid classification" in response.json()["detail"]
+    session.add.assert_not_called()
+
+
+def test_patch_classification_404_when_no_student(client, mock_user):
+    """A request from a user with no student profile should return 404."""
+    session = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none = MagicMock(return_value=None)
+    session.execute = AsyncMock(return_value=result)
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    with patch("app.routers.documents.requirements.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.patch("/api/me/classification", json={"classification": "transferee"})
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+    session.add.assert_not_called()
+
+
+# ── Tests for _require_student_onboarded guards ─────────────────────────────
+
+
+def test_initiate_upload_blocks_without_classification(client, mock_user, mock_student):
+    """Upload should be blocked when classification is not set."""
+    mock_student.classification = None
+    mock_student.classification_set_by_user = False
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.post(
+            "/api/me/documents/initiate",
+            json={"name": "file.pdf", "type": "application/pdf", "size": 1024},
+        )
+
+    assert response.status_code == 400
+    assert "classification" in response.json()["detail"].lower()
+    session.add.assert_not_called()
+
+
+def test_initiate_upload_blocks_without_program(client, mock_user, mock_student):
+    """Upload should be blocked when program is not set."""
+    mock_student.program_id = None
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.post(
+            "/api/me/documents/initiate",
+            json={"name": "file.pdf", "type": "application/pdf", "size": 1024},
+        )
+
+    assert response.status_code == 400
+    assert "program" in response.json()["detail"].lower()
+    session.add.assert_not_called()
