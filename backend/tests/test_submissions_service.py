@@ -24,6 +24,8 @@ async def test_verify_submission_sets_status_to_verified() -> None:
         birth_date=None,
         address=None,
         admission_form_name=None,
+        program_mismatch_pending=False,
+        program_mismatch_extracted=None,
     )
     submission = SimpleNamespace(
         id=uuid4(),
@@ -85,6 +87,8 @@ async def test_verify_submission_does_not_set_application_status() -> None:
         birth_date=None,
         address=None,
         admission_form_name=None,
+        program_mismatch_pending=False,
+        program_mismatch_extracted=None,
     )
     submission = SimpleNamespace(
         id=uuid4(),
@@ -247,7 +251,7 @@ async def test_flag_submission_downgrades_application_status() -> None:
 
 
 def test_sync_extracted_to_student_sets_student_number() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -266,7 +270,7 @@ def test_sync_extracted_to_student_sets_student_number() -> None:
 
 
 def test_sync_extracted_to_student_sets_gender() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -285,7 +289,7 @@ def test_sync_extracted_to_student_sets_gender() -> None:
 
 
 def test_sync_extracted_to_student_sets_birth_date() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -304,7 +308,7 @@ def test_sync_extracted_to_student_sets_birth_date() -> None:
 
 
 def test_sync_extracted_to_student_sets_address() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -323,7 +327,7 @@ def test_sync_extracted_to_student_sets_address() -> None:
 
 
 def test_sync_extracted_to_student_sets_admission_form_name() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -343,7 +347,7 @@ def test_sync_extracted_to_student_sets_admission_form_name() -> None:
 
 
 def test_sync_extracted_to_student_skips_empty_values() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number="EXISTING-001",
@@ -366,7 +370,7 @@ def test_sync_extracted_to_student_skips_empty_values() -> None:
 
 
 def test_sync_extracted_to_student_no_extracted_data() -> None:
-    from app.services.submissions import _sync_extracted_to_student
+    from app.services.students import _sync_extracted_to_student
 
     student = SimpleNamespace(
         id=uuid4(), user_id=uuid4(), student_number=None,
@@ -377,5 +381,131 @@ def test_sync_extracted_to_student_no_extracted_data() -> None:
     extracted_data = None
 
     changed = _sync_extracted_to_student(student, extracted_data)
+
+    assert changed is False
+
+
+# ── sync_program_from_extraction scenarios ──────────────────────────────────
+
+
+def _make_student(program_id, pending=False, extracted=None):
+    return SimpleNamespace(
+        id=uuid4(),
+        program_id=program_id,
+        program_mismatch_pending=pending,
+        program_mismatch_extracted=extracted,
+    )
+
+
+def _make_db(dept=None):
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalars = MagicMock(return_value=MagicMock(first=MagicMock(return_value=dept)))
+    db.execute = AsyncMock(return_value=result)
+    return db
+
+
+def _program_data(value):
+    return {"field_1": {"source_key": "academic_program", "value": value}}
+
+
+@pytest.mark.asyncio
+async def test_sync_program_scenario_a_auto_sync_when_no_program() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    dept = SimpleNamespace(id=uuid4(), code="BSIT", name="Bachelor of Science in IT")
+    student = _make_student(program_id=None)
+    db = _make_db(dept)
+
+    changed = await sync_program_from_extraction(db, student, _program_data("BSIT"))
+
+    assert changed is True
+    assert student.program_id == dept.id
+    assert student.program_mismatch_pending is False
+
+
+@pytest.mark.asyncio
+async def test_sync_program_scenario_a_unrecognized_flags() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    student = _make_student(program_id=None)
+    db = _make_db(dept=None)
+
+    changed = await sync_program_from_extraction(db, student, _program_data("BSIT-AD"))
+
+    assert changed is True
+    assert student.program_mismatch_pending is True
+    assert student.program_mismatch_extracted == "BSIT-AD"
+
+
+@pytest.mark.asyncio
+async def test_sync_program_scenario_b_match_no_flag() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    dept = SimpleNamespace(id=uuid4(), code="BSIT", name="Bachelor of Science in IT")
+    student = _make_student(program_id=dept.id)
+    db = _make_db(dept)
+
+    changed = await sync_program_from_extraction(db, student, _program_data("BSIT"))
+
+    assert changed is False
+    assert student.program_mismatch_pending is False
+    assert student.program_mismatch_extracted is None
+
+
+@pytest.mark.asyncio
+async def test_sync_program_scenario_b_clears_stale_flags() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    dept = SimpleNamespace(id=uuid4(), code="BSIT", name="Bachelor of Science in IT")
+    student = _make_student(program_id=dept.id, pending=True, extracted="BSCS")
+    db = _make_db(dept)
+
+    changed = await sync_program_from_extraction(db, student, _program_data("BSIT"))
+
+    assert changed is True
+    assert student.program_mismatch_pending is False
+    assert student.program_mismatch_extracted is None
+
+
+@pytest.mark.asyncio
+async def test_sync_program_scenario_c_different_flags() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    bsit = SimpleNamespace(id=uuid4(), code="BSIT", name="Bachelor of Science in IT")
+    bscs_id = uuid4()
+    student = _make_student(program_id=bscs_id)
+    db = _make_db(bsit)
+
+    changed = await sync_program_from_extraction(db, student, _program_data("BSIT"))
+
+    assert changed is True
+    assert student.program_mismatch_pending is True
+    assert student.program_mismatch_extracted == "BSIT"
+    assert student.program_id == bscs_id  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_sync_program_scenario_d_unrecognized_flags() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    student = _make_student(program_id=uuid4())
+    db = _make_db(dept=None)
+
+    changed = await sync_program_from_extraction(db, student, _program_data("BSIT-AD"))
+
+    assert changed is True
+    assert student.program_mismatch_pending is True
+    assert student.program_mismatch_extracted == "BSIT-AD"
+
+
+@pytest.mark.asyncio
+async def test_sync_program_no_program_field_returns_false() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    student = _make_student(program_id=uuid4())
+    db = _make_db(dept=None)
+
+    changed = await sync_program_from_extraction(db, student, {"field_1": {"source_key": "gender", "value": "Male"}})
 
     assert changed is False

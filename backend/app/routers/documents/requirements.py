@@ -6,9 +6,10 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 
 from ...database import SessionDep
-from ...models import Adviser, Department, ProgramAdviserAssignment, SchoolYear, Student, User
+from ...models import Adviser, Department, ProgramAdviserAssignment, SchoolYear, Student, StudentClassification, User
 from ...services.helpers import program_uuid_for_department_code
 from ...services.document_requirements import get_required_document_types_for_student
+from ...services.students import _resolve_department
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims
 
@@ -119,6 +120,111 @@ async def update_program(
     student.program_id = dept.id
     await db.commit()
     return {"program_id": str(student.program_id)}
+
+
+class ProgramMismatchResolveRequest(BaseModel):
+    action: str
+    program_id: str | None = None
+
+
+@router.post("/api/me/program/resolve-mismatch")
+async def resolve_program_mismatch(
+    body: ProgramMismatchResolveRequest,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> dict:
+    """Resolve a program mismatch flagged during admission form sync.
+
+    ``action`` is one of:
+
+    - ``confirm_extracted`` — accept the extracted program (``program_id`` may
+      be provided to override the stored extracted value, e.g. for an
+      unrecognized program where the student picks from a dropdown).
+    - ``keep_current`` — keep the current program and clear the mismatch flags.
+    """
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(404, "Student profile not found.")
+
+    if not student.program_mismatch_pending:
+        raise HTTPException(409, "No program mismatch is pending resolution.")
+
+    if body.action == "keep_current":
+        student.program_mismatch_pending = False
+        student.program_mismatch_extracted = None
+        await db.commit()
+        return {
+            "program_id": str(student.program_id) if student.program_id else None,
+            "mismatch_resolved": True,
+            "action": "keep_current",
+        }
+
+    if body.action == "confirm_extracted":
+        if body.program_id:
+            dept = await db.get(Department, UUID(body.program_id))
+            if dept is None or not dept.is_active:
+                raise HTTPException(400, "Invalid or inactive department.")
+            new_program_id = dept.id
+        else:
+            if not student.program_mismatch_extracted:
+                raise HTTPException(400, "No extracted program value to confirm.")
+            dept = await _resolve_department(db, student.program_mismatch_extracted)
+            if dept is None:
+                raise HTTPException(
+                    400,
+                    "Extracted program could not be recognized. Please select a program.",
+                )
+            new_program_id = dept.id
+
+        student.program_id = new_program_id
+        student.program_mismatch_pending = False
+        student.program_mismatch_extracted = None
+        await db.commit()
+        return {
+            "program_id": str(student.program_id),
+            "mismatch_resolved": True,
+            "action": "confirm_extracted",
+        }
+
+    raise HTTPException(400, f"Invalid action: {body.action}")
+
+
+class ClassificationUpdateRequest(BaseModel):
+    classification: str
+
+
+@router.patch("/api/me/classification")
+async def update_student_classification(
+    body: ClassificationUpdateRequest,
+    current_user: StudentClaims,
+    db: SessionDep,
+) -> dict:
+    user = await ensure_user_row(db, current_user)
+    result = await db.execute(select(Student).where(Student.user_id == user.id))
+    student = result.scalar_one_or_none()
+
+    if student is None:
+        raise HTTPException(404, "Student profile not found.")
+
+    if student.classification_set_by_user or (
+        student.classification is not None and student.classification != StudentClassification.FRESHMAN
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Classification has already been set and cannot be changed. Contact your adviser if you need to make changes.",
+        )
+
+    try:
+        classification_value = StudentClassification(body.classification)
+    except ValueError:
+        raise HTTPException(400, f"Invalid classification: {body.classification}")
+
+    student.classification = classification_value
+    student.classification_set_by_user = True
+    await db.commit()
+    return {"classification": student.classification.value}
 
 
 class AdviserResponse(BaseModel):

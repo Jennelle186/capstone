@@ -38,6 +38,8 @@ export default function DocumentReviewDesk() {
     handleSubmitFlag,
     handleUpdateStatus,
     handleSaveField,
+    handleReassignProgram,
+    departments,
   } = useDocumentReviewDesk();
 
   const { entries: historyEntries, loading: historyLoading } =
@@ -111,6 +113,8 @@ export default function DocumentReviewDesk() {
       onFlagReasonChange={handleFlagReasonChange}
       onSubmitFlag={handleSubmitFlag}
       onUpdateStatus={handleUpdateStatus}
+      onReassignProgram={handleReassignProgram}
+      departments={departments}
       historyEntries={historyEntries}
       historyLoading={historyLoading}
     />

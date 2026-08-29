@@ -8,7 +8,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from ..database import SessionDep
-from ..models import DocumentSubmission, DocumentSubmissionHistory, Student, StudentClassification, User, UserRole
+from ..models import (
+    AdminAuditLog,
+    Department,
+    DocumentSubmission,
+    DocumentSubmissionHistory,
+    Notification,
+    Student,
+    StudentClassification,
+    User,
+    UserRole,
+)
 from ..rbac import require_roles
 from ..services.adviser_core import (
     get_department_ids_for_adviser,
@@ -145,6 +155,9 @@ class AdviserStudentDetailResponse(BaseModel):
     email: str | None
     image_url: str | None = None
     program: str | None
+    program_id: str | None = None
+    program_mismatch_pending: bool = False
+    program_mismatch_extracted: str | None = None
     school_year: str | None
     classification: str | None
     application_status: str | None = None
@@ -424,6 +437,98 @@ async def update_student_number(
     return {"student_number": student.student_number}
 
 
+# ─── POST /api/adviser/students/{student_id}/reassign-program ───────────────
+
+
+class ReassignProgramRequest(BaseModel):
+    program_id: str
+    reason: str | None = None
+
+
+class ReassignProgramResponse(BaseModel):
+    student_id: str
+    new_program_id: str
+    previous_program_id: str | None
+
+
+@router.post("/api/adviser/students/{student_id}/reassign-program", response_model=ReassignProgramResponse)
+async def reassign_student_program(
+    student_id: str,
+    body: ReassignProgramRequest,
+    current_user: dict = CurrentAdviser,
+    db: SessionDep = None,
+) -> ReassignProgramResponse:
+    """Reassign a student to a different program (department).
+
+    Used to correct a wrong program selection that routed the student to the
+    wrong adviser. The adviser must have access to the student's current
+    program, and the target program must be an active department.
+    """
+    adviser = await resolve_adviser(db, current_user)
+    if not adviser:
+        raise HTTPException(404, "Adviser not found.")
+    try:
+        uid = UUID(student_id)
+    except ValueError:
+        raise HTTPException(404, "Student not found.")
+    student = await db.get(Student, uid)
+    if student is None:
+        raise HTTPException(404, "Student not found.")
+
+    if student.school_year_id is None:
+        raise HTTPException(400, "Student has no school year assigned.")
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        raise HTTPException(404, "Student not found.")
+
+    try:
+        new_program_id = UUID(body.program_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid program id.")
+
+    new_dept = await db.get(Department, new_program_id)
+    if new_dept is None or not new_dept.is_active:
+        raise HTTPException(400, "Invalid or inactive department.")
+
+    previous_program_id = student.program_id
+    student.program_id = new_dept.id
+    student.program_mismatch_pending = False
+    student.program_mismatch_extracted = None
+
+    db.add(
+        AdminAuditLog(
+            action="REASSIGN_PROGRAM",
+            entity_type="student",
+            entity_id=student.id,
+            school_year_id=student.school_year_id,
+            actor_user_id=adviser.user_id,
+            previous_values={"program_id": str(previous_program_id)} if previous_program_id else None,
+            new_values={"program_id": str(new_dept.id)},
+            audit_metadata={"reason": body.reason} if body.reason else None,
+        )
+    )
+
+    db.add(
+        Notification(
+            recipient_id=student.user_id,
+            title="Program Updated",
+            message=f"Your adviser updated your program to {new_dept.name}."
+            + (f" Reason: {body.reason}" if body.reason else ""),
+            notification_type="PROGRAM_REASSIGNED",
+            reference_id=student.id,
+        )
+    )
+
+    await db.commit()
+
+    return ReassignProgramResponse(
+        student_id=str(student.id),
+        new_program_id=str(new_dept.id),
+        previous_program_id=str(previous_program_id) if previous_program_id else None,
+    )
+
+
 # ─── GET /api/adviser/analytics ─────────────────────────────────────────────
 
 @router.get("/api/adviser/analytics", response_model=AdviserAnalyticsResponse)
@@ -448,6 +553,8 @@ async def get_adviser_analytics(
 class VerifySubmissionResponse(BaseModel):
     status: str
     submission_id: str
+    program_mismatch_pending: bool = False
+    program_mismatch_extracted: str | None = None
 
 
 @router.patch("/api/adviser/submissions/{submission_id}/verify", response_model=VerifySubmissionResponse)

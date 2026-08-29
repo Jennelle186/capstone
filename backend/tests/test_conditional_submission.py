@@ -73,6 +73,8 @@ async def test_verify_submission_does_not_promote_application_status() -> None:
         user_id=uuid4(),
         application_status="PENDING_DOCUMENTS",
         program_id=uuid4(),
+        program_mismatch_pending=False,
+        program_mismatch_extracted=None,
     )
     submission = SimpleNamespace(
         id=uuid4(),
@@ -127,6 +129,8 @@ async def test_verify_submission_does_not_promote_null_status() -> None:
         user_id=uuid4(),
         application_status=None,
         program_id=uuid4(),
+        program_mismatch_pending=False,
+        program_mismatch_extracted=None,
     )
     submission = SimpleNamespace(
         id=uuid4(),

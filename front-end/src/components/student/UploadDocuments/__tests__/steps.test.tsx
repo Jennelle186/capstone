@@ -79,6 +79,13 @@ vi.mock(
   }),
 );
 
+vi.mock(
+  "@/components/student/UploadDocuments/ProgramMismatchBanner",
+  () => ({
+    default: () => <div data-testid="program-mismatch-banner">ProgramMismatchBanner</div>,
+  }),
+);
+
 vi.mock("@/components/student/ReviewDocumentDetailModal", () => ({
   default: () => <div data-testid="review-modal">ReviewModal</div>,
 }));

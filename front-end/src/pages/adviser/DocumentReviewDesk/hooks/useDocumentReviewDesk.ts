@@ -51,6 +51,9 @@ export function useDocumentReviewDesk() {
     Record<string, Record<string, unknown> | null>
   >({});
   const [submittedFlags, setSubmittedFlags] = useState<Record<string, boolean>>({});
+  const [departments, setDepartments] = useState<
+    { id: string; name: string; code: string }[]
+  >([]);
 
   const mapExtractions = useCallback((raw: ExtractionItemRaw | null) => {
     if (!raw || !raw.fields) return [];
@@ -153,6 +156,12 @@ export function useDocumentReviewDesk() {
         const token = await getTokenRef.current();
         if (!token) return;
 
+        const deptRes = await fetchWithClerkAuth("/api/adviser/departments", token);
+        if (deptRes.ok) {
+          const depts = (await deptRes.json()) as { id: string; name: string; code: string }[];
+          if (mounted) setDepartments(depts);
+        }
+
         const res = await fetchWithClerkAuth(
           `/api/adviser/students/${studentId}`,
           token,
@@ -174,6 +183,9 @@ export function useDocumentReviewDesk() {
           gender: data.gender ?? null, cet_score: data.cet_score ?? null,
           gpa: data.gpa ?? null, high_school: data.high_school ?? null,
           provincial_address: data.provincial_address ?? null,
+          program_id: data.program_id ?? null,
+          program_mismatch_pending: data.program_mismatch_pending ?? false,
+          program_mismatch_extracted: data.program_mismatch_extracted ?? null,
           created_at: data.created_at ?? "",
         };
         const subs = (data.submissions ?? []) as AdviserStudentSubmission[];
@@ -268,6 +280,9 @@ export function useDocumentReviewDesk() {
         gender: data.gender ?? null, cet_score: data.cet_score ?? null,
         gpa: data.gpa ?? null, high_school: data.high_school ?? null,
         provincial_address: data.provincial_address ?? null,
+        program_id: data.program_id ?? null,
+        program_mismatch_pending: data.program_mismatch_pending ?? false,
+        program_mismatch_extracted: data.program_mismatch_extracted ?? null,
         created_at: data.created_at ?? "",
       };
       const subs = (data.submissions ?? []) as AdviserStudentSubmission[];
@@ -563,6 +578,40 @@ export function useDocumentReviewDesk() {
     [currentSubmission, getTokenRef],
   );
 
+  const handleReassignProgram = useCallback(
+    async (programId: string) => {
+      if (!student) return;
+      setActioning(true);
+      try {
+        const token = await getTokenRef.current();
+        if (!token) return;
+        const res = await fetchWithClerkAuth(
+          `/api/adviser/students/${student.id}/reassign-program`,
+          token,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ program_id: programId, reason: "Program mismatch resolved by adviser" }),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          toast.error(err?.detail ?? "Failed to reassign program", { position: "top-right" });
+          return;
+        }
+        toast.success("Student program updated", { position: "top-right" });
+        if (!isCrossStudentMode) {
+          await refreshStudentData();
+        }
+      } catch {
+        toast.error("Failed to reassign program", { position: "top-right" });
+      } finally {
+        setActioning(false);
+      }
+    },
+    [student, getTokenRef, refreshStudentData, isCrossStudentMode],
+  );
+
   const getReviewQueueStatistics = useCallback((): ReviewDeskStats => {
     const total = submissionsList.length;
     const verified = submissionsList.filter((s) => s.status === "verified").length;
@@ -612,5 +661,7 @@ export function useDocumentReviewDesk() {
     handleUpdateStatus,
     handleSubmitFlag,
     handleSaveField,
+    handleReassignProgram,
+    departments,
   };
 }

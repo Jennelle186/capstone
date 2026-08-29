@@ -12,6 +12,7 @@ interface SubmissionSummaryProps {
   isSubmitting?: boolean;
   hideActions?: boolean;
   lockedReason?: "submitted" | "school-year-closed";
+  submitDisabled?: boolean;
 }
 
 function formatAccuracy(value: number | null, label: string) {
@@ -28,6 +29,7 @@ export default function SubmissionSummary({
   isSubmitting,
   hideActions,
   lockedReason,
+  submitDisabled,
 }: SubmissionSummaryProps) {
   const total = items.length;
   const submittedCount = items.filter((i) => i.status === "submitted").length;
@@ -72,6 +74,15 @@ export default function SubmissionSummary({
               </p>
             </div>
           )}
+
+          {submitDisabled && (
+            <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+              <p className="text-sm leading-tight text-amber-800">
+                Resolve your program mismatch above before submitting.
+              </p>
+            </div>
+          )}
         </div>
 
         {hideActions ? (
@@ -87,7 +98,7 @@ export default function SubmissionSummary({
           <div className="space-y-2">
             <button
               type="button"
-              disabled={needsReviewCount > 0 || isSubmitting}
+              disabled={needsReviewCount > 0 || isSubmitting || submitDisabled}
               onClick={onSubmit}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-white shadow-sm transition-all hover:-translate-y-px hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
             >

@@ -9,6 +9,7 @@ import { computeFieldValue } from "@/lib/schema-utils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import JobProgress from "@/components/student/UploadDocuments/JobProgress";
+import ProgramMismatchBanner from "@/components/student/UploadDocuments/ProgramMismatchBanner";
 import ExtractionCard from "@/components/student/UploadDocuments/extract/ExtractionCard";
 import { toExtractionItem } from "@/types/extraction";
 import type { ExtractionItem, ExtractionItemResponse } from "@/types/extraction";
@@ -278,6 +279,7 @@ export default function StepExtract({
 
   return (
     <div className="space-y-4">
+      <ProgramMismatchBanner getToken={getToken} />
       {isSchoolYearClosed && (
         <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-sm font-medium text-red-800">
           The school year is closed. Your documents are archived and read-only. Extraction is no longer allowed.
