@@ -8,8 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 
-from ..models import DocumentSubmission, SubmissionStatus
+from ..models import DocumentSubmission, Student, SubmissionStatus
 from ..services.gcp_pipeline import GcpPipelineError, extract_fields_from_document
+from ..services.students import sync_program_from_extraction
 from ..utils.computation import apply_computed_fields
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,13 @@ async def extract_single(
         submission.status = SubmissionStatus.CLASSIFIED
         attributes.flag_modified(submission, "extracted_data")
         logger.info("Extraction complete for submission %s", submission.id)
+
+        # Detect program mismatch as early as possible (before adviser review)
+        # so the student dashboard banner and adviser ReviewDesk warning can be
+        # shown ahead of verification.
+        student = await session.get(Student, submission.student_id)
+        if student is not None and await sync_program_from_extraction(session, student, existing):
+            session.add(student)
 
     except GcpPipelineError as exc:
         logger.error("Gemini extraction failed for submission %s: %s", submission.id, exc)

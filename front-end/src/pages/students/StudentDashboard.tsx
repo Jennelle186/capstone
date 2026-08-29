@@ -41,6 +41,8 @@ interface MeResponse {
   lastName: string | null;
   student_number: string | null;
   program_id: string | null;
+  program_mismatch_pending?: boolean;
+  program_mismatch_extracted?: string | null;
 }
 
 interface RequiredDocumentsData {
@@ -123,6 +125,10 @@ export default function StudentDashboard() {
   const [loadingAdviser, setLoadingAdviser] = React.useState(false);
   const [savingProgram, setSavingProgram] = React.useState(false);
 
+  const [programMismatchPending, setProgramMismatchPending] = React.useState(false);
+  const [programMismatchExtracted, setProgramMismatchExtracted] = React.useState<string | null>(null);
+  const [resolvingMismatch, setResolvingMismatch] = React.useState(false);
+
   const [, setClassification] = React.useState<string | null>(null);
   const [classificationSetByUser, setClassificationSetByUser] = React.useState(false);
   const [pendingClassification, setPendingClassification] = React.useState<string | null>(null);
@@ -159,6 +165,8 @@ export default function StudentDashboard() {
         setClassification(req.classification);
         setClassificationSetByUser(!!req.classification_set_by_user);
         setProgramId(me.program_id);
+        setProgramMismatchPending(!!me.program_mismatch_pending);
+        setProgramMismatchExtracted(me.program_mismatch_extracted ?? null);
 
         if (me.program_id) {
           const adviserRes = await fetchWithClerkAuth("/api/me/adviser", token);
@@ -287,8 +295,73 @@ export default function StudentDashboard() {
     }
   };
 
+  const handleResolveMismatch = async (action: "confirm_extracted" | "keep_current") => {
+    setResolvingMismatch(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/program/resolve-mismatch", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProgramMismatchPending(false);
+        setProgramMismatchExtracted(null);
+        if (data.program_id) {
+          setProgramId(data.program_id);
+        }
+        toast.success("Program updated successfully.");
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail ?? "Failed to resolve program mismatch.");
+      }
+    } catch {
+      toast.error("Failed to resolve program mismatch. Please try again.");
+    } finally {
+      setResolvingMismatch(false);
+    }
+  };
+
+  const handleResolveMismatchWithProgram = async (value: string) => {
+    setResolvingMismatch(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/program/resolve-mismatch", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "confirm_extracted", program_id: value }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProgramMismatchPending(false);
+        setProgramMismatchExtracted(null);
+        if (data.program_id) {
+          setProgramId(data.program_id);
+        }
+        toast.success("Program updated successfully.");
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail ?? "Failed to update program.");
+      }
+    } catch {
+      toast.error("Failed to update program. Please try again.");
+    } finally {
+      setResolvingMismatch(false);
+    }
+  };
+
   const selectedDept = departments.find((d) => d.id === programId);
   const pendingDept = departments.find((d) => d.id === pendingProgramId);
+  const extractedProgramRecognized = programMismatchExtracted
+    ? departments.some(
+        (d) =>
+          d.code.toLowerCase() === programMismatchExtracted.toLowerCase() ||
+          d.name.toLowerCase() === programMismatchExtracted.toLowerCase()
+      )
+    : false;
 
   const handleView = (submission: Submission) => {
     const idx = submissions.findIndex((s) => s.id === submission.id);
@@ -356,6 +429,62 @@ export default function StudentDashboard() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </div>
+      )}
+
+      {/* Program Mismatch Banner */}
+      {programMismatchPending && programMismatchExtracted && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div className="flex flex-1 flex-col gap-3">
+            {extractedProgramRecognized ? (
+              <p className="text-sm font-medium text-amber-800">
+                Your admission form shows <strong>{programMismatchExtracted}</strong>, but your
+                current program is <strong>{selectedDept?.code ?? "not set"}</strong>. Which one is correct?
+              </p>
+            ) : (
+              <p className="text-sm font-medium text-amber-800">
+                We couldn't recognize the program on your admission form (found:{" "}
+                <strong>"{programMismatchExtracted}"</strong>). Please select your correct program
+                from the list below.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-400 text-amber-800 hover:bg-amber-100"
+                disabled={resolvingMismatch}
+                onClick={() => handleResolveMismatch("keep_current")}
+              >
+                {resolvingMismatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Keep {selectedDept?.code ?? "current"}
+              </Button>
+              {extractedProgramRecognized ? (
+                <Button
+                  size="sm"
+                  className="bg-amber-600 text-white hover:bg-amber-700"
+                  disabled={resolvingMismatch}
+                  onClick={() => handleResolveMismatch("confirm_extracted")}
+                >
+                  Confirm {programMismatchExtracted}
+                </Button>
+              ) : (
+                <Select onValueChange={handleResolveMismatchWithProgram} disabled={resolvingMismatch}>
+                  <SelectTrigger className="w-full max-w-xs bg-white border-amber-300 focus:border-amber-500 focus:ring-amber-500">
+                    <SelectValue placeholder="Select your correct program..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.code} — {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </div>
         </div>
       )}

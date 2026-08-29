@@ -24,6 +24,9 @@ export interface AdviserStudent {
     email: string | null;
     image_url: string | null;
     program: string;
+    program_id: string | null;
+    program_mismatch_pending: boolean;
+    program_mismatch_extracted: string | null;
     school_year: string;
     classification: AdviserStudentClassification;
     application_status: "SUBMITTED_COMPLETE" | "PENDING_DOCUMENTS" | null;

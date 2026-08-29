@@ -5,7 +5,7 @@ import logging
 import uuid
 from datetime import date
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, or_, select
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload
@@ -114,6 +114,89 @@ def _sync_extracted_to_student(student: Student, extracted_data: dict) -> bool:
                 student.admission_form_name = current_name
                 changed = True
     return changed
+
+
+_PROGRAM_SOURCE_KEYS = (
+    "academic_program",
+    "program",
+    "course",
+    "program_name",
+    "degree_program",
+)
+
+
+def _extract_program_value(extracted_data: dict) -> str | None:
+    """Return the first non-empty program-like value from extracted data."""
+    if not extracted_data:
+        return None
+    for field_id, field_data in extracted_data.items():
+        if field_id.startswith("_") or not isinstance(field_data, dict):
+            continue
+        if field_data.get("source_key", "") in _PROGRAM_SOURCE_KEYS:
+            value = field_data.get("value", "")
+            if value:
+                return str(value).strip()
+    return None
+
+
+async def _resolve_department(db: SessionDep, value: str) -> Department | None:
+    """Resolve an extracted program value to a Department by code or name."""
+    result = await db.execute(
+        select(Department).where(
+            or_(
+                func.lower(Department.code) == value.lower(),
+                func.lower(Department.name) == value.lower(),
+            )
+        )
+    )
+    return result.scalars().first()
+
+
+async def sync_program_from_extraction(
+    db: SessionDep,
+    student: Student,
+    extracted_data: dict,
+) -> bool:
+    """Apply the 4-scenario program sync (A/B/C/D).
+
+    - A (no program): auto-sync extracted program if recognized, else flag.
+    - B (match): clear any stale mismatch flags.
+    - C (differs): flag mismatch for student confirmation.
+    - D (unrecognized): flag mismatch with the raw extracted value.
+
+    Returns True when the student record was mutated (caller must commit).
+    """
+    extracted_program = _extract_program_value(extracted_data)
+    if not extracted_program:
+        return False
+
+    matched_dept = await _resolve_department(db, extracted_program)
+
+    if student.program_id is None:
+        # Scenario A: no program set yet.
+        if matched_dept is not None:
+            student.program_id = matched_dept.id
+            return True
+        if not student.program_mismatch_pending or student.program_mismatch_extracted != extracted_program:
+            student.program_mismatch_pending = True
+            student.program_mismatch_extracted = extracted_program
+            return True
+        return False
+
+    if matched_dept is not None and matched_dept.id == student.program_id:
+        # Scenario B: extracted program matches current — clear stale flags.
+        if student.program_mismatch_pending or student.program_mismatch_extracted:
+            student.program_mismatch_pending = False
+            student.program_mismatch_extracted = None
+            return True
+        return False
+
+    # Scenario C (recognized but differs) or D (unrecognized).
+    if not student.program_mismatch_pending or student.program_mismatch_extracted != extracted_program:
+        student.program_mismatch_pending = True
+        student.program_mismatch_extracted = extracted_program
+        return True
+    return False
 
 
 async def list_students(
@@ -352,6 +435,9 @@ async def get_student_detail(
         "email": email,
         "image_url": u.image_url if u else None,
         "program": program_name,
+        "program_id": str(student.program_id) if student.program_id else None,
+        "program_mismatch_pending": bool(student.program_mismatch_pending),
+        "program_mismatch_extracted": student.program_mismatch_extracted,
         "school_year": school_year.name if school_year else None,
         "classification": classification_val,
         "application_status": student.application_status,

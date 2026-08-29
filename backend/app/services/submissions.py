@@ -25,7 +25,7 @@ from ..models import (
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .gcp_storage import generate_presigned_url as gcs_generate_presigned_url
 from .requirements import get_student_slot_statuses
-from .students import _sync_extracted_to_student
+from .students import _sync_extracted_to_student, sync_program_from_extraction
 from ..utils.computation import apply_computed_fields
 from .helpers import compute_initials, exclude_replaced_submissions, relative_time
 
@@ -372,6 +372,8 @@ async def verify_submission(
         return {
             "status": "verified",
             "submission_id": str(submission.id),
+            "program_mismatch_pending": bool(student.program_mismatch_pending),
+            "program_mismatch_extracted": student.program_mismatch_extracted,
         }
 
     if submission.status not in (
@@ -416,12 +418,16 @@ async def verify_submission(
     if extracted and isinstance(extracted, dict):
         if _sync_extracted_to_student(student, extracted):
             db.add(student)
+        if await sync_program_from_extraction(db, student, extracted):
+            db.add(student)
 
     await db.commit()
 
     return {
         "status": "verified",
         "submission_id": str(submission.id),
+        "program_mismatch_pending": bool(student.program_mismatch_pending),
+        "program_mismatch_extracted": student.program_mismatch_extracted,
     }
 
 

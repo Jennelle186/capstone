@@ -48,7 +48,7 @@ def client():
 
 @pytest.fixture
 def adviser():
-    return SimpleNamespace(id=uuid4())
+    return SimpleNamespace(id=uuid4(), user_id=uuid4())
 
 
 @pytest.fixture
@@ -208,3 +208,112 @@ class TestGetAdviserSubmissionHistory:
             response = client.get(f"/api/adviser/submissions/{submission_id}/history")
 
         assert response.status_code == 404
+
+
+class TestReassignStudentProgram:
+    def _make_student(self, student_id):
+        return SimpleNamespace(
+            id=student_id,
+            user_id=uuid4(),
+            school_year_id=uuid4(),
+            program_id=uuid4(),
+            program_mismatch_pending=True,
+            program_mismatch_extracted="BSIT",
+        )
+
+    def test_reassign_program_succeeds(self, client, adviser, student_id):
+        from app.models import Department
+
+        student = self._make_student(student_id)
+        new_dept = SimpleNamespace(id=uuid4(), name="Bachelor of Science in IT", is_active=True)
+        previous_program_id = student.program_id
+
+        async def _get(model, id):
+            if model is Student and id == student_id:
+                return student
+            if model is Department and id == new_dept.id:
+                return new_dept
+            return None
+
+        async def override_get_db_session():
+            session = AsyncMock()
+            session.add = MagicMock()
+            session.get = AsyncMock(side_effect=_get)
+            yield session
+
+        app.dependency_overrides[get_db_session] = override_get_db_session
+
+        with patch("app.routers.adviser.resolve_adviser", new_callable=AsyncMock, return_value=adviser):
+            with patch("app.routers.adviser.get_department_ids_for_adviser", new_callable=AsyncMock) as mock_depts:
+                mock_depts.return_value = {student.program_id}
+                response = client.post(
+                    f"/api/adviser/students/{student_id}/reassign-program",
+                    json={"program_id": str(new_dept.id), "reason": "Wrong program selected"},
+                )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["new_program_id"] == str(new_dept.id)
+        assert body["previous_program_id"] == str(previous_program_id)
+        assert student.program_id == new_dept.id
+        assert student.program_mismatch_pending is False
+        assert student.program_mismatch_extracted is None
+
+    def test_reassign_program_forbidden_when_no_access(self, client, adviser, student_id):
+        from app.models import Department
+
+        student = self._make_student(student_id)
+
+        async def _get(model, id):
+            if model is Student and id == student_id:
+                return student
+            return None
+
+        async def override_get_db_session():
+            session = AsyncMock()
+            session.add = MagicMock()
+            session.get = AsyncMock(side_effect=_get)
+            yield session
+
+        app.dependency_overrides[get_db_session] = override_get_db_session
+
+        with patch("app.routers.adviser.resolve_adviser", new_callable=AsyncMock, return_value=adviser):
+            with patch("app.routers.adviser.get_department_ids_for_adviser", new_callable=AsyncMock) as mock_depts:
+                mock_depts.return_value = {uuid4()}
+                response = client.post(
+                    f"/api/adviser/students/{student_id}/reassign-program",
+                    json={"program_id": str(uuid4())},
+                )
+
+        assert response.status_code == 404
+
+    def test_reassign_program_400_inactive_department(self, client, adviser, student_id):
+        from app.models import Department
+
+        student = self._make_student(student_id)
+        new_dept = SimpleNamespace(id=uuid4(), name="Inactive Program", is_active=False)
+
+        async def _get(model, id):
+            if model is Student and id == student_id:
+                return student
+            if model is Department and id == new_dept.id:
+                return new_dept
+            return None
+
+        async def override_get_db_session():
+            session = AsyncMock()
+            session.add = MagicMock()
+            session.get = AsyncMock(side_effect=_get)
+            yield session
+
+        app.dependency_overrides[get_db_session] = override_get_db_session
+
+        with patch("app.routers.adviser.resolve_adviser", new_callable=AsyncMock, return_value=adviser):
+            with patch("app.routers.adviser.get_department_ids_for_adviser", new_callable=AsyncMock) as mock_depts:
+                mock_depts.return_value = {student.program_id}
+                response = client.post(
+                    f"/api/adviser/students/{student_id}/reassign-program",
+                    json={"program_id": str(new_dept.id)},
+                )
+
+        assert response.status_code == 400

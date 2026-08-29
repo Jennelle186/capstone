@@ -1,11 +1,19 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import ReviewDeskNavbar from "./ReviewDeskNavbar";
 import SubmissionSidebar from "./SubmissionSidebar";
 import DocumentCanvas from "./DocumentCanvas";
 import ExtractionFieldEditor from "./ExtractionFieldEditor";
 import ReviewActionFooter from "./ReviewActionFooter";
 import SubmissionHistoryTimeline from "@/components/common/document-detail/SubmissionHistoryTimeline";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import type { SubmissionHistoryEntry } from "@/types/submission-history";
 import type { AdviserStudentSubmission } from "@/types/adviser-students";
 import type { ExtractionSection } from "@/components/common/document-detail/DocumentDetailModal";
@@ -15,6 +23,15 @@ interface StudentInfo {
   id: string;
   name: string;
   student_number?: string | null;
+  program?: string;
+  program_mismatch_pending?: boolean;
+  program_mismatch_extracted?: string | null;
+}
+
+interface DepartmentOption {
+  id: string;
+  name: string;
+  code: string;
 }
 
 interface Props {
@@ -47,6 +64,8 @@ interface Props {
   onFlagReasonChange: (submissionId: string, reason: string) => void;
   onSubmitFlag: () => void;
   onUpdateStatus: (status: ReviewStatus) => void;
+  onReassignProgram: (programId: string) => void;
+  departments: DepartmentOption[];
   historyEntries: SubmissionHistoryEntry[];
   historyLoading: boolean;
 }
@@ -81,10 +100,14 @@ export default function ReviewDeskLayout({
   onFlagReasonChange,
   onSubmitFlag,
   onUpdateStatus,
+  onReassignProgram,
+  departments,
   historyEntries,
   historyLoading,
 }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState<string>("");
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white text-slate-900 font-sans antialiased h-screen w-screen overflow-hidden">
       <ReviewDeskNavbar
@@ -101,6 +124,46 @@ export default function ReviewDeskLayout({
             onAutoAdvanceToggle={onSetAutoAdvance}
             onSidebarToggle={() => onSetSidebarOpen(!sidebarOpen)}
       />
+
+      {student?.program_mismatch_pending && (
+        <div className="border-b border-amber-200 bg-amber-50 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+            <p className="text-xs text-amber-800">
+              Program mismatch: student is assigned to{" "}
+              <strong>{student.program ?? "unknown"}</strong>, but their admission
+              form indicates <strong>{student.program_mismatch_extracted}</strong>.
+            </p>
+            <div className="ml-auto flex items-center gap-2">
+              <Select value={reassignTarget} onValueChange={setReassignTarget}>
+                <SelectTrigger className="h-8 w-56 bg-white border-amber-300 text-xs">
+                  <SelectValue placeholder="Select new program..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.code} — {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                className="h-8 bg-amber-600 hover:bg-amber-700 text-white text-xs"
+                disabled={!reassignTarget || actioning}
+                onClick={() => {
+                  if (reassignTarget) {
+                    onReassignProgram(reassignTarget);
+                    setReassignTarget("");
+                  }
+                }}
+              >
+                Reassign
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <SubmissionSidebar

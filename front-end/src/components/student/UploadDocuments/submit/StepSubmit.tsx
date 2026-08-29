@@ -8,6 +8,7 @@ import SubmissionCard from "@/components/student/UploadDocuments/submit/Submissi
 import SubmissionSummary from "@/components/student/UploadDocuments/submit/SubmissionSummary";
 import ConditionalSubmitModal from "@/components/student/UploadDocuments/submit/ConditionalSubmitModal";
 import ConfirmDialog from "@/components/student/UploadDocuments/submit/ConfirmDialog";
+import ProgramMismatchBanner from "@/components/student/UploadDocuments/ProgramMismatchBanner";
 import ReviewDocumentDetailModal from "@/components/student/ReviewDocumentDetailModal";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { SubmissionCardStatus, SubmissionDetail } from "@/types/submission";
@@ -35,6 +36,7 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [verifiedExpanded, setVerifiedExpanded] = React.useState(false);
+  const [mismatchPending, setMismatchPending] = React.useState(false);
   const getTokenRef = React.useRef(getToken);
 
   React.useEffect(() => {
@@ -302,6 +304,7 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
 
   return (
     <>
+      <ProgramMismatchBanner getToken={getToken} onPendingChange={setMismatchPending} />
       {isSchoolYearClosed && (
         <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-sm font-medium text-red-800">
           The school year is closed. Your documents are archived and read-only. Submissions are no longer allowed.
@@ -390,6 +393,7 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
             isSubmitting={isSubmitting}
             hideActions={readOnly || isSchoolYearClosed}
             lockedReason={isSchoolYearClosed ? "school-year-closed" : "submitted"}
+            submitDisabled={mismatchPending}
           />
         </div>
       </div>
