@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { findDuplicateCanonicalKeys } from "@/lib/analytics-utils";
 import { getPreviewSchema, groupBySection, statusLabel } from "@/lib/schema-utils";
-import type { CanonicalKeyItem } from "@/types/analytics";
+import type { CanonicalKeyItem, CanonicalKeyRegistrationPayload } from "@/types/analytics";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
 import type { ExtractionSchemaField, ExtractionSchemaPayload } from "@/types/extractionSchema";
 import FieldEditorRow from "./FieldEditorRow";
@@ -52,6 +52,7 @@ interface SchemaBuilderViewProps {
     onRemoveField: (fieldId: string) => void;
     canonicalKeySuggestions?: CanonicalKeyItem[];
     analyticsGroupSuggestions?: string[];
+    onRegisterCanonicalKey?: (payload: CanonicalKeyRegistrationPayload) => Promise<CanonicalKeyItem>;
 }
 
 export default function SchemaBuilderView({
@@ -73,6 +74,7 @@ export default function SchemaBuilderView({
     onRemoveField,
     canonicalKeySuggestions = [],
     analyticsGroupSuggestions = [],
+    onRegisterCanonicalKey,
 }: SchemaBuilderViewProps) {
     const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
     const [showJsonPreview, setShowJsonPreview] = useState(false);
@@ -327,6 +329,7 @@ export default function SchemaBuilderView({
                                                 onDelete={onRemoveField}
                                                 canonicalKeySuggestions={canonicalKeySuggestions}
                                                 analyticsGroupSuggestions={analyticsGroupSuggestions}
+                                                onRegisterCanonicalKey={onRegisterCanonicalKey}
                                                 duplicateWith={duplicateKeyFields.get(field.id) ?? []}
                                             />
                                             <InsertZone

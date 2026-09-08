@@ -1,5 +1,5 @@
-import { BarChart3, GripVertical, Lock, Sigma, Trash2, Unlock } from "lucide-react";
-import { useId, useState } from "react";
+import { BarChart3, GripVertical, Loader2, Lock, Plus, Sigma, Trash2, Unlock } from "lucide-react";
+import { useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { findSuggestedKey } from "@/lib/analytics-utils";
 import { FIELD_TYPES, normalizeFieldKey } from "@/lib/schema-utils";
-import type { CanonicalKeyItem } from "@/types/analytics";
+import type { CanonicalKeyItem, CanonicalKeyRegistrationPayload } from "@/types/analytics";
 import type { ExtractionSchemaField, ExtractionSchemaFieldType } from "@/types/extractionSchema";
 import BucketEditor from "./BucketEditor";
 import CanonicalKeyInput from "./CanonicalKeyInput";
@@ -23,6 +23,7 @@ interface FieldEditorRowProps {
     canonicalKeySuggestions?: CanonicalKeyItem[];
     analyticsGroupSuggestions?: string[];
     duplicateWith?: string[];
+    onRegisterCanonicalKey?: (payload: CanonicalKeyRegistrationPayload) => Promise<CanonicalKeyItem>;
 }
 
 export default function FieldEditorRow({
@@ -35,10 +36,18 @@ export default function FieldEditorRow({
     canonicalKeySuggestions = [],
     analyticsGroupSuggestions = [],
     duplicateWith = [],
+    onRegisterCanonicalKey,
 }: FieldEditorRowProps) {
     const [showAnalytics, setShowAnalytics] = useState(!!field.is_analytics);
     const [showComputed, setShowComputed] = useState(!!field.is_computed);
     const analyticsGroupDatalistId = useId();
+    const registerGroupDatalistId = useId();
+    const [showRegisterForm, setShowRegisterForm] = useState(false);
+    const [registerLabel, setRegisterLabel] = useState("");
+    const [registerType, setRegisterType] = useState<ExtractionSchemaFieldType>("string");
+    const [registerGroup, setRegisterGroup] = useState("");
+    const [registerError, setRegisterError] = useState("");
+    const [isRegistering, setIsRegistering] = useState(false);
     const analyticsModeOptions = [
         { value: "__auto__", label: "Auto (inferred from type)" },
         { value: "distribution", label: "Distribution" },
@@ -93,6 +102,50 @@ export default function FieldEditorRow({
         onUpdate(field.id, {
             computation: { ...(field.computation ?? { operation: "average" }), dependencies: next },
         });
+    };
+
+    const isUnregistered = useMemo(() => {
+        if (!field.canonical_key) return false;
+        const normalized = normalizeFieldKey(field.canonical_key);
+        return !canonicalKeySuggestions.some(
+            (item) => normalizeFieldKey(item.canonical_key) === normalized,
+        );
+    }, [field.canonical_key, canonicalKeySuggestions]);
+
+    const openRegisterForm = () => {
+        setRegisterLabel(field.description || field.key);
+        setRegisterType(field.type);
+        setRegisterGroup(field.analytics_group ?? "");
+        setRegisterError("");
+        setShowRegisterForm(true);
+    };
+
+    const closeRegisterForm = () => {
+        setShowRegisterForm(false);
+        setRegisterError("");
+    };
+
+    const submitRegister = async () => {
+        if (!onRegisterCanonicalKey || !field.canonical_key) return;
+        if (!registerLabel.trim()) {
+            setRegisterError("Label is required.");
+            return;
+        }
+        setIsRegistering(true);
+        setRegisterError("");
+        try {
+            await onRegisterCanonicalKey({
+                canonical_key: field.canonical_key,
+                label: registerLabel.trim(),
+                field_type: registerType,
+                analytics_group: registerGroup.trim() || null,
+            });
+            setShowRegisterForm(false);
+        } catch (error) {
+            setRegisterError(error instanceof Error ? error.message : "Failed to register key.");
+        } finally {
+            setIsRegistering(false);
+        }
     };
 
     return (
@@ -261,11 +314,24 @@ export default function FieldEditorRow({
                     <p className="text-[11px] font-medium text-muted-foreground">Canonical Key</p>
                     <CanonicalKeyInput
                         value={field.canonical_key ?? null}
-                        onChange={(value) => onUpdate(field.id, { canonical_key: value })}
+                        onChange={(value) =>
+                            onUpdate(field.id, {
+                                canonical_key: value ? normalizeFieldKey(value) : null,
+                            })
+                        }
                         suggestions={canonicalKeySuggestions}
                         disabled={field.readOnly}
                         duplicateWith={duplicateWith}
                     />
+                    {isUnregistered && !field.readOnly && onRegisterCanonicalKey && !showRegisterForm && (
+                        <button
+                            type="button"
+                            onClick={openRegisterForm}
+                            className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+                        >
+                            <Plus className="h-3 w-3" /> Register this key
+                        </button>
+                    )}
                 </div>
                 <div className="col-span-3 space-y-1">
                     <p className="text-[11px] font-medium text-muted-foreground">Analytics Group</p>
@@ -331,6 +397,87 @@ export default function FieldEditorRow({
                             }
                             readOnly={field.readOnly}
                         />
+                    </div>
+                )}
+                {showRegisterForm && (
+                    <div className="col-span-12 space-y-3 rounded-md border border-slate-200 bg-white p-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                            Register canonical key
+                        </p>
+                        <div className="grid grid-cols-12 gap-3">
+                            <div className="col-span-4 space-y-1">
+                                <p className="text-[11px] font-medium text-muted-foreground">Label</p>
+                                <Input
+                                    value={registerLabel}
+                                    onChange={(e) => setRegisterLabel(e.target.value)}
+                                    placeholder="e.g. Religion"
+                                    className="h-8 text-sm bg-white"
+                                />
+                            </div>
+                            <div className="col-span-3 space-y-1">
+                                <p className="text-[11px] font-medium text-muted-foreground">Type</p>
+                                <Select
+                                    value={registerType}
+                                    onValueChange={(value) =>
+                                        setRegisterType(value as ExtractionSchemaFieldType)
+                                    }
+                                >
+                                    <SelectTrigger className="h-8 text-sm bg-white">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {FIELD_TYPES.map((type) => (
+                                            <SelectItem key={type} value={type}>
+                                                {type}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="col-span-3 space-y-1">
+                                <p className="text-[11px] font-medium text-muted-foreground">Group</p>
+                                <Input
+                                    value={registerGroup}
+                                    onChange={(e) => setRegisterGroup(e.target.value)}
+                                    placeholder="e.g. Demographics"
+                                    list={registerGroupDatalistId}
+                                    className="h-8 text-sm bg-white"
+                                />
+                                {analyticsGroupSuggestions.length > 0 && (
+                                    <datalist id={registerGroupDatalistId}>
+                                        {analyticsGroupSuggestions.map((group) => (
+                                            <option key={group} value={group} />
+                                        ))}
+                                    </datalist>
+                                )}
+                            </div>
+                            <div className="col-span-2 flex items-end gap-2">
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={closeRegisterForm}
+                                    disabled={isRegistering}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={submitRegister}
+                                    disabled={isRegistering}
+                                >
+                                    {isRegistering ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                        "Register"
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                        {registerError && (
+                            <p className="text-[10px] font-medium text-destructive">{registerError}</p>
+                        )}
                     </div>
                 )}
             </div>

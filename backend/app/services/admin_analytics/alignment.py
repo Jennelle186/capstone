@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from ...database import SessionDep
 from ...models import ExtractionSchema, SchoolYear, SchoolYearRequirement
+from .registry import get_registry_metadata
 
 
 def _option_signature(field: dict[str, Any]) -> tuple[str, ...] | None:
@@ -26,6 +27,7 @@ def _option_signature(field: dict[str, Any]) -> tuple[str, ...] | None:
 def build_alignment_report(
     schemas: list[dict[str, Any]],
     schema_year_names: dict[str, list[str]],
+    label_by_key: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Compose the cross-year alignment report from pre-queried data.
 
@@ -33,10 +35,15 @@ def build_alignment_report(
     analytics-enabled field by its canonical key (falling back to the field
     key), then classifies each group:
 
-    - ``isolated`` — key used in at most one school year
-    - ``diverges`` — key used in 2+ years but field types or option lists differ
-    - ``aligned`` — key used in 2+ years with consistent type and options
+    - ``isolated`` - key used in at most one school year
+    - ``diverges`` - key used in 2+ years but field types or option lists differ
+    - ``aligned``-  key used in 2+ years with consistent type and options
+
+    ``label_by_key`` optionally supplies a curated display label per canonical
+    key (from the analytics registry). It is surfaced as ``label`` on each
+    group, while ``field_details`` retain their per-schema labels.
     """
+    label_by_key = label_by_key or {}
     groups: dict[str, dict[str, Any]] = {}
 
     for schema in schemas:
@@ -104,6 +111,7 @@ def build_alignment_report(
         result_groups.append(
             {
                 "canonical_key": ck,
+                "label": label_by_key.get(ck.lower(), ck),
                 "field_details": group["field_details"],
                 "school_year_count": year_count,
                 "school_year_names": year_names,
@@ -148,4 +156,9 @@ async def get_alignment_report(db: SessionDep) -> dict[str, Any]:
         for schema in schemas
     ]
 
-    return build_alignment_report(schema_rows, schema_year_names)
+    registry_meta = await get_registry_metadata(db)
+    label_by_key = {
+        key: meta["label"] for key, meta in registry_meta.items() if meta.get("label")
+    }
+
+    return build_alignment_report(schema_rows, schema_year_names, label_by_key)

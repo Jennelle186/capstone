@@ -17,6 +17,8 @@ backend/test_output/
 backend/test_samples/
 backend/test_pipeline.py
 backend/test_concurrency.py
+backend/create_missing_schemas.py
+backend/seed_sample_data_6_types_docu.py
 
 # --- Frontend/Node Artifacts ---
 .vite/

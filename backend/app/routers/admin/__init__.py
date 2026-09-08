@@ -13,6 +13,7 @@ from .school_years import router as school_years_router
 from .student_management import router as student_management_router
 from .users import router as users_router
 from .analytics import router as analytics_router
+from .analytics_dimensions import router as analytics_dimensions_router
 
 # Root admin router. All admin sub-domains are mounted here under `/api/admin`.
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -43,3 +44,5 @@ router.include_router(access_control_router)
 router.include_router(student_management_router)
 # Analytics namespace.
 router.include_router(analytics_router)
+# Analytics dimensions registry namespace.
+router.include_router(analytics_dimensions_router)

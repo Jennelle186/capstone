@@ -1,14 +1,34 @@
 export interface CanonicalKeyItem {
+  id: string
   canonical_key: string
   label: string
   field_type: string
   analytics_group: string | null
   school_year_count: number
   document_types: string[]
+  is_active: boolean
+}
+
+export interface AnalyticsDimensionResponse {
+  id: string
+  canonical_key: string
+  label: string
+  field_type: string
+  analytics_group: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface CanonicalKeysResponse {
   keys: CanonicalKeyItem[]
+}
+
+export interface CanonicalKeyRegistrationPayload {
+  canonical_key: string
+  label: string
+  field_type: string
+  analytics_group: string | null
 }
 
 export interface AlignmentFieldDetail {
@@ -21,6 +41,7 @@ export interface AlignmentFieldDetail {
 
 export interface AlignmentGroup {
   canonical_key: string
+  label: string
   field_details: AlignmentFieldDetail[]
   school_year_count: number
   school_year_names: string[]
@@ -105,6 +126,13 @@ export interface TrendField {
 export interface TrendResponse {
   school_years: TrendSchoolYear[]
   canonical_keys: Record<string, TrendField>
+}
+
+export interface UnregisteredKeyItem {
+  canonical_key: string
+  schema_name: string
+  school_year_name: string
+  field_label: string
 }
 
 export interface EnrolmentSeriesItem {

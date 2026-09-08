@@ -17,7 +17,11 @@ import {
     removeSchemaField,
 } from "@/lib/schema-utils";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
-import type { CanonicalKeyItem, CanonicalKeysResponse } from "@/types/analytics";
+import type {
+    CanonicalKeyItem,
+    CanonicalKeyRegistrationPayload,
+    CanonicalKeysResponse,
+} from "@/types/analytics";
 import type {
     ExtractionSchemaField,
     ExtractionSchemaGenerateResponse,
@@ -275,6 +279,40 @@ export default function ExtractionSchemasPage() {
             };
         });
     };
+
+    const registerCanonicalKey = useCallback(
+        async (payload: CanonicalKeyRegistrationPayload): Promise<CanonicalKeyItem> => {
+            const created = (await requestWithAdminAuth("/api/admin/analytics-dimensions", {
+                method: "POST",
+                body: JSON.stringify(payload),
+            })) as {
+                id: string;
+                canonical_key: string;
+                label: string;
+                field_type: string;
+                analytics_group: string | null;
+                is_active: boolean;
+            };
+
+            const item: CanonicalKeyItem = {
+                id: created.id,
+                canonical_key: created.canonical_key,
+                label: created.label,
+                field_type: created.field_type,
+                analytics_group: created.analytics_group,
+                school_year_count: 0,
+                document_types: [],
+                is_active: created.is_active,
+            };
+
+            setCanonicalKeySuggestions((prev) =>
+                prev.some((k) => k.canonical_key === item.canonical_key) ? prev : [...prev, item],
+            );
+
+            return item;
+        },
+        [requestWithAdminAuth],
+    );
 
     const addField = useCallback((afterFieldId?: string) => {
         setFormState((prev) => {
@@ -570,6 +608,7 @@ export default function ExtractionSchemasPage() {
             onRunExtraction={handleRunExtraction}
             canonicalKeySuggestions={canonicalKeySuggestions}
             analyticsGroupSuggestions={analyticsGroupSuggestions}
+            onRegisterCanonicalKey={registerCanonicalKey}
         />
     );
 }

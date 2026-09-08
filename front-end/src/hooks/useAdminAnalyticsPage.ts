@@ -6,6 +6,7 @@ import { useStableToken } from "@/hooks/useStableToken"
 import { fetchWithClerkAuth } from "@/lib/api"
 import type {
   AlignmentReport,
+  AnalyticsDimensionResponse,
   CanonicalKeyItem,
   CanonicalKeysResponse,
   EnrolmentResponse,
@@ -13,6 +14,7 @@ import type {
   FieldAnalytics,
   SnapshotResponse,
   TrendResponse,
+  UnregisteredKeyItem,
 } from "@/types/analytics"
 import type { DepartmentCreateResponse } from "@/types/department"
 import type { SchoolYearRecord } from "@/types/schoolYear"
@@ -37,7 +39,12 @@ export function useAdminAnalyticsPage() {
   const [isLoadingTrends, setIsLoadingTrends] = useState(false)
   const [isLoadingAlignment, setIsLoadingAlignment] = useState(true)
 
-  const [tab, setTab] = useState<"snapshot" | "trends" | "fields" | "alignment">("snapshot")
+  const [unregisteredKeys, setUnregisteredKeys] = useState<UnregisteredKeyItem[]>([])
+  const [isLoadingUnregistered, setIsLoadingUnregistered] = useState(true)
+  const [registryEntries, setRegistryEntries] = useState<AnalyticsDimensionResponse[]>([])
+  const [isLoadingRegistry, setIsLoadingRegistry] = useState(true)
+
+  const [tab, setTab] = useState<"snapshot" | "trends" | "fields" | "alignment" | "registry">("snapshot")
   const [trendFromYear, setTrendFromYear] = useState("2023")
   const [trendToYear, setTrendToYear] = useState("2026")
   const [selectedTrendKeys, setSelectedTrendKeys] = useState<string[]>(["gender"])
@@ -164,6 +171,40 @@ export function useAdminAnalyticsPage() {
     }
   }, [requestWithAdminAuth])
 
+  const loadUnregisteredKeys = useCallback(async () => {
+    setIsLoadingUnregistered(true)
+    try {
+      const payload = (await requestWithAdminAuth(
+        "/api/admin/analytics-dimensions/unregistered",
+      )) as UnregisteredKeyItem[]
+      setUnregisteredKeys(payload)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load unregistered keys.")
+    } finally {
+      setIsLoadingUnregistered(false)
+    }
+  }, [requestWithAdminAuth])
+
+  const loadRegistryEntries = useCallback(async () => {
+    setIsLoadingRegistry(true)
+    try {
+      const payload = (await requestWithAdminAuth(
+        "/api/admin/analytics-dimensions",
+      )) as AnalyticsDimensionResponse[]
+      setRegistryEntries(payload)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load registry.")
+    } finally {
+      setIsLoadingRegistry(false)
+    }
+  }, [requestWithAdminAuth])
+
+  const refreshRegistry = useCallback(() => {
+    void loadCanonicalKeys()
+    void loadUnregisteredKeys()
+    void loadRegistryEntries()
+  }, [loadCanonicalKeys, loadUnregisteredKeys, loadRegistryEntries])
+
   useEffect(() => {
     if (!isLoaded) return
     if (!isSignedIn) {
@@ -173,6 +214,8 @@ export function useAdminAnalyticsPage() {
       setIsLoadingCanonical(false)
       setIsLoadingEnrolment(false)
       setIsLoadingAlignment(false)
+      setIsLoadingUnregistered(false)
+      setIsLoadingRegistry(false)
       return
     }
     void loadSchoolYears()
@@ -180,7 +223,9 @@ export function useAdminAnalyticsPage() {
     void loadCanonicalKeys()
     void loadEnrolment("2023", "2026")
     void loadAlignment()
-  }, [isLoaded, isSignedIn, loadSchoolYears, loadDepartments, loadCanonicalKeys, loadEnrolment, loadAlignment])
+    void loadUnregisteredKeys()
+    void loadRegistryEntries()
+  }, [isLoaded, isSignedIn, loadSchoolYears, loadDepartments, loadCanonicalKeys, loadEnrolment, loadAlignment, loadUnregisteredKeys, loadRegistryEntries])
 
   useEffect(() => {
     if (!selectedSyId) return
@@ -261,5 +306,10 @@ export function useAdminAnalyticsPage() {
     selectedTrendKeys,
     setSelectedTrendKeys,
     trendKeyOptions,
+    unregisteredKeys,
+    isLoadingUnregistered,
+    refreshRegistry,
+    registryEntries,
+    isLoadingRegistry,
   }
 }

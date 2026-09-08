@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Play, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { CanonicalKeyItem } from "@/types/analytics";
+import type { CanonicalKeyItem, CanonicalKeyRegistrationPayload } from "@/types/analytics";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
 import type {
     ExtractionSchemaField,
@@ -47,6 +47,7 @@ interface ExtractionLayoutProps {
     onRunExtraction?: () => void;
     canonicalKeySuggestions?: CanonicalKeyItem[];
     analyticsGroupSuggestions?: string[];
+    onRegisterCanonicalKey?: (payload: CanonicalKeyRegistrationPayload) => Promise<CanonicalKeyItem>;
 }
 
 export default function ExtractionLayout(props: ExtractionLayoutProps) {
@@ -119,6 +120,7 @@ export default function ExtractionLayout(props: ExtractionLayoutProps) {
                             onRemoveField={props.onRemoveField}
                             canonicalKeySuggestions={props.canonicalKeySuggestions}
                             analyticsGroupSuggestions={props.analyticsGroupSuggestions}
+                            onRegisterCanonicalKey={props.onRegisterCanonicalKey}
                         />
                     ) : (
                         <SandboxTestingView

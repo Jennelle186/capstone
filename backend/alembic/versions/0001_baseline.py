@@ -20,6 +20,28 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Alembic hardcodes alembic_version.version_num as VARCHAR(32), but four
+    # revision IDs in this chain are longer (up to 44 characters), so recording
+    # them fails with StringDataRightTruncationError on a fresh build. Widen it
+    # here, before any long ID has to be written. Alembic creates this table
+    # before running the first migration, so it always exists at this point.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'alembic_version'
+                  AND column_name = 'version_num'
+                  AND character_maximum_length < 128
+            ) THEN
+                ALTER TABLE alembic_version
+                ALTER COLUMN version_num TYPE VARCHAR(128);
+            END IF;
+        END $$;
+        """
+    )
+
     # Enum used by users.role. Create it if it doesn't exist.
     # Postgres doesn't support `CREATE TYPE ... IF NOT EXISTS` for enums, so use a DO block.
     op.execute(

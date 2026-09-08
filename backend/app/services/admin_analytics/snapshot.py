@@ -16,6 +16,7 @@ from ...models import (
 from ...services.requirements import get_bulk_student_slot_statuses
 from .aggregators import AGGREGATORS, infer_mode, snake_to_title
 from .field_values import extract_values
+from .registry import get_registry_metadata
 
 
 async def get_extraction_analytics(
@@ -106,6 +107,10 @@ async def get_extraction_analytics(
         sid = syr.extraction_schema_id
         if sid and sid not in schema_snapshots:
             schema_snapshots[sid] = syr.snapshot_fields_json
+
+    # Curated registry metadata (label + group) is the source of truth for
+    # display, overriding per-schema field labels.
+    registry_meta = await get_registry_metadata(db)
 
     for schema in schemas:
         snap = schema_snapshots.get(schema.id)
@@ -230,8 +235,17 @@ async def get_extraction_analytics(
             )
 
             canonical_key = field.get("canonical_key") or field_key
-            label = field.get("analytics_label") or field.get("label") or snake_to_title(canonical_key)
-            analytics_group = field.get("analytics_group")
+            registry = registry_meta.get(canonical_key.lower())
+            label = (
+                (registry["label"] if registry else None)
+                or field.get("analytics_label")
+                or field.get("label")
+                or snake_to_title(canonical_key)
+            )
+            analytics_group = (
+                (registry["analytics_group"] if registry else None)
+                or field.get("analytics_group")
+            )
 
             field_options = field.get("options")
             buckets_config = field.get("buckets")
