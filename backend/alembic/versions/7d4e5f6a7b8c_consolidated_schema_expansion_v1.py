@@ -17,11 +17,22 @@ depends_on = None
 
 
 def upgrade():
-    # 1. Add second_courser to StudentClassification enum (safe if already exists)
-    try:
-        op.execute("ALTER TYPE student_classification ADD VALUE 'second_courser'")
-    except Exception:
-        pass
+    # 1. Add second_courser to StudentClassification enum. PostgreSQL has no
+    # IF NOT EXISTS for ALTER TYPE ... ADD VALUE, so swallow the duplicate
+    # error the same way 20260613_add_pending_status does. A missing type
+    # raises UndefinedObject instead of being silently ignored, which is
+    # intentional: it means the enum was never built and the schema is broken.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            ALTER TYPE student_classification ADD VALUE 'second_courser';
+        EXCEPTION
+            WHEN duplicate_object THEN NULL;
+        END
+        $$;
+        """
+    )
 
     # 2. Add 7 new columns to students
     op.add_column("students", sa.Column("gender", sa.String(20), nullable=True))

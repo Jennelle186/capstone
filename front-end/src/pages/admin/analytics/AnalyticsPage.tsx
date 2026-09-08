@@ -15,6 +15,7 @@ import GlobalAISummary from "@/components/admin/analytics/GlobalAISummary"
 import SnapshotTab from "@/components/admin/analytics/SnapshotTab"
 import TrendsTab from "@/components/admin/analytics/TrendsTab"
 import AlignmentTab from "@/components/admin/analytics/AlignmentTab"
+import RegistryTab from "@/components/admin/analytics/RegistryTab"
 
 export default function AnalyticsPage() {
   const {
@@ -44,6 +45,11 @@ export default function AnalyticsPage() {
     isLoadingTrends,
     alignment,
     isLoadingAlignment,
+    unregisteredKeys,
+    isLoadingUnregistered,
+    refreshRegistry,
+    registryEntries,
+    isLoadingRegistry,
   } = useAdminAnalyticsPage()
 
   const { getToken, isLoaded } = useAuth()
@@ -106,7 +112,7 @@ export default function AnalyticsPage() {
 
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as "snapshot" | "trends" | "fields" | "alignment")}
+        onValueChange={(v) => setTab(v as "snapshot" | "trends" | "fields" | "alignment" | "registry")}
         className="space-y-6"
       >
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -115,6 +121,7 @@ export default function AnalyticsPage() {
             <TabsTrigger value="trends">Trends</TabsTrigger>
             <TabsTrigger value="fields">Fields</TabsTrigger>
             <TabsTrigger value="alignment">Alignment</TabsTrigger>
+            <TabsTrigger value="registry">Registry</TabsTrigger>
           </TabsList>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -194,6 +201,17 @@ export default function AnalyticsPage() {
 
         <TabsContent value="alignment">
           <AlignmentTab report={alignment} isLoading={isLoadingAlignment} />
+        </TabsContent>
+
+        <TabsContent value="registry">
+          <RegistryTab
+            entries={registryEntries}
+            unregistered={unregisteredKeys}
+            isLoading={isLoadingRegistry}
+            isLoadingUnregistered={isLoadingUnregistered}
+            requestWithAdminAuth={requestWithAdminAuth}
+            onRefresh={refreshRegistry}
+          />
         </TabsContent>
       </Tabs>
     </div>

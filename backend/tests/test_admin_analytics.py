@@ -374,3 +374,16 @@ class TestBuildAlignmentReport:
     def test_empty_schemas(self):
         report = build_alignment_report([], {})
         assert report == {"groups": [], "total_keys": 0, "isolated_keys": 0, "diverged_keys": 0}
+
+    def test_label_defaults_to_canonical_key(self):
+        schemas = [self._schema("s1", "Enrollment 2024", [self._field()])]
+        report = build_alignment_report(schemas, {"s1": ["2023-2024"]})
+        assert report["groups"][0]["label"] == "gender"
+
+    def test_label_uses_registry_when_provided(self):
+        schemas = [self._schema("s1", "Enrollment 2024", [self._field()])]
+        label_by_key = {"gender": "Student Gender"}
+        report = build_alignment_report(schemas, {"s1": ["2023-2024"]}, label_by_key)
+        assert report["groups"][0]["label"] == "Student Gender"
+        # Per-schema field_label is preserved for divergence context.
+        assert report["groups"][0]["field_details"][0]["field_label"] == "gender"

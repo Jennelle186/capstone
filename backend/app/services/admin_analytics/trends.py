@@ -17,6 +17,7 @@ from ...models import (
 )
 from .aggregators import AGGREGATORS, infer_mode
 from .field_values import extract_values
+from .registry import get_registry_metadata
 
 
 async def get_trends(
@@ -45,6 +46,8 @@ async def get_trends(
     all_schemas = (
         await db.execute(select(ExtractionSchema))
     ).scalars().all()
+
+    registry_meta = await get_registry_metadata(db)
 
     key_fields: dict[str, list[dict]] = defaultdict(list)
     for schema in all_schemas:
@@ -104,7 +107,7 @@ async def get_trends(
         # If no field matched this key, return a placeholder series of Nones.
         if ck not in key_fields:
             canonical_keys_result[ck] = {
-                "label": ck,
+                "label": (registry_meta.get(ck.lower()) or {}).get("label") or ck,
                 "field_type": "string",
                 "analytics_mode": "distribution",
                 "series": [None] * len(school_year_list),
@@ -115,7 +118,12 @@ async def get_trends(
         first = field_entries[0]
         field_type: str = first.get("type", "string")
         mode: str = first.get("analytics_mode") or infer_mode(field_type)
-        label: str = first.get("analytics_label") or first.get("label") or ck
+        label: str = (
+            (registry_meta.get(ck.lower()) or {}).get("label")
+            or first.get("analytics_label")
+            or first.get("label")
+            or ck
+        )
 
         series: list = []
 

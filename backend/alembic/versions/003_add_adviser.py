@@ -28,6 +28,14 @@ def upgrade() -> None:
         """
     )
     
+    # Drop the default so ALTER COLUMN TYPE can proceed
+    op.execute(
+        """
+        ALTER TABLE users 
+        ALTER COLUMN role DROP DEFAULT;
+        """
+    )
+    
     # Convert the users.role column to the new enum type
     op.execute(
         """
@@ -88,6 +96,11 @@ def upgrade() -> None:
         """
     )
     
+    # Restore the default on the role column
+    op.execute(
+        "ALTER TABLE users ALTER COLUMN role SET DEFAULT 'STUDENT'::user_role"
+    )
+    
     # Step 4: Create the advisers table
     op.create_table(
         "advisers",
@@ -116,6 +129,13 @@ def downgrade() -> None:
     op.execute(
         """
         ALTER TABLE users 
+        ALTER COLUMN role DROP DEFAULT;
+        """
+    )
+    
+    op.execute(
+        """
+        ALTER TABLE users 
         ALTER COLUMN role TYPE user_role_old USING role::text::user_role_old;
         """
     )
@@ -130,4 +150,8 @@ def downgrade() -> None:
         """
         ALTER TYPE user_role_old RENAME TO user_role;
         """
+    )
+    
+    op.execute(
+        "ALTER TABLE users ALTER COLUMN role SET DEFAULT 'STUDENT'::user_role"
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -62,6 +63,16 @@ class ExtractionSchemaField(BaseModel):
         if not normalized:
             raise ValueError("Field name is required.")
         return normalized
+
+    @field_validator("canonical_key")
+    @classmethod
+    def normalize_canonical_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        normalized = re.sub(r"\s+", "_", normalized)
+        normalized = re.sub(r"[^a-z0-9_.]", "", normalized)
+        return normalized or None
 
     @field_validator("description")
     @classmethod

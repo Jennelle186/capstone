@@ -1,37 +1,51 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import SessionDep
-from ...models import DocumentType, ExtractionSchema, SchoolYearRequirement
+from ...models import (
+    AnalyticsDimension,
+    DocumentType,
+    ExtractionSchema,
+    SchoolYearRequirement,
+)
+
+logger = logging.getLogger(__name__)
 
 
 async def get_canonical_keys(db: SessionDep) -> list[dict]:
-    """Discover all analytics-enabled canonical keys in the system.
+    """Return canonical analytics keys from the registry.
 
-    A canonical key is a stable identifier for a field that may appear in
-    multiple extraction schemas across different document types and school
-    years.  This function:
-
-    1. Walks every extraction schema for fields tagged ``is_analytics``.
-    2. Groups them by canonical key (or field key if no canonical key set).
-    3. Counts how many distinct school years each key appears in.
-    4. Lists which document types use each key.
+    The ``analytics_dimensions`` table is the single source of truth for each
+    key's label, field type, and group which is going to be used in analytics. This function still scans extraction
+    schemas to compute usage metrics (``school_year_count`` and ``document_types``), but only for keys that are registered. 
+    Analytics-enabled schema fields whose canonical key is not registered are skipped and logged.
 
     Returns a list sorted alphabetically by canonical key.
     """
 
-    schemas = (
-        await db.execute(select(ExtractionSchema))
+    # load active registry rows. These supply all metadata.
+    dimensions = (
+        await db.execute(
+            select(AnalyticsDimension).where(
+                AnalyticsDimension.is_active == True  # noqa: E712
+            )
+        )
     ).scalars().all()
 
-    # Phase 1: collect all analytics fields and index them by canonical key.
-    canonical_info: dict[str, dict] = {}
+    registry_by_key: dict[str, AnalyticsDimension] = {
+        dim.canonical_key.lower(): dim for dim in dimensions
+    }
+
+    # scan schemas only to collect which keys are actually used.
+    schemas = (await db.execute(select(ExtractionSchema))).scalars().all()
+
     canonical_schema_ids: dict[str, set[UUID]] = defaultdict(set)
+    unregistered_keys: set[str] = set()
 
     for schema in schemas:
         fields = schema.fields_json or []
@@ -44,20 +58,21 @@ async def get_canonical_keys(db: SessionDep) -> list[dict]:
             if not ck:
                 continue
 
-            if ck not in canonical_info:
-                canonical_info[ck] = {
-                    "canonical_key": ck,
-                    "label": field.get("analytics_label") or field.get("key", ck),
-                    "field_type": field.get("type", "string"),
-                    "analytics_group": field.get("analytics_group"),
-                    "school_year_count": 0,
-                    "document_types": [],
-                }
+            if ck.lower() not in registry_by_key:
+                unregistered_keys.add(ck)
+                continue
 
-            canonical_schema_ids[ck].add(schema.id)
+            canonical_schema_ids[ck.lower()].add(schema.id)
 
-    # Phase 2: load all SchoolYearRequirements to build the reverse mapping
-    # from schema → document_type and schema → school_year.
+    for ck in sorted(unregistered_keys):
+        logger.warning(
+            "Analytics field %r has no registry entry; add it via "
+            "/api/admin/analytics-dimensions or remove is_analytics from the schema.",
+            ck,
+        )
+
+    # load all SchoolYearRequirements to build the reverse mapping
+    # from schema -> document_type and schema -> school_year.
     all_syrs = (await db.execute(select(SchoolYearRequirement))).scalars().all()
 
     schema_to_doc_types: dict[str, set[UUID]] = defaultdict(set)
@@ -86,12 +101,12 @@ async def get_canonical_keys(db: SessionDep) -> list[dict]:
         for dt in dt_result.scalars().all():
             doc_type_names[str(dt.id)] = dt.name
 
-    # Phase 3: compose the final response.
+    # this is the final response from registry metadata + usage metrics.
     result = []
-    for ck, info in canonical_info.items():
+    for dim in dimensions:
         all_dt_names: set[str] = set()
         all_sy_ids: set[UUID] = set()
-        for schema_id in canonical_schema_ids[ck]:
+        for schema_id in canonical_schema_ids.get(dim.canonical_key.lower(), set()):
             sid = str(schema_id)
             for dt_id in schema_to_doc_types.get(sid, set()):
                 name = doc_type_names.get(str(dt_id))
@@ -99,8 +114,17 @@ async def get_canonical_keys(db: SessionDep) -> list[dict]:
                     all_dt_names.add(name)
             all_sy_ids.update(schema_to_sy_ids.get(sid, set()))
 
-        info["school_year_count"] = len(all_sy_ids)
-        info["document_types"] = sorted(all_dt_names)
-        result.append(info)
+        result.append(
+            {
+                "id": str(dim.id),
+                "canonical_key": dim.canonical_key,
+                "label": dim.label,
+                "field_type": dim.field_type,
+                "analytics_group": dim.analytics_group,
+                "school_year_count": len(all_sy_ids),
+                "document_types": sorted(all_dt_names),
+                "is_active": dim.is_active,
+            }
+        )
 
     return sorted(result, key=lambda x: x["canonical_key"])

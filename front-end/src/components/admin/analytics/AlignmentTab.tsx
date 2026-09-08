@@ -112,9 +112,14 @@ function GroupEntry({ group }: { group: AlignmentGroup }) {
   return (
     <div>
       <div className="hidden items-center gap-3 py-3 md:flex">
-        <span className="w-40 shrink-0 truncate font-mono text-sm font-medium text-slate-800">
-          {group.canonical_key}
-        </span>
+        <div className="w-40 shrink-0">
+          <span className="block truncate text-sm font-medium text-slate-800">
+            {group.label}
+          </span>
+          <span className="block truncate font-mono text-[10px] text-muted-foreground">
+            {group.canonical_key}
+          </span>
+        </div>
         <div className="min-w-0 flex-1">
           <LabelChips labels={labels} />
         </div>
@@ -137,9 +142,14 @@ function GroupEntry({ group }: { group: AlignmentGroup }) {
         )}
       >
         <div className="flex items-start justify-between gap-2">
-          <span className="font-mono text-sm font-medium text-slate-800">
-            {group.canonical_key}
-          </span>
+          <div className="min-w-0">
+            <span className="block truncate text-sm font-medium text-slate-800">
+              {group.label}
+            </span>
+            <span className="block truncate font-mono text-[10px] text-muted-foreground">
+              {group.canonical_key}
+            </span>
+          </div>
           <span
             className={cn(
               "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
@@ -290,6 +300,7 @@ export default function AlignmentTab({ report, isLoading }: AlignmentTabProps) {
     return report.groups.filter(
       (g) =>
         g.canonical_key.toLowerCase().includes(q) ||
+        g.label.toLowerCase().includes(q) ||
         g.field_details.some((d) => d.field_label.toLowerCase().includes(q)),
     )
   }, [report, query])

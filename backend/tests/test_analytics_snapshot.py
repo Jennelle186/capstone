@@ -384,6 +384,7 @@ class TestComputeFallback:
             _make_scalars_result([schema]),        # 3 schemas
             _make_scalars_result([student]),       # 4 students
             _make_scalars_result([sub]),           # 5 verified submissions
+            _make_scalars_result([]),              # 6 registry dimensions
         ]
 
         result = await get_extraction_analytics(db, sy_id)
@@ -453,6 +454,7 @@ class TestComputeFallback:
             _make_scalars_result([schema]),
             _make_scalars_result([student1, student2]),
             _make_scalars_result([sub1, sub2]),
+            _make_scalars_result([]),              # registry dimensions
         ]
 
         result = await get_extraction_analytics(db, sy_id)
@@ -506,6 +508,7 @@ class TestComputeFallback:
             _make_scalars_result([schema]),
             _make_scalars_result([student]),
             _make_scalars_result([sub]),
+            _make_scalars_result([]),              # registry dimensions
         ]
 
         result = await get_extraction_analytics(db, sy_id)
@@ -563,6 +566,7 @@ class TestComputeFallback:
             _make_scalars_result([schema]),
             _make_scalars_result([student]),
             _make_scalars_result([sub]),
+            _make_scalars_result([]),              # registry dimensions
         ]
 
         result = await get_extraction_analytics(db, sy_id)

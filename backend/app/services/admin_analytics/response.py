@@ -6,12 +6,14 @@ from pydantic import BaseModel
 
 
 class CanonicalKeyItem(BaseModel):
+    id: str
     canonical_key: str
     label: str
     field_type: str
     analytics_group: str | None = None
     school_year_count: int
     document_types: list[str] = []
+    is_active: bool = True
 
 
 class CanonicalKeysResponse(BaseModel):
@@ -28,6 +30,7 @@ class AlignmentFieldDetail(BaseModel):
 
 class AlignmentGroup(BaseModel):
     canonical_key: str
+    label: str = ""
     field_details: list[AlignmentFieldDetail]
     school_year_count: int
     school_year_names: list[str] = []

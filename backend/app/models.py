@@ -1,7 +1,7 @@
 import uuid
 import enum
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -101,7 +101,7 @@ class Student(Base):
         index=True,
     )
 
-    # These can be null at first sign-up; you can fill them later during onboarding.
+    # These can be null at first sign-up;can be filled up during onboarding of the student. 
     student_number = Column(String, unique=True, nullable=True)
     program_id = Column(
         UUID(as_uuid=True),
@@ -172,7 +172,7 @@ class Adviser(Base):
         cascade="all, delete-orphan",
     )
 
-
+# The academic programs in the db 
 class Program(Base):
     __tablename__ = "programs"
 
@@ -413,8 +413,8 @@ class RequirementSlot(Base):
     Slots replace the flat ``SchoolYearRequirement`` model with a polymorphic
     design:
 
-    - **solo** — requires exactly one document type (mirrors legacy flat rows).
-    - **group** — accepts any ``min_required`` out of N alternative document
+    - **solo** requires exactly one document type (mirrors legacy flat rows).
+    - **group** accepts any ``min_required`` out of N alternative document
       types (e.g. "Proof of Financial Status" = ITR OR Certificate of Tax
       Exemption OR Affidavit).
 
@@ -534,6 +534,38 @@ class ExtractionSchema(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class AnalyticsDimension(Base):
+    """Single source of truth for canonical analytics keys. (FOR ANALYTICS / ADMIN SIDE)
+
+    Replaces the computed "virtual registry" that discovery previously built
+    by scanning every ``ExtractionSchema.fields_json`. 
+    
+    Admins manage these rows directly; the analytics discovery, trends, and snapshot
+    services read labels/groups from here. 
+    """
+
+    __tablename__ = "analytics_dimensions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    canonical_key = Column(String(100), nullable=False)
+    label = Column(String(150), nullable=False)
+    field_type = Column(String(50), nullable=False)  # string, number, integer, boolean, select, multi-select
+    analytics_group = Column(String(100), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        # Case-insensitive uniqueness: mixed-case keys ("Gender", "gender")
+        # are treated as the same canonical key, not distinct dimensions.
+        Index(
+            "uq_analytics_dimensions_canonical_key_lower",
+            func.lower(canonical_key),
+            unique=True,
+        ),
+    )
+
+
 class AdviserInvitation(Base):
     __tablename__ = "adviser_invitations"
 
@@ -595,6 +627,18 @@ class SubmissionStatus(str, enum.Enum):
 
 class DocumentSubmission(Base):
     __tablename__ = "document_submissions"
+    # Mirrors 20260816_add_verified_unique_index: at most one VERIFIED
+    # submission per (student, document type). Also emitted by create_all so a
+    # database built from the models gets the same constraint as the chain.
+    __table_args__ = (
+        Index(
+            "ix_document_submissions_verified_unique",
+            "student_id",
+            "document_type_id",
+            unique=True,
+            postgresql_where=text("status = 'verified'"),
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
