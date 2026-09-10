@@ -477,8 +477,10 @@ async def save_extraction_field(
     old_entry = extracted.get(body.field_id)
     if isinstance(old_entry, dict):
         extracted_value = old_entry.get("extracted_value") or old_entry.get("value")
+        canonical_key = old_entry.get("canonical_key")
     else:
         extracted_value = body.value
+        canonical_key = None
 
     extracted[body.field_id] = {
         "value": body.value,
@@ -486,6 +488,7 @@ async def save_extraction_field(
         "needs_review": False,
         "confidence": 1.0,
         "source_key": "manual",
+        "canonical_key": canonical_key,
     }
 
     # Recompute computed fields that depend on the just-saved field.

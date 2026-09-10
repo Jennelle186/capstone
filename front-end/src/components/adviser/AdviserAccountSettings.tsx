@@ -17,9 +17,13 @@ const fetchAdviserProfile: ProfileSettingsConfig["fetchProfile"] = async (token)
     throw new Error(detail);
   }
   const data = (await res.json()) as Record<string, unknown>;
+  const departments = Array.isArray(data.departments)
+    ? (data.departments as string[]).filter(Boolean)
+    : [];
   return {
     email: (data.email as string) ?? null,
     department: (data.department as string) ?? null,
+    departments,
     school_year: (data.school_year as string) ?? null,
     first_name: (data.first_name as string) ?? "",
     middle_name: (data.middle_name as string) ?? "",
@@ -64,8 +68,9 @@ export default function AdviserAccountSettings() {
         },
         {
           id: "adviser-department",
-          label: "Department",
+          label: "Academic Programs",
           value: profile.department as string | null | undefined,
+          list: (profile.departments as string[] | undefined)?.filter(Boolean),
           icon: Building2,
         },
         {

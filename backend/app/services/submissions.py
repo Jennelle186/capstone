@@ -289,11 +289,15 @@ async def save_submission_extraction_field(
     if not isinstance(extracted, dict):
         extracted = {}
 
+    old_entry = extracted.get(field_id)
+    canonical_key = old_entry.get("canonical_key") if isinstance(old_entry, dict) else None
+
     extracted[field_id] = {
         "value": value,
         "needs_review": False,
         "confidence": 1.0,
         "source_key": "adviser_manual",
+        "canonical_key": canonical_key,
     }
 
     # Recompute any computed fields that depend on the just-saved field.

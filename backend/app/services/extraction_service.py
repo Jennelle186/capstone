@@ -89,6 +89,7 @@ async def extract_single(
                 "confidence": confidence,
                 "needs_review": confidence < 0.7 if field_def.get("required", True) else False,
                 "source_key": field_key,
+                "canonical_key": field_def.get("canonical_key"),
             }
 
         # Evaluate computed fields against the freshly extracted data.
