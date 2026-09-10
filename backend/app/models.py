@@ -188,6 +188,12 @@ class Program(Base):
 
 
 class Department(Base):
+    """An academic program (e.g. BSIT, BSCS, ACT-AD, ACT-NT).
+
+    Although the table is named ``departments``, it stores academic programs in
+    the domain. ``ProgramAdviserAssignment`` links advisers to these program
+    records per school year.
+    """
     __tablename__ = "departments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)

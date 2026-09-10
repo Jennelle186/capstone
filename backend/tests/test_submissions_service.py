@@ -509,3 +509,103 @@ async def test_sync_program_no_program_field_returns_false() -> None:
     changed = await sync_program_from_extraction(db, student, {"field_1": {"source_key": "gender", "value": "Male"}})
 
     assert changed is False
+
+
+def test_sync_extracted_to_student_prefers_canonical_key() -> None:
+    from app.services.students import _sync_extracted_to_student
+
+    student = SimpleNamespace(
+        id=uuid4(), user_id=uuid4(), student_number=None,
+        classification=None, gender=None, birth_date=None, address=None,
+        admission_form_name=None, application_status=None,
+        school_year_id=uuid4(), program_id=uuid4(),
+    )
+    # "sex" is not in the legacy source-key set, but the canonical key aligns it.
+    extracted_data = {
+        "field_1": {"source_key": "sex", "canonical_key": "gender", "value": "Female"},
+    }
+
+    changed = _sync_extracted_to_student(student, extracted_data)
+
+    assert changed is True
+    assert student.gender == "Female"
+
+
+def test_sync_extracted_to_student_matches_source_key_when_canonical_unrecognized() -> None:
+    from app.services.students import _sync_extracted_to_student
+
+    student = SimpleNamespace(
+        id=uuid4(), user_id=uuid4(), student_number=None,
+        classification=None, gender=None, birth_date=None, address=None,
+        admission_form_name=None, application_status=None,
+        school_year_id=uuid4(), program_id=uuid4(),
+    )
+    # canonical_key "sex" is outside the recognized gender set, but the raw
+    # source_key "gender" is recognized — sync must still happen (Bug 10).
+    extracted_data = {
+        "field_1": {"source_key": "gender", "canonical_key": "sex", "value": "Male"},
+    }
+
+    changed = _sync_extracted_to_student(student, extracted_data)
+
+    assert changed is True
+    assert student.gender == "Male"
+
+
+@pytest.mark.asyncio
+async def test_sync_program_prefers_canonical_key() -> None:
+    from app.services.students import sync_program_from_extraction
+
+    dept = SimpleNamespace(id=uuid4(), code="BSIT", name="Bachelor of Science in IT")
+    student = _make_student(program_id=None)
+    db = _make_db(dept)
+
+    extracted_data = {
+        "field_1": {
+            "source_key": "random_label",
+            "canonical_key": "student_program",
+            "value": "BSIT",
+        }
+    }
+    changed = await sync_program_from_extraction(db, student, extracted_data)
+
+    assert changed is True
+    assert student.program_id == dept.id
+
+
+@pytest.mark.asyncio
+async def test_save_submission_extraction_field_preserves_canonical_key() -> None:
+    from app.services.submissions import save_submission_extraction_field
+
+    student = SimpleNamespace(
+        id=uuid4(),
+        school_year_id=uuid4(),
+        program_id=uuid4(),
+    )
+    submission = SimpleNamespace(
+        id=uuid4(),
+        student_id=student.id,
+        document_type_id=None,
+        extracted_data={"f1": {"value": "Old", "canonical_key": "gender"}},
+    )
+    adviser = SimpleNamespace(id=uuid4(), user_id=uuid4())
+
+    db = AsyncMock()
+    db.get = AsyncMock(side_effect=[submission, student])
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+
+    with patch(
+        "app.services.submissions.get_department_ids_for_adviser",
+        new_callable=AsyncMock,
+    ) as mock_depts:
+        mock_depts.return_value = {student.program_id}
+        with patch("app.services.submissions.attributes.flag_modified"):
+            result = await save_submission_extraction_field(
+                db, adviser, str(submission.id), "f1", "Female"
+            )
+
+    assert result is not None
+    assert result["field_id"] == "f1"
+    assert submission.extracted_data["f1"]["source_key"] == "adviser_manual"
+    assert submission.extracted_data["f1"]["canonical_key"] == "gender"

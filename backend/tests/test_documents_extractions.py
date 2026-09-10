@@ -136,6 +136,50 @@ def test_patch_extraction_field_saves_value(client, mock_user, mock_student):
     assert submission.extracted_data["f1"]["source_key"] == "manual"
 
 
+def test_patch_extraction_field_preserves_canonical_key(client, mock_user, mock_student):
+    submission_id = uuid4()
+    doc_type_id = uuid4()
+
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=doc_type_id,
+        status=SubmissionStatus.CLASSIFIED,
+        extracted_data={"f1": {"value": "Old", "extracted_value": "Old", "canonical_key": "gender"}},
+    )
+
+    syr_result = MagicMock()
+    syr_result.scalar_one_or_none = MagicMock(return_value=None)
+
+    slot_item_result = MagicMock()
+    slot_item_result.scalar_one_or_none = MagicMock(return_value=None)
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(side_effect=[
+            _student_execute_result(mock_student),
+            syr_result,
+            slot_item_result,
+        ])
+        session.get = AsyncMock(side_effect=lambda model, pk: None if model.__name__ == "SchoolYear" else submission)
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.extractions._ensure_school_year_not_closed"):
+            with patch("app.routers.documents.extractions.attributes.flag_modified"):
+                response = client.patch(
+                    f"/api/me/documents/{submission_id}/extraction",
+                    json={"field_id": "f1", "value": "Jane Doe"},
+                )
+
+    assert response.status_code == 200
+    assert submission.extracted_data["f1"]["source_key"] == "manual"
+    assert submission.extracted_data["f1"]["canonical_key"] == "gender"
+
+
 def test_patch_extraction_submission_not_found(client, mock_user, mock_student):
     submission_id = uuid4()
 

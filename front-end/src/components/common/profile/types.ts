@@ -4,6 +4,7 @@ export interface ReadOnlyField {
   id: string;
   label: string;
   value: string | null | undefined;
+  list?: readonly string[];
   icon?: ComponentType<{ className?: string }>;
 }
 
