@@ -76,7 +76,11 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
 }
 
 function submissionsToItems(submissions: SubmissionDetail[]): ClassificationItem[] {
-  return submissions.map(submissionToItem);
+  // Compiled parents are container rows, not documents to classify. The API
+  // returns them alongside their split children; dropping the parent here means
+  // only the actual segments (e.g. "merged.pdf (pages 1-2)") show as actionable
+  // items. 
+  return submissions.filter((s) => !s.is_compiled_parent).map(submissionToItem);
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -411,7 +415,7 @@ export default function StepClassify({
           const data = await res.json();
           onSubmissionsUpdate?.(data as SubmissionDetail[]);
         }
-      })().catch(() => {});
+      })().catch(() => { });
     },
     [onSubmissionsUpdate],
   );

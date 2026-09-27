@@ -601,6 +601,110 @@ def test_delete_document_keeps_compiled_parent_with_remaining_children(client, m
     mock_s3_delete.assert_called_once_with("staging/student/compiled.pdf.seg0.pdf")
 
 
+def test_delete_document_cascades_compiled_children(client, mock_user, mock_student):
+    """Deleting a compiled parent removes its child segments and their GCS files."""
+    parent_id = uuid4()
+    child1 = SimpleNamespace(
+        id=uuid4(),
+        student_id=mock_student.id,
+        status=SubmissionStatus.CLASSIFIED,
+        file_key="staging/student/compiled.pdf.seg0.pdf",
+        parent_submission_id=parent_id,
+    )
+    child2 = SimpleNamespace(
+        id=uuid4(),
+        student_id=mock_student.id,
+        status=SubmissionStatus.CLASSIFIED,
+        file_key="staging/student/compiled.pdf.seg1.pdf",
+        parent_submission_id=parent_id,
+    )
+    parent = SimpleNamespace(
+        id=parent_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.CLASSIFIED,
+        is_compiled_parent=True,
+        file_key="staging/student/compiled.pdf",
+        parent_submission_id=None,
+    )
+
+    student_result = _student_execute_result(mock_student)
+    children_result = _scalars_all_result([child1, child2])
+
+    captured = {}
+
+    async def override_get_db_session_delete():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        session.commit = AsyncMock()
+        session.flush = AsyncMock()
+        session.execute = AsyncMock(side_effect=[student_result, children_result])
+        session.get = AsyncMock(side_effect=[None, parent])
+        captured["session"] = session
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_delete
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_delete_file") as mock_s3_delete:
+            response = client.delete(f"/api/me/documents/{parent_id}")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    deleted = [call.args[0] for call in captured["session"].delete.await_args_list]
+    assert parent in deleted
+    assert child1 in deleted
+    assert child2 in deleted
+
+    mock_s3_delete.assert_has_calls(
+        [
+            call("staging/student/compiled.pdf"),
+            call("staging/student/compiled.pdf.seg0.pdf"),
+            call("staging/student/compiled.pdf.seg1.pdf"),
+        ],
+        any_order=True,
+    )
+
+
+def test_delete_document_blocks_compiled_parent_with_locked_children(client, mock_user, mock_student):
+    """Deleting a compiled parent with submitted/verified segments is rejected."""
+    parent_id = uuid4()
+    child = SimpleNamespace(
+        id=uuid4(),
+        student_id=mock_student.id,
+        status=SubmissionStatus.SUBMITTED,
+        file_key="staging/student/compiled.pdf.seg0.pdf",
+        parent_submission_id=parent_id,
+    )
+    parent = SimpleNamespace(
+        id=parent_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.CLASSIFIED,
+        is_compiled_parent=True,
+        file_key="staging/student/compiled.pdf",
+        parent_submission_id=None,
+    )
+
+    student_result = _student_execute_result(mock_student)
+    children_result = _scalars_all_result([child])
+
+    async def override_get_db_session_delete():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        session.execute = AsyncMock(side_effect=[student_result, children_result])
+        session.get = AsyncMock(side_effect=[None, parent])
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_delete
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.delete(f"/api/me/documents/{parent_id}")
+
+    assert response.status_code == 409
+
+
 def test_get_download_url_allows_verified(client, mock_user, mock_student):
     submission_id = uuid4()
     submission = SimpleNamespace(
