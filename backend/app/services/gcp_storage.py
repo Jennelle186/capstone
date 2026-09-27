@@ -67,6 +67,19 @@ def upload_file_bytes(key: str, content: bytes, content_type: str = "application
     return key
 
 
+def download_file_bytes(key: str) -> bytes:
+    """Download an object from GCS and return its raw bytes."""
+    bucket = _bucket()
+    blob = bucket.blob(key)
+    try:
+        return blob.download_as_bytes()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to download object from GCS: {e}",
+        )
+
+
 def generate_presigned_url(key: str, expires_in: int = 3600) -> str:
     bucket = _bucket()
     blob = bucket.blob(key)

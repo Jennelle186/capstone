@@ -21,7 +21,7 @@ const SUBTITLES: Record<number, string> = {
 };
 
 const FOOTER_HINTS: Record<number, string> = {
-  1: "Supported formats: PDF, PNG, JPG — up to 315MB",
+  1: "Supported formats: PDF, PNG, JPG: up to 315MB",
   2: "Click a document to review its classification or flag it for review",
   3: "Verify extracted fields and correct any mismatches",
   4: "Double-check your documents before final submission",

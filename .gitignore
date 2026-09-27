@@ -19,6 +19,7 @@ backend/test_pipeline.py
 backend/test_concurrency.py
 backend/create_missing_schemas.py
 backend/seed_sample_data_6_types_docu.py
+backend/_manual_pdf_test.py
 
 # --- Frontend/Node Artifacts ---
 .vite/
@@ -33,3 +34,10 @@ front-end/dist/
 tmp*-cwd
 es_*
 front-end/src/pages/admin/README.md
+
+# --- Sample/Eval Data & Dev Artifacts ---
+/test/
+backend/llm_calls.log
+backend/eval_report.json
+backend/eval_classify.py
+backend/dump_document_types.py

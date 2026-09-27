@@ -142,7 +142,7 @@ export default function ReviewDeskLayout({
                 <SelectContent>
                   {departments.map((d) => (
                     <SelectItem key={d.id} value={d.id}>
-                      {d.code} — {d.name}
+                      {d.code}: {d.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

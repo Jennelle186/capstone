@@ -644,6 +644,16 @@ class DocumentSubmission(Base):
             unique=True,
             postgresql_where=text("status = 'verified'"),
         ),
+        # Speeds up the compiled-parent / compiled-child grouping
+        # queries issued by the split pipeline and the dashboard.
+        Index(
+            "ix_document_submissions_compiled_grouping",
+            "is_compiled",
+            "parent_submission_id",
+            postgresql_where=text(
+                "is_compiled = true OR parent_submission_id IS NOT NULL"
+            ),
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -675,18 +685,30 @@ class DocumentSubmission(Base):
     flagged_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     verified_at = Column(DateTime(timezone=True), nullable=True)
     verified_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # ``parent_submission_id`` carries two meanings that must be disambiguated
+    # by the parent row:
+    #   1. Compiled-PDF splitting: set on each child segment, with
+    #      the parent row carrying ``is_compiled_parent = true``.
+    #   2. Replace-duplicate (Bug 5F): set on a fresh submission that replaces
+    #      a previously-uploaded duplicate; the parent is a normal submission
+    #      (``is_compiled_parent = false``).
+    # Queries that want "compiled children" must filter on
+    # ``join parent where is_compiled_parent = true``.
     parent_submission_id = Column(
         UUID(as_uuid=True),
         ForeignKey("document_submissions.id", ondelete="SET NULL"),
         nullable=True,
     )
 
-    # ── Compiled PDF splitting (Feature 3) ──────────────────────────────────
+    # ── Compiled PDF splitting ──────────────────────────────────
     page_range = Column(String(20), nullable=True)
     segment_index = Column(Integer, nullable=True)
     is_compiled_parent = Column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # Total page count: the parent's full PDF length, or the segment length on
+    # a compiled child. Nullable for pre-Feature-3 rows and non-PDF submissions.
+    page_count = Column(Integer, nullable=True)
 
     student = relationship("Student", back_populates="submissions")
     document_type = relationship("DocumentType")

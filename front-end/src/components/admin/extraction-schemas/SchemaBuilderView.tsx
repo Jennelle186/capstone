@@ -145,7 +145,7 @@ export default function SchemaBuilderView({
                         </div>
                         <div className="text-left">
                             <p className="text-sm font-semibold text-slate-700">Drop a document to auto-generate schema fields</p>
-                            <p className="text-xs text-slate-400">or click to browse &mdash; supports PDF, PNG, JPG</p>
+                            <p className="text-xs text-slate-400">or click to browse: supports PDF, PNG, JPG</p>
                         </div>
                     </div>
                 )}

@@ -18,11 +18,13 @@ from ..models import (
     SchoolYearRequirement,
     SubmissionStatus,
 )
+from ..services.compiled_split import classify_page_images, split_compiled_submission
 from ..services.gcp_pipeline import (
     GcpPipelineError,
     process_document_sync,
 )
-from ..services.gcp_storage import delete_file
+from ..services.gcp_storage import delete_file, download_file_bytes
+from ..services.pdf_service import detect_compiled_document, normalize_to_pages
 from ..services.requirements import has_verified_submission
 
 AUTO_ACCEPT_THRESHOLD = 0.80
@@ -126,6 +128,162 @@ async def _save_classification(
     await session.commit()
 
 
+async def _process_compiled_submission(
+    session: AsyncSession,
+    submission: DocumentSubmission,
+    school_year_id: UUID | None,
+    classification: str | None,
+) -> bool:
+    """Split a compiled (multi-document) PDF into child submissions.
+
+    Returns True when the submission was handled (split, flagged, or already
+    split); False when every page classifies to a single type (or the file is
+    not a PDF), meaning the normal single-document flow should run.
+    """
+    if submission.is_compiled_parent:
+        logger.info("process_submission: %s already split; skipping re-split", submission.id)
+        return True
+
+    # Splitting is PDF-only: an image flagged "compiled" can't be a multi-page
+    # container, so let the normal single-document classification handle it.
+    if (submission.mime_type or "").lower() != "application/pdf":
+        logger.info(
+            "process_submission: compiled flag on non-PDF %s; treating as single document",
+            submission.id,
+        )
+        return False
+
+    # Determine the document types used for classification vs. the ones the
+    # student actually needs. Classification runs against ALL active types so a
+    # non-required page (e.g. an extra Good Moral certificate) is labelled
+    # correctly and can then be dropped; if we only offered required types, the
+    # model would be forced to map every page onto a required label and those
+    # "unnecessary" pages could never be identified as removable.
+    classification_types = await _get_active_document_types(session)
+    if school_year_id:
+        required_type_ids = {
+            dt.id
+            for dt in await _get_required_document_types(
+                session, school_year_id, classification
+            )
+        }
+    else:
+        required_type_ids = {dt.id for dt in classification_types}
+
+    try:
+        content = await asyncio.to_thread(download_file_bytes, submission.file_key)
+    except HTTPException as exc:
+        raise GcpPipelineError(f"GCS download failed: {exc.detail}") from exc
+
+    page_images = await asyncio.to_thread(
+        normalize_to_pages, content, "application/pdf"
+    )
+    logger.info(
+        "process_submission: compiled PDF %s has %d page(s); classifying against %d type(s): %s",
+        submission.id,
+        len(page_images),
+        len(classification_types),
+        [dt.code for dt in classification_types],
+    )
+
+    page_classifications = await classify_page_images(page_images, classification_types)
+    _, segments = detect_compiled_document(page_classifications)
+    logger.info(
+        "process_submission: compiled detection for %s -> distinct_types=%s, per_page=%s",
+        submission.id,
+        sorted({c.type_code for c in page_classifications if c.type_code}),
+        [c.type_code for c in page_classifications],
+    )
+
+    # The user flagged this submission as a compiled PDF, so we ALWAYS split it —
+    # even when every page classifies to the same type or some pages are
+    # unclassifiable (null). The split produces one child per distinct/unknown
+    # segment, and each child is then filtered against the requirements so
+    # "unnecessary" documents can be dropped. The only non-splittable case is a
+    # PDF where *every* page failed to classify — keep it FLAGGED rather than
+    # splitting into zero usable children.
+    if not any(c.type_code for c in page_classifications):
+        await _save_classification(
+            session,
+            submission,
+            SubmissionStatus.FLAGGED,
+            {"flag": "compiled_pages_unrecognized", "page_count": len(page_images)},
+        )
+        return True
+
+    children = await split_compiled_submission(
+        session,
+        submission,
+        classification_types,
+        page_classifications,
+        segments,
+        content,
+        required_type_ids,
+    )
+
+    if not children:
+        # Every segment was skipped (verified, non-required, or a mix) — the
+        # whole container is redundant. Hard-delete it (with an audit entry) like
+        # the single-doc duplicate-verified path, instead of leaving an invisible
+        # orphan with zero children that the list endpoint hides and the UI can't
+        # delete. Per-segment audit entries above already record why each was
+        # skipped.
+        file_key = submission.file_key
+        await session.delete(submission)
+        session.add(
+            AdminAuditLog(
+                action="AUTO_DELETED_COMPILED_CONTAINER",
+                entity_type="document_submission",
+                entity_id=submission.id,
+                audit_metadata={
+                    "reason": "compiled_no_keepable_segments",
+                    "original_filename": submission.original_filename,
+                },
+            )
+        )
+        await session.commit()
+        await asyncio.to_thread(delete_file, file_key)
+        logger.info(
+            "process_submission: deleted compiled container %s — no keepable segments",
+            submission.id,
+        )
+        return True
+
+    segments_meta = []
+    for segment in segments:
+        dt = _find_document_type_by_code(classification_types, segment.type_code)
+        segments_meta.append(
+            {
+                "page_range": ",".join(f"{s + 1}-{e + 1}" for s, e in segment.ranges),
+                "type": segment.type_code,
+                "document_type_id": str(dt.id) if dt else None,
+            }
+        )
+
+    submission.status = SubmissionStatus.CLASSIFIED
+    submission.document_type_id = None
+    submission.is_compiled_parent = True
+    submission.page_count = len(page_images)
+    submission.classification_result = {
+        "compiled_parent": True,
+        "segments": segments_meta,
+    }
+    session.add(
+        DocumentSubmissionHistory(
+            submission_id=submission.id,
+            action="SPLIT",
+            previous_status=SubmissionStatus.UPLOADED.value,
+            new_status=SubmissionStatus.CLASSIFIED.value,
+            reason=f"Split into {len(children)} compiled segments",
+        )
+    )
+    await session.commit()
+    logger.info(
+        "process_submission: split %s into %d children", submission.id, len(children)
+    )
+    return True
+
+
 async def process_submission(
     session: AsyncSession,
     submission_id: UUID,
@@ -140,7 +298,16 @@ async def process_submission(
     """
     try:
         logger.info("process_submission: starting for %s", submission_id)
-        submission = await session.get(DocumentSubmission, submission_id)
+        # Lock the row for the duration of the transaction so two concurrent
+        # workers cannot both pass the UPLOADED status check and split/classify
+        # the same submission (read-modify-write race). The second worker blocks
+        # until the first commits, then sees the new status and skips.
+        submission_result = await session.execute(
+            select(DocumentSubmission)
+            .where(DocumentSubmission.id == submission_id)
+            .with_for_update()
+        )
+        submission = submission_result.scalar_one_or_none()
         if submission is None:
             logger.warning("process_submission: submission %s not found", submission_id)
             return
@@ -153,25 +320,12 @@ async def process_submission(
             )
             return
 
-        if submission.is_compiled:
-            logger.info("process_submission: compiled document not supported for %s", submission_id)
-            # TODO(Phase 3 - PDF De-compilation): once compiled documents get a
-            # real classification pipeline that produces a document_type_id, a
-            # VERIFIED guard must be added here (mirroring initiate_upload) so a
-            # compiled segment classified as a type the student already has
-            # VERIFIED is auto-deleted before extraction, instead of proceeding.
-            await _save_classification(
-                session,
-                submission,
-                SubmissionStatus.FLAGGED,
-                {"flag": "compiled_document_not_supported"},
-            )
-            return
-
+        # Claim the row (PROCESSING) and release the FOR UPDATE lock before any
+        # expensive external I/O. The compiled path does GCS download, PDF
+        # rasterization, and up to N sequential Gemini calls before it commits
+        # again — holding the lock that whole time would block delete/resolve
+        # requests on the same row indefinitely.
         submission.status = SubmissionStatus.PROCESSING
-        await session.commit()
-        logger.info("process_submission: status set to PROCESSING for %s", submission_id)
-
         session.add(
             DocumentSubmissionHistory(
                 submission_id=submission.id,
@@ -181,6 +335,16 @@ async def process_submission(
             )
         )
         await session.commit()
+        logger.info("process_submission: status set to PROCESSING for %s", submission_id)
+
+        if submission.is_compiled:
+            if await _process_compiled_submission(
+                session, submission, school_year_id, classification
+            ):
+                return
+            # Single-type: the "compiled" flag was a false positive — fall
+            # through to the normal single-document classification below
+            # (the submission is already PROCESSING).
 
         if school_year_id:
             document_types = await _get_required_document_types(

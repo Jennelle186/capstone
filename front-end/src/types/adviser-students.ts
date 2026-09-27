@@ -68,6 +68,8 @@ export interface AdviserStudentSubmission {
     submitted_at: string;
     extraction_fields: Record<string, unknown>;
     classification_result?: Record<string, unknown> | null;
+    page_range?: string | null;
+    parent_submission_id?: string | null;
 }
 
 export interface SchoolYear {

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle, Files, Check } from "lucide-react";
+import { SearchCheck, FileSearch, CheckCircle, Loader2, FileText, ChevronLeft, ChevronRight, X, AlertTriangle, Files, Check, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -63,12 +63,20 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     confidence,
     needsReview: status === "needs-review",
     isCompiledPdf: s.is_compiled,
+    isCompiledParent: s.is_compiled_parent,
+    pageRange: s.page_range,
+    segmentIndex: s.segment_index,
+    pageCount: s.page_count,
     status,
     originalStatus: s.status,
     classificationResult: result as ClassificationItem["classificationResult"],
     mimeType: s.mime_type,
     createdAt: s.created_at,
   };
+}
+
+function submissionsToItems(submissions: SubmissionDetail[]): ClassificationItem[] {
+  return submissions.map(submissionToItem);
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -116,12 +124,13 @@ export default function StepClassify({
   getToken,
 }: StepClassifyProps) {
   const [items, setItems] = React.useState<ClassificationItem[]>(() =>
-    submissions.map(submissionToItem),
+    submissionsToItems(submissions),
   );
   const [trackedJob, setTrackedJob] = React.useState<JobResponse | null>(null);
   const [autoDeletedCount, setAutoDeletedCount] = React.useState(0);
   const [conflictError, setConflictError] = React.useState<string | null>(null);
   const [selectedKeepIds, setSelectedKeepIds] = React.useState<Record<string, string | null>>({});
+  const [removingNonRequirements, setRemovingNonRequirements] = React.useState(false);
 
   const getTokenRef = React.useRef(getToken);
   React.useEffect(() => {
@@ -133,13 +142,21 @@ export default function StepClassify({
   const failedPollCountRef = React.useRef(0);
   const pollAttemptCountRef = React.useRef(0);
 
+  // Mirrors items.length without making the polling effect depend on it, so a
+  // re-render that changes the list length does not tear down and restart the
+  // poll interval mid-job.
+  const itemsLengthRef = React.useRef(items.length);
+  React.useEffect(() => {
+    itemsLengthRef.current = items.length;
+  }, [items.length]);
+
   const visibleItems = React.useMemo(
     () => items.filter((i) => i.status !== "verified"),
     [items],
   );
 
   React.useEffect(() => {
-    setItems(submissions.map(submissionToItem));
+    setItems(submissionsToItems(submissions));
   }, [submissions]);
 
   const isProcessing = trackedJob?.status === "queued" || trackedJob?.status === "running";
@@ -210,8 +227,13 @@ export default function StepClassify({
         if (docsRes.ok) {
           const freshData = (await docsRes.json()) as SubmissionDetail[];
           onSubmissionsUpdate?.(freshData);
-          const oldCount = items.length;
-          const deletedCount = oldCount - freshData.length;
+          // freshData is nested (children under parent.children), but the local
+          // `items` are flattened (children promoted to top level). Compare
+          // against a flattened count so a completed split doesn't inflate the
+          // "auto-deleted" delta by the number of compiled children.
+          const freshFlat = freshData.flatMap((d) => [d, ...(d.children ?? [])]);
+          const oldCount = itemsLengthRef.current;
+          const deletedCount = oldCount - freshFlat.length;
           if (deletedCount > 0) {
             setAutoDeletedCount((prev) => prev + deletedCount);
           }
@@ -232,7 +254,7 @@ export default function StepClassify({
       cancelled = true;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [trackedJob?.id, onSubmissionsUpdate, items.length]);
+  }, [trackedJob?.id, onSubmissionsUpdate]);
 
   const counts = React.useMemo(() => {
     const total = visibleItems.length;
@@ -357,10 +379,6 @@ export default function StepClassify({
     [requiredDocuments, items],
   );
 
-  const handleSplit = React.useCallback(() => {
-    // Placeholder — split dialog will be built later
-  }, []);
-
   const handleConfirm = React.useCallback(
     (id: string, updatedItem: ClassificationItem) => {
       const item = items.find((i) => i.id === id);
@@ -385,8 +403,17 @@ export default function StepClassify({
   const handleDelete = React.useCallback(
     (id: string) => {
       setItems((prev) => prev.filter((i) => i.id !== id));
+      (async () => {
+        const token = await getTokenRef.current();
+        if (!token) return;
+        const res = await fetchWithClerkAuth("/api/me/documents", token);
+        if (res.ok) {
+          const data = await res.json();
+          onSubmissionsUpdate?.(data as SubmissionDetail[]);
+        }
+      })().catch(() => {});
     },
-    [],
+    [onSubmissionsUpdate],
   );
 
   const handleResolveDuplicate = React.useCallback(
@@ -424,6 +451,70 @@ export default function StepClassify({
       (slot) => slot.slot_type === "solo" && slot.duplicate_submission_ids.length > 0,
     );
   }, [requiredSlots]);
+
+  // The set of document-type IDs the admin actually requires this school year.
+  const requiredTypeIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const slot of requiredSlots) {
+      for (const item of slot.items) {
+        if (item.document_type_id) ids.add(item.document_type_id);
+      }
+    }
+    return ids;
+  }, [requiredSlots]);
+
+  // Classified/overridden/flagged items whose type is not in the admin's
+  // requirement set — candidates for proactive removal.
+  const nonRequirementItems = React.useMemo(() => {
+    if (requiredSlots.length === 0) return [];
+    return visibleItems.filter(
+      (i) =>
+        i.documentTypeId &&
+        !requiredTypeIds.has(i.documentTypeId) &&
+        i.status !== "pending" &&
+        i.status !== "processing" &&
+        i.status !== "submitted",
+    );
+  }, [visibleItems, requiredTypeIds, requiredSlots]);
+
+  const removeSubmission = React.useCallback(async (id: string): Promise<boolean> => {
+    const token = await getTokenRef.current();
+    if (!token) return false;
+    const res = await fetchWithClerkAuth(`/api/me/documents/${id}`, token, {
+      method: "DELETE",
+    });
+    if (!res.ok) return false;
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    return true;
+  }, []);
+
+  const handleRemoveNonRequirements = React.useCallback(async () => {
+    if (removingNonRequirements) return;
+    setRemovingNonRequirements(true);
+    try {
+      let failed = 0;
+      for (const item of nonRequirementItems) {
+        const ok = await removeSubmission(item.id);
+        if (!ok) failed++;
+      }
+      const token = await getTokenRef.current();
+      if (!token) return;
+      const res = await fetchWithClerkAuth("/api/me/documents", token);
+      if (res.ok) {
+        const data = await res.json();
+        onSubmissionsUpdate?.(data as SubmissionDetail[]);
+      }
+      if (failed > 0) {
+        toast.error(
+          `${failed} document${failed > 1 ? "s" : ""} could not be removed. Please try again.`,
+        );
+      }
+    } catch {
+      toast.error("Failed to remove documents. Please try again.");
+    } finally {
+      setRemovingNonRequirements(false);
+    }
+  }, [nonRequirementItems, removeSubmission, onSubmissionsUpdate, removingNonRequirements]);
 
   const verifiedConflictIds = React.useMemo(() => {
     const ids = new Set<string>();
@@ -568,6 +659,39 @@ export default function StepClassify({
             >
               <X className="h-3.5 w-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* Non-requirement documents banner */}
+        {nonRequirementItems.length > 0 && (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-600 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">
+                {nonRequirementItems.length} document
+                {nonRequirementItems.length > 1 ? "s are" : " is"} not part of your requirements
+              </p>
+              <p className="mt-0.5 text-xs text-amber-700">
+                {nonRequirementItems.map((i) => i.fileName).join(", ")}
+              </p>
+              <p className="mt-1 text-xs text-amber-700">
+                These uploads don't match any document type your adviser requires
+                and won't count toward your requirements.
+              </p>
+              <button
+                type="button"
+                onClick={handleRemoveNonRequirements}
+                disabled={removingNonRequirements}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {removingNonRequirements ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Remove
+              </button>
+            </div>
           </div>
         )}
 
@@ -717,7 +841,7 @@ export default function StepClassify({
               <div className="flex items-center justify-end gap-3 border-t border-rose-100 bg-rose-50/40 px-4 py-3">
                 <span className="mr-auto text-xs text-slate-400">
                   {selectedId
-                    ? `Keeping 1 of ${matched.length} — ${matched.length - 1} will be removed`
+                    ? `Keeping 1 of ${matched.length}: ${matched.length - 1} will be removed`
                     : "Select the file you want to keep"}
                 </span>
                 <Button
@@ -901,7 +1025,6 @@ export default function StepClassify({
                     item={item}
                     documentTypes={requiredDocuments}
                     onOverride={handleOverride}
-                    onSplit={handleSplit}
                     onClassify={handleClassifyOne}
                     onConfirm={handleConfirm}
                     onDelete={handleDelete}

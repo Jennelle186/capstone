@@ -5,6 +5,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import HomePage from "./pages/HomePage";
 import AboutPage from "./pages/AboutPage";
 import TermsPage from "./pages/TermsPage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import StudentDashboard from "./pages/students/StudentDashboard";
 import UploadDocuments from "./pages/students/UploadDocuments";
 import ProfileSettings from "./pages/students/ProfileSettings";
@@ -47,6 +48,7 @@ const AppRoutes = createBrowserRouter([
             { index: true, Component: HomePage },
             { path: "about", Component: AboutPage },
             { path: "terms", Component: TermsPage },
+            { path: "privacy-policy", Component: PrivacyPolicyPage },
             // Central landing route for successful auth (password/OAuth).
             { path: "post-auth", Component: PostAuthRedirectPage },
             {

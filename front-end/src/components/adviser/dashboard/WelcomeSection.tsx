@@ -57,7 +57,7 @@ export default function WelcomeSection({ profile, isLoading }: WelcomeSectionPro
           {getGreeting()}, {fullName || "Adviser"}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          College of Computer Studies &mdash; Here&apos;s what&rsquo;s happening with your advisees today.
+          College of Computer Studies: Here&apos;s what&rsquo;s happening with your advisees today.
         </p>
       </div>
       <div className="flex gap-2">

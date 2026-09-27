@@ -10,8 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from ..models import DocumentType
@@ -86,11 +88,27 @@ def _extract_status_code(exc: Exception) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _is_transport_error(exc: Exception) -> bool:
+    """True when a Gemini failure is a transport-level error (no HTTP status).
+
+    These are transient by nature — timeouts, connection resets, unparseable
+    gateway responses — and safe to retry. Client/auth errors instead surface as
+    ``APIError`` with a 4xx ``.code`` and must fail fast, so we only treat
+    *known* no-status exception types as retryable rather than guessing from
+    exception message text.
+    """
+    if isinstance(exc, httpx.TransportError):
+        return True
+    return isinstance(exc, genai_errors.UnknownApiResponseError)
+
+
 def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_label: str) -> bool:
     """Decide whether a Gemini call failure should be retried, and sleep if so.
 
-    Only transient errors are retried (429 rate-limit, 502/503/504 server
-    timeouts). Permanent client errors (auth/validation) fail immediately.
+    Transient errors are retried: 429 rate-limit, 502/503/504 server timeouts,
+    and transport-level errors (timeouts, resets, unparseable responses, which
+    carry no HTTP status code). Permanent client errors (auth/validation) fail
+    immediately.
 
     Backoff is exponential with a base of 1s for 429 and 2s for 502/503/504
     (reduced from the previous 5s), plus full random jitter. The jitter spreads
@@ -102,7 +120,15 @@ def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_
     """
     code = _extract_status_code(exc)
 
-    if code not in _TRANSIENT_STATUS_CODES or attempt >= _MAX_RETRY_ATTEMPTS:
+    if attempt >= _MAX_RETRY_ATTEMPTS:
+        logger.error("Gemini %s failed for %s: %s", context_label, file_key, exc)
+        return False
+
+    # None means a transport-level failure (no HTTP status) — still transient,
+    # but only retry known transport exception types (timeouts, resets,
+    # unparseable responses). Unknown no-status errors must fail fast.
+    is_transport_error = code is None and _is_transport_error(exc)
+    if code not in _TRANSIENT_STATUS_CODES and not is_transport_error:
         logger.error("Gemini %s failed for %s: %s", context_label, file_key, exc)
         return False
 
@@ -111,7 +137,12 @@ def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_
     backoff = base * (2 ** attempt)
     jitter = random.uniform(0, backoff)
     wait = backoff + jitter
-    reason = "Server timeout" if is_server_timeout else "Rate limited"
+    if is_transport_error:
+        reason = "Transport error"
+    elif is_server_timeout:
+        reason = "Server timeout"
+    else:
+        reason = "Rate limited"
     logger.warning("%s (%s), retry %d/%d in %.2fs...", reason, file_key, attempt + 1, _MAX_RETRY_ATTEMPTS, wait)
     time.sleep(wait)
     return True
@@ -120,10 +151,10 @@ def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_
 SYSTEM_INSTRUCTION = """You are an expert document processing AI for an academic institution.
 
 TASK: CLASSIFICATION
-Analyze the document and classify it into exactly ONE of the provided document types.
+Identify the document type of the page and return the matching type code.
 
 CONSTRAINTS:
-- If the document does not match any type, set type to null and confidence to 0
+- If the page does not clearly match any type, set type to null and confidence to 0
 - Do not include any text outside the JSON response"""
 
 
@@ -246,7 +277,17 @@ def _build_classification_schema(document_types: list[DocumentType]) -> dict:
 
 
 def _build_classification_prompt(document_types: list[DocumentType]) -> str:
-    lines = ["Classify the document into exactly ONE of the following types.", ""]
+    # Deliberately non-forceful: for compiled-PDF splitting the page images are
+    # classified one at a time, and a page that is a *different* document than
+    # the configured types (e.g. a Birth Certificate when only ADMISSION_FORM is
+    # configured) must return `null` rather than be shoehorned into the closest
+    # matching type. Forcing "exactly ONE" would silently absorb such pages into
+    # an unrelated document and prevent the compiled PDF from splitting.
+    lines = [
+        "Identify the document type of this page. Return the matching type code, "
+        "or null if the page does not clearly match any of the listed types.",
+        "",
+    ]
     lines.append("Available document types:")
     for dt in document_types:
         keywords = dt.keywords if isinstance(dt.keywords, list) else []
@@ -258,12 +299,18 @@ def _build_classification_prompt(document_types: list[DocumentType]) -> str:
     return "\n".join(lines)
 
 
-def classify_with_gemini(
-    file_key: str,
+def _gemini_classify(
+    document_parts: list[types.Part],
     document_types: list[DocumentType],
+    label: str,
 ) -> ClassificationMatch:
+    """Shared Gemini classification core: retry, observability, and parse.
+
+    ``document_parts`` supplies the document content (URI- or bytes-based) with
+    the correct MIME type. The prompt/schema are built from ``document_types``
+    and ``label`` identifies the document in logs.
+    """
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
-    bucket = os.getenv("GCS_BUCKET", "")
     model_name = os.getenv("VERTEX_AI_MODEL")
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
 
@@ -276,11 +323,7 @@ def classify_with_gemini(
     prompt = _build_classification_prompt(document_types)
     schema = _build_classification_schema(document_types)
 
-    normalized_key = file_key.replace("\\", "/")
-    file_uri = f"gs://{bucket}/{normalized_key}"
-    mime_type = "application/pdf" if normalized_key.lower().endswith(".pdf") else "image/jpeg"
-
-    logger.info("Sending %s to Gemini for classification (model=%s)", file_key, model_name)
+    logger.info("Sending %s to Gemini for classification (model=%s)", label, model_name)
 
     # retry_count tracks how many retries occurred before the current attempt so
     # the observability log can reveal "which documents needed 2+ retries".
@@ -292,7 +335,7 @@ def classify_with_gemini(
             response = client.models.generate_content(
                 model=model_name,
                 contents=[
-                    types.Part.from_uri(file_uri=file_uri, mime_type=mime_type),
+                    *document_parts,
                     types.Part.from_text(text=prompt),
                 ],
                 config=types.GenerateContentConfig(
@@ -301,7 +344,7 @@ def classify_with_gemini(
                     response_schema=schema,
                     media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
                     temperature=0.0,
-                    http_options=types.HttpOptions(timeout=60_000),
+                    http_options=types.HttpOptions(timeout=120_000),
                 ),
             )
             # Log the successful attempt with token counts and latency.
@@ -325,7 +368,7 @@ def classify_with_gemini(
                 retry_count=retry_count,
                 status=_status_for_error(exc),
             )
-            if _retry_on_gemini_error(exc, file_key, attempt, "classification"):
+            if _retry_on_gemini_error(exc, label, attempt, "classification"):
                 retry_count += 1
                 continue
             raise GcpPipelineError(f"Gemini classification failed: {exc}") from exc
@@ -334,13 +377,13 @@ def classify_with_gemini(
         raise GcpPipelineError(f"Gemini classification failed after retries: {last_error}") from last_error
 
     if not response.text or not response.text.strip():
-        logger.error("Gemini returned empty response for %s", file_key)
+        logger.error("Gemini returned empty response for %s", label)
         raise GcpPipelineError("Gemini returned empty response")
 
     try:
         result = json.loads(response.text.strip())
     except (json.JSONDecodeError, AttributeError) as exc:
-        logger.error("Gemini returned invalid JSON for %s: %s", file_key, response.text[:500])
+        logger.error("Gemini returned invalid JSON for %s: %s", label, response.text[:500])
         raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc
 
     type_code = result.get("type")
@@ -360,6 +403,37 @@ def classify_with_gemini(
         confidence=min(max(confidence, 0.0), 1.0),
         reasoning=reasoning,
         source="gemini",
+    )
+
+
+def classify_with_gemini(
+    file_key: str,
+    document_types: list[DocumentType],
+) -> ClassificationMatch:
+    """Classify a GCS-stored document (PDF or image) via Gemini."""
+    bucket = os.getenv("GCS_BUCKET", "")
+
+    normalized_key = file_key.replace("\\", "/")
+    file_uri = f"gs://{bucket}/{normalized_key}"
+    mime_type = "application/pdf" if normalized_key.lower().endswith(".pdf") else "image/jpeg"
+
+    return _gemini_classify(
+        [types.Part.from_uri(file_uri=file_uri, mime_type=mime_type)],
+        document_types,
+        file_key,
+    )
+
+
+def classify_page_bytes(
+    data: bytes,
+    mime_type: str,
+    document_types: list[DocumentType],
+) -> ClassificationMatch:
+    """Classify an in-memory page image (Feature 3 compiled-PDF splitting)."""
+    return _gemini_classify(
+        [types.Part.from_bytes(data=data, mime_type=mime_type)],
+        document_types,
+        f"page:{mime_type}",
     )
 
 

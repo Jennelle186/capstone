@@ -1,5 +1,6 @@
 import { motion, useScroll, useTransform } from "framer-motion";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { API_BASE_URL } from "@/config/api";
 import { Link } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,20 @@ import { fadeInUp, staggerContainer } from "./motion";
 
 export default function HeroSection() {
   const heroRef = useRef<HTMLElement | null>(null);
+  const [schoolYear, setSchoolYear] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/api/public/privacy-info`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.activeSchoolYear?.name) {
+          setSchoolYear(data.activeSchoolYear.name);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const { scrollYProgress } = useScroll({
     target: heroRef,
@@ -60,7 +75,9 @@ export default function HeroSection() {
                 whileHover={{ scale: 1.05 }}
               >
                 <GraduationCap className="w-4 h-4 text-primary" />
-                <span className="text-sm text-primary font-medium">CCS Students • WMSU</span>
+                <span className="text-sm text-primary font-medium">
+                  {schoolYear ? `${schoolYear} Enrollment` : "CCS Students • WMSU"}
+                </span>
               </motion.div>
             </motion.div>
 

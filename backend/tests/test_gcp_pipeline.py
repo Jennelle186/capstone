@@ -3,6 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
+from google.genai import errors as genai_errors
+
 from app.services.gcp_pipeline import (
     _build_classification_schema,
     _extract_status_code,
@@ -167,6 +170,35 @@ def test_no_retry_on_client_error(mock_sleep) -> None:
 def test_no_retry_when_attempts_exhausted(mock_sleep) -> None:
     """Even a transient error is not retried beyond the retry limit."""
     assert _retry_on_gemini_error(_api_error(504), "f.pdf", 3, "classification") is False
+    mock_sleep.assert_not_called()
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_retry_on_transport_timeout(mock_sleep) -> None:
+    """A transport-level timeout (no HTTP status) is transient and retried."""
+    assert _retry_on_gemini_error(httpx.TimeoutException("read timed out"), "f.pdf", 0, "classification") is True
+    mock_sleep.assert_called_once()
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_retry_on_transport_connect_error(mock_sleep) -> None:
+    """Connection resets carry no status code but are transient and retried."""
+    assert _retry_on_gemini_error(httpx.ConnectError("All connection attempts failed"), "f.pdf", 0, "classification") is True
+    mock_sleep.assert_called_once()
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_retry_on_unparseable_response(mock_sleep) -> None:
+    """An unparseable gateway response (no status) is transient and retried."""
+    exc = genai_errors.UnknownApiResponseError("could not parse response")
+    assert _retry_on_gemini_error(exc, "f.pdf", 0, "classification") is True
+    mock_sleep.assert_called_once()
+
+
+@patch("app.services.gcp_pipeline.time.sleep")
+def test_no_retry_on_unknown_no_status_error(mock_sleep) -> None:
+    """An unrecognized exception without a status code fails fast rather than retrying."""
+    assert _retry_on_gemini_error(Exception("some unexpected failure"), "f.pdf", 0, "classification") is False
     mock_sleep.assert_not_called()
 
 

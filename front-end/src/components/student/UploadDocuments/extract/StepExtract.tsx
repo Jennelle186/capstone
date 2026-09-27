@@ -375,7 +375,7 @@ export default function StepExtract({
                     {item.fileName}
                   </p>
                   <p className="text-xs text-blue-700">
-                    {item.documentTypeName} &mdash; Extracting data...
+                    {item.documentTypeName}: Extracting data...
                   </p>
                 </div>
               </div>

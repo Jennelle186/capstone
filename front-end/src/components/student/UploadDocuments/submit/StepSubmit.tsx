@@ -142,7 +142,7 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
         if (names.length > 0) {
           const label = names.slice(0, 3).join(", ");
           const remaining = names.length > 3 ? ` (+${names.length - 3} more)` : "";
-          toast.warning(`${result.skipped_count} file(s) skipped — already verified: ${label}${remaining}`, {
+          toast.warning(`${result.skipped_count} file(s) skipped: already verified: ${label}${remaining}`, {
             duration: 6000,
           });
         } else {
@@ -153,7 +153,7 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
       }
       if (result.application_status === "PENDING_DOCUMENTS") {
         setPendingDocuments(true);
-        toast.warning("Documents submitted with missing requirements — marked as Pending Documents.", {
+        toast.warning("Documents submitted with missing requirements: marked as Pending Documents.", {
           duration: 6000,
         });
       } else {
@@ -223,7 +223,7 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
             <FolderCheck className="h-8 w-8" />
           </div>
           <h2 className="text-xl font-bold text-slate-900">
-            Submitted — Pending Documents
+            Submitted: Pending Documents
           </h2>
           <p className="max-w-md text-sm leading-relaxed text-slate-500">
             Your enrollment file has been submitted, but{" "}

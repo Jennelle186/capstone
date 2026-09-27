@@ -277,7 +277,16 @@ export default function SignupForm() {
                         rel="noreferrer"
                         className="underline underline-offset-4 text-primary"
                       >
-                        Read Terms &amp; Privacy
+                        Read Terms
+                      </a>{" "}
+                      &amp;{" "}
+                      <a
+                        href="/privacy-policy"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline underline-offset-4 text-primary"
+                      >
+                        Privacy Policy
                       </a>
                     </p>
                   </div>

@@ -26,6 +26,10 @@ export interface ClassificationItem {
   confidence: number | null;
   needsReview: boolean;
   isCompiledPdf: boolean;
+  isCompiledParent: boolean;
+  pageRange: string | null;
+  segmentIndex: number | null;
+  pageCount: number | null;
   status: ClassificationStatus;
   originalStatus?: string;
   previewUrl?: string;

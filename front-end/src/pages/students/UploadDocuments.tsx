@@ -76,9 +76,20 @@ export default function UploadDocuments() {
     step === 4;
 
   const sessionSubmissions = useMemo(() => {
-    if (!replaceSubmissionId) return existingSubmissions;
-    if (sessionUploadIds.size === 0) return [];
-    return existingSubmissions.filter((s) => sessionUploadIds.has(s.id));
+    let base = existingSubmissions;
+    if (replaceSubmissionId) {
+      if (sessionUploadIds.size === 0) return [];
+      base = existingSubmissions.filter((s) => sessionUploadIds.has(s.id));
+    }
+    // Flatten compiled children into top-level rows so every step (classify,
+    // submit, previously-uploaded) sees the split segments — they only exist
+    // nested under `parent.children` in the API response otherwise.
+    const out: SubmissionDetail[] = [];
+    for (const s of base) {
+      out.push(s);
+      for (const child of s.children ?? []) out.push(child);
+    }
+    return out;
   }, [existingSubmissions, replaceSubmissionId, sessionUploadIds]);
 
   const allVerified = useMemo(

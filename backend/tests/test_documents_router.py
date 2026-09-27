@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import uuid4
 
 import pytest
@@ -176,6 +176,10 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
         extracted_data=None,
         llama_job_id="llama-file-id",
         rejection_reason=None,
+        page_range=None,
+        segment_index=None,
+        is_compiled_parent=False,
+        page_count=None,
         created_at=None,
     )
 
@@ -198,6 +202,244 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
     assert len(data) == 1
     assert data[0]["status"] == "classified"
     assert data[0]["document_type_name"] == "Admission Form"
+
+
+def test_list_my_documents_groups_compiled_children(client, mock_user, mock_student):
+    parent = SimpleNamespace(
+        id=uuid4(),
+        status=SubmissionStatus.CLASSIFIED,
+        file_key="staging/student/compiled.pdf",
+        original_filename="compiled.pdf",
+        file_size="1024",
+        mime_type="application/pdf",
+        is_compiled=True,
+        document_type_id=None,
+        document_type=None,
+        classification_result={"compiled_parent": True},
+        parent_submission_id=None,
+        extracted_data=None,
+        rejection_reason=None,
+        page_range=None,
+        segment_index=None,
+        is_compiled_parent=True,
+        page_count=4,
+        created_at=None,
+    )
+    doc_type = SimpleNamespace(name="Admission Form", code="ADMISSION_FORM")
+    child = SimpleNamespace(
+        id=uuid4(),
+        status=SubmissionStatus.CLASSIFIED,
+        file_key="staging/student/compiled.pdf.seg0.pdf",
+        original_filename="compiled.pdf (pages 1-2)",
+        file_size="1024",
+        mime_type="application/pdf",
+        is_compiled=False,
+        document_type_id=uuid4(),
+        document_type=doc_type,
+        classification_result={"type": "ADMISSION_FORM"},
+        parent_submission_id=parent.id,
+        extracted_data=None,
+        rejection_reason=None,
+        page_range="1-2",
+        segment_index=0,
+        is_compiled_parent=False,
+        page_count=2,
+        created_at=None,
+    )
+
+    student_result = _student_execute_result(mock_student)
+    subs_result = _scalars_all_result([parent, child])
+
+    async def override_get_db_session_list():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(side_effect=[student_result, subs_result])
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_list
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.get("/api/me/documents")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1  # child is nested, not a top-level item
+    assert data[0]["is_compiled_parent"] is True
+    assert data[0]["page_count"] == 4
+    assert len(data[0]["children"]) == 1
+    assert data[0]["children"][0]["page_range"] == "1-2"
+    assert data[0]["children"][0]["segment_index"] == 0
+
+
+def test_list_my_documents_omits_childless_compiled_parent(client, mock_user, mock_student):
+    parent = SimpleNamespace(
+        id=uuid4(),
+        status=SubmissionStatus.CLASSIFIED,
+        file_key="staging/student/compiled.pdf",
+        original_filename="compiled.pdf",
+        file_size="1024",
+        mime_type="application/pdf",
+        is_compiled=True,
+        document_type_id=None,
+        document_type=None,
+        classification_result={"compiled_parent": True},
+        parent_submission_id=None,
+        extracted_data=None,
+        rejection_reason=None,
+        page_range=None,
+        segment_index=None,
+        is_compiled_parent=True,
+        page_count=4,
+        created_at=None,
+    )
+
+    student_result = _student_execute_result(mock_student)
+    subs_result = _scalars_all_result([parent])
+
+    async def override_get_db_session_list():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(side_effect=[student_result, subs_result])
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_list
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        response = client.get("/api/me/documents")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data == []
+
+
+def test_submit_batch_compiled_child_skips_replacement_history(client, mock_user, mock_student):
+    """A compiled-PDF child (parent is_compiled_parent=True) submits cleanly and
+    must NOT get REUPLOADED/REPLACEMENT_OF lineage history (that path is for
+    Bug 5F replace-duplicate, not Feature 3 split children)."""
+    parent_id = uuid4()
+    child_id = uuid4()
+    doc_type = SimpleNamespace(id=uuid4(), name="Report Card", code="REPORT_CARD")
+
+    parent = SimpleNamespace(
+        id=parent_id,
+        is_compiled_parent=True,
+        rejection_reason=None,
+        flagged_by=None,
+    )
+    child = SimpleNamespace(
+        id=child_id,
+        status=SubmissionStatus.CLASSIFIED,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        parent_submission_id=parent_id,
+        file_key="staging/x.pdf",
+        is_compiled_parent=False,
+    )
+
+    student_result = MagicMock()
+    student_result.scalar_one_or_none = MagicMock(return_value=mock_student)
+    subs_result = MagicMock()
+    subs_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[child])))
+    verified_result = MagicMock()
+    verified_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+
+    captured = {}
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        session.commit = AsyncMock()
+        session.execute = AsyncMock(side_effect=[student_result, subs_result, verified_result])
+        session.get = AsyncMock(side_effect=lambda model, pk: None if model.__name__ == "SchoolYear" else parent)
+        captured["session"] = session
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.get_student_slot_statuses", new_callable=AsyncMock, return_value=[]):
+            response = client.post(
+                "/api/me/documents/submit-batch",
+                json={"submission_ids": [str(child_id)]},
+            )
+
+    assert response.status_code == 200
+    assert child.status == SubmissionStatus.SUBMITTED
+
+    history_actions = [
+        call.args[0].action
+        for call in captured["session"].add.call_args_list
+        if call.args and getattr(call.args[0], "action", None)
+    ]
+    assert "SUBMITTED" in history_actions
+    assert "REPLACEMENT_OF" not in history_actions
+    assert "REUPLOADED" not in history_actions
+
+
+def test_submit_batch_replacement_uses_student_as_actor(client, mock_user, mock_student):
+    """Bug 5F replace flow with an unflagged old doc must not crash; the actor
+    falls back to the student, not the (undefined) `user`."""
+    old_id = uuid4()
+    child_id = uuid4()
+    doc_type = SimpleNamespace(id=uuid4(), name="Report Card", code="REPORT_CARD")
+
+    old_sub = SimpleNamespace(
+        id=old_id,
+        is_compiled_parent=False,
+        rejection_reason=None,
+        flagged_by=None,
+    )
+    child = SimpleNamespace(
+        id=child_id,
+        status=SubmissionStatus.CLASSIFIED,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        parent_submission_id=old_id,
+        file_key="staging/x.pdf",
+        is_compiled_parent=False,
+    )
+
+    student_result = MagicMock()
+    student_result.scalar_one_or_none = MagicMock(return_value=mock_student)
+    subs_result = MagicMock()
+    subs_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[child])))
+    verified_result = MagicMock()
+    verified_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+
+    captured = {}
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        session.commit = AsyncMock()
+        session.execute = AsyncMock(side_effect=[student_result, subs_result, verified_result])
+        session.get = AsyncMock(side_effect=lambda model, pk: None if model.__name__ == "SchoolYear" else old_sub)
+        captured["session"] = session
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.get_student_slot_statuses", new_callable=AsyncMock, return_value=[]):
+            response = client.post(
+                "/api/me/documents/submit-batch",
+                json={"submission_ids": [str(child_id)]},
+            )
+
+    assert response.status_code == 200
+    assert child.status == SubmissionStatus.SUBMITTED
+
+    replacement = next(
+        (call.args[0] for call in captured["session"].add.call_args_list
+         if call.args and getattr(call.args[0], "action", None) == "REPLACEMENT_OF"),
+        None,
+    )
+    assert replacement is not None
+    assert replacement.actor_user_id == mock_student.user_id
 
 
 def test_get_download_url_returns_presigned_url(client, mock_user, mock_student):
@@ -235,6 +477,7 @@ def test_delete_document_removes_submission_and_s3_object(client, mock_user, moc
         student_id=mock_student.id,
         status=SubmissionStatus.FLAGGED,
         file_key="staging/student/file.pdf",
+        parent_submission_id=None,
     )
 
     async def override_get_db_session_delete():
@@ -253,6 +496,109 @@ def test_delete_document_removes_submission_and_s3_object(client, mock_user, moc
     assert response.status_code == 200
     assert response.json()["ok"] is True
     mock_s3_delete.assert_called_once_with("staging/student/file.pdf")
+
+
+def test_delete_document_cascades_empty_compiled_parent(client, mock_user, mock_student):
+    parent_id = uuid4()
+    child_id = uuid4()
+    parent = SimpleNamespace(
+        id=parent_id,
+        student_id=mock_student.id,
+        is_compiled_parent=True,
+        file_key="staging/student/compiled.pdf",
+    )
+    child = SimpleNamespace(
+        id=child_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.CLASSIFIED,
+        file_key="staging/student/compiled.pdf.seg0.pdf",
+        parent_submission_id=parent_id,
+    )
+
+    student_result = _student_execute_result(mock_student)
+    remaining_result = MagicMock()
+    remaining_result.first = MagicMock(return_value=None)
+
+    captured = {}
+
+    async def override_get_db_session_delete():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        session.commit = AsyncMock()
+        session.flush = AsyncMock()
+        session.execute = AsyncMock(side_effect=[student_result, remaining_result])
+        session.get = AsyncMock(side_effect=[None, child, parent])
+        captured["session"] = session
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_delete
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_delete_file") as mock_s3_delete:
+            response = client.delete(f"/api/me/documents/{child_id}")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    deleted = [call.args[0] for call in captured["session"].delete.await_args_list]
+    assert child in deleted
+    assert parent in deleted
+
+    mock_s3_delete.assert_has_calls(
+        [call("staging/student/compiled.pdf.seg0.pdf"), call("staging/student/compiled.pdf")],
+        any_order=False,
+    )
+
+
+def test_delete_document_keeps_compiled_parent_with_remaining_children(client, mock_user, mock_student):
+    parent_id = uuid4()
+    child_id = uuid4()
+    parent = SimpleNamespace(
+        id=parent_id,
+        student_id=mock_student.id,
+        is_compiled_parent=True,
+        file_key="staging/student/compiled.pdf",
+    )
+    child = SimpleNamespace(
+        id=child_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.CLASSIFIED,
+        file_key="staging/student/compiled.pdf.seg0.pdf",
+        parent_submission_id=parent_id,
+    )
+
+    student_result = _student_execute_result(mock_student)
+    remaining_result = MagicMock()
+    remaining_result.first = MagicMock(return_value=(uuid4(),))
+
+    captured = {}
+
+    async def override_get_db_session_delete():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        session.commit = AsyncMock()
+        session.flush = AsyncMock()
+        session.execute = AsyncMock(side_effect=[student_result, remaining_result])
+        session.get = AsyncMock(side_effect=[None, child, parent])
+        captured["session"] = session
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_delete
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_delete_file") as mock_s3_delete:
+            response = client.delete(f"/api/me/documents/{child_id}")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    deleted = [call.args[0] for call in captured["session"].delete.await_args_list]
+    assert child in deleted
+    assert parent not in deleted
+
+    mock_s3_delete.assert_called_once_with("staging/student/compiled.pdf.seg0.pdf")
 
 
 def test_get_download_url_allows_verified(client, mock_user, mock_student):
@@ -1107,3 +1453,133 @@ def test_resolve_mismatch_400_invalid_action(client, mock_user, mock_student):
     assert response.status_code == 400
     assert "Invalid action" in response.json()["detail"]
     session.add.assert_not_called()
+
+
+# ── High-severity fix regression tests ──────────────────────────────────────
+
+
+def test_delete_document_commits_before_gcs_delete(client, mock_user, mock_student):
+    """Fix: GCS files are deleted only after the DB transaction commits. A commit
+    that fails must not leave DB rows pointing at already-deleted objects."""
+    submission_id = uuid4()
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        status=SubmissionStatus.FLAGGED,
+        file_key="staging/student/file.pdf",
+        parent_submission_id=None,
+    )
+
+    order = []
+
+    async def override_get_db_session_delete():
+        session = AsyncMock()
+        session.add = MagicMock()
+
+        async def commit():
+            order.append("commit")
+
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        session.get = AsyncMock(return_value=submission)
+        session.commit = AsyncMock(side_effect=commit)
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_delete
+
+    def fake_gcs_delete(key):
+        order.append("gcs_delete")
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_delete_file", side_effect=fake_gcs_delete):
+            response = client.delete(f"/api/me/documents/{submission_id}")
+
+    assert response.status_code == 200
+    assert "commit" in order and "gcs_delete" in order
+    assert order.index("commit") < order.index("gcs_delete")
+
+
+def test_submit_batch_compiled_child_duplicate_not_relinked(client, mock_user, mock_student):
+    """Fix: a compiled child sharing a document_type_id with an older FLAGGED
+    submission must keep its compiled-parent lineage instead of being relinked to
+    the flagged duplicate. The flagged duplicate is dropped instead."""
+    compiled_parent_id = uuid4()
+    child_id = uuid4()
+    flagged_id = uuid4()
+    doc_type = SimpleNamespace(id=uuid4(), name="Report Card", code="REPORT_CARD")
+
+    compiled_parent = SimpleNamespace(
+        id=compiled_parent_id,
+        is_compiled_parent=True,
+        rejection_reason=None,
+        flagged_by=None,
+    )
+    flagged = SimpleNamespace(
+        id=flagged_id,
+        status=SubmissionStatus.FLAGGED,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        parent_submission_id=None,
+        file_key="staging/flagged.pdf",
+        is_compiled_parent=False,
+        rejection_reason="blurry",
+        flagged_by=None,
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    child = SimpleNamespace(
+        id=child_id,
+        status=SubmissionStatus.CLASSIFIED,
+        student_id=mock_student.id,
+        document_type_id=doc_type.id,
+        document_type=doc_type,
+        parent_submission_id=compiled_parent_id,
+        file_key="staging/compiled.seg0.pdf",
+        is_compiled_parent=False,
+        created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+    )
+
+    student_result = MagicMock()
+    student_result.scalar_one_or_none = MagicMock(return_value=mock_student)
+    subs_result = MagicMock()
+    subs_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[flagged, child])))
+    verified_result = MagicMock()
+    verified_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+
+    captured = {}
+
+    async def override_get_db_session():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        session.commit = AsyncMock()
+        session.execute = AsyncMock(side_effect=[student_result, subs_result, verified_result])
+        session.get = AsyncMock(side_effect=[None, compiled_parent])
+        captured["session"] = session
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.get_student_slot_statuses", new_callable=AsyncMock, return_value=[]):
+            with patch("app.routers.documents.uploads.gcs_delete_file"):
+                response = client.post(
+                    "/api/me/documents/submit-batch",
+                    json={"submission_ids": [str(child_id), str(flagged_id)]},
+                )
+
+    assert response.status_code == 200
+    # The compiled child keeps its compiled-parent lineage.
+    assert child.parent_submission_id == compiled_parent_id
+
+    # The flagged duplicate is dropped.
+    deleted = [call.args[0] for call in captured["session"].delete.await_args_list]
+    assert flagged in deleted
+    assert child not in deleted
+
+    # No REPLACEMENT_OF lineage history is written for the compiled child.
+    history_actions = [
+        call.args[0].action
+        for call in captured["session"].add.call_args_list
+        if call.args and getattr(call.args[0], "action", None)
+    ]
+    assert "REPLACEMENT_OF" not in history_actions

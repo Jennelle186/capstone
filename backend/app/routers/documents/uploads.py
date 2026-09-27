@@ -9,7 +9,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select, text
+from sqlalchemy import desc, or_, select, text
 from sqlalchemy.orm import aliased, selectinload
 
 from ...database import SessionDep
@@ -336,6 +336,34 @@ async def confirm_upload(
     )
 
 
+def _serialize_submission(
+    s,
+    children: list | None = None,
+) -> SubmissionDetailResponse:
+    return SubmissionDetailResponse(
+        id=str(s.id),
+        status=s.status.value,
+        file_key=s.file_key,
+        original_filename=s.original_filename,
+        file_size=s.file_size,
+        mime_type=s.mime_type,
+        is_compiled=s.is_compiled,
+        document_type_id=str(s.document_type_id) if s.document_type_id else None,
+        document_type_name=s.document_type.name if s.document_type else None,
+        classification_result=s.classification_result,
+        extracted_data=s.extracted_data,
+        rejection_reason=s.rejection_reason,
+        document_type_code=s.document_type.code if s.document_type else None,
+        parent_submission_id=str(s.parent_submission_id) if s.parent_submission_id else None,
+        page_range=s.page_range,
+        segment_index=s.segment_index,
+        is_compiled_parent=bool(s.is_compiled_parent),
+        page_count=s.page_count,
+        children=[_serialize_submission(c) for c in (children or [])],
+        created_at=s.created_at.isoformat() if s.created_at else "",
+    )
+
+
 @router.get("/api/me/documents", response_model=list[SubmissionDetailResponse])
 async def list_my_documents(
     current_user: StudentClaims,
@@ -359,31 +387,36 @@ async def list_my_documents(
         )
         .where(
             DocumentSubmission.student_id == student.id,
-            replacement.id.is_(None),
+            or_(
+                replacement.id.is_(None),
+                DocumentSubmission.is_compiled_parent.is_(True),
+            ),
         )
         .order_by(desc(DocumentSubmission.created_at))
+        .distinct()
     )
     submissions = db_result.scalars().all()
 
+    compiled_parent_ids = {s.id for s in submissions if s.is_compiled_parent}
+    children_by_parent: dict = {}
+    flat: list = []
+    for s in submissions:
+        if s.parent_submission_id in compiled_parent_ids:
+            children_by_parent.setdefault(s.parent_submission_id, []).append(s)
+        else:
+            flat.append(s)
+
+    # Compiled segments share a timestamp; order them by segment_index so pages
+    # render in document order instead of reversed by DB row order.
+    for children in children_by_parent.values():
+        children.sort(key=lambda c: c.segment_index if c.segment_index is not None else 0)
+
     return [
-        SubmissionDetailResponse(
-            id=str(s.id),
-            status=s.status.value,
-            file_key=s.file_key,
-            original_filename=s.original_filename,
-            file_size=s.file_size,
-            mime_type=s.mime_type,
-            is_compiled=s.is_compiled,
-            document_type_id=str(s.document_type_id) if s.document_type_id else None,
-            document_type_name=s.document_type.name if s.document_type else None,
-            classification_result=s.classification_result,
-            extracted_data=s.extracted_data,
-            rejection_reason=s.rejection_reason,
-            document_type_code=s.document_type.code if s.document_type else None,
-            parent_submission_id=str(s.parent_submission_id) if s.parent_submission_id else None,
-            created_at=s.created_at.isoformat() if s.created_at else "",
-        )
-        for s in submissions
+        _serialize_submission(s, children_by_parent.get(s.id))
+        for s in flat
+        # Compiled parents with no remaining children are omitted so an
+        # orphaned, undeletable parent container never reaches the client.
+        if not (s.is_compiled_parent and s.id not in children_by_parent)
     ]
 
 
@@ -415,6 +448,7 @@ async def submit_batch(
                 SubmissionStatus.CLASSIFIED,
                 SubmissionStatus.FLAGGED,
             ]),
+            DocumentSubmission.is_compiled_parent.is_(False),
         )
     )
 
@@ -450,27 +484,37 @@ async def submit_batch(
         if sub.status == SubmissionStatus.FLAGGED:
             # Preserve the flagged record — link lineage instead of deleting.
             # exclude_replaced_submissions will hide it from adviser views.
-            new_sub.parent_submission_id = sub.id
-            flag_reason = sub.rejection_reason
-            flag_actor = sub.flagged_by if sub.flagged_by else student.user_id
-            db.add(DocumentSubmissionHistory(
-                submission_id=sub.id,
-                actor_user_id=flag_actor,
-                action="REUPLOADED",
-                previous_status=SubmissionStatus.FLAGGED.value,
-                new_status=SubmissionStatus.FLAGGED.value,
-                reference_submission_id=new_sub.id,
-                reason=flag_reason,
-            ))
-            db.add(DocumentSubmissionHistory(
-                submission_id=new_sub.id,
-                actor_user_id=flag_actor,
-                action="REPLACEMENT_OF",
-                previous_status=SubmissionStatus.CLASSIFIED.value,
-                new_status=SubmissionStatus.SUBMITTED.value,
-                reference_submission_id=sub.id,
-                reason=flag_reason,
-            ))
+            #
+            # Only link lineage when the newer submission is not already a
+            # compiled child (which uses parent_submission_id to point at its
+            # compiled container). Overwriting that field would orphan the
+            # child from its split parent. Already-linked submissions are
+            # treated like classified duplicates and cleaned up instead.
+            if new_sub.parent_submission_id is None:
+                new_sub.parent_submission_id = sub.id
+                flag_reason = sub.rejection_reason
+                flag_actor = sub.flagged_by if sub.flagged_by else student.user_id
+                db.add(DocumentSubmissionHistory(
+                    submission_id=sub.id,
+                    actor_user_id=flag_actor,
+                    action="REUPLOADED",
+                    previous_status=SubmissionStatus.FLAGGED.value,
+                    new_status=SubmissionStatus.FLAGGED.value,
+                    reference_submission_id=new_sub.id,
+                    reason=flag_reason,
+                ))
+                db.add(DocumentSubmissionHistory(
+                    submission_id=new_sub.id,
+                    actor_user_id=flag_actor,
+                    action="REPLACEMENT_OF",
+                    previous_status=SubmissionStatus.CLASSIFIED.value,
+                    new_status=SubmissionStatus.SUBMITTED.value,
+                    reference_submission_id=sub.id,
+                    reason=flag_reason,
+                ))
+            else:
+                # Compiled child or otherwise linked: drop the old flagged dup.
+                dups_to_remove.append(sub)
         else:
             # CLASSIFIED duplicate from this batch — safe to hard-delete
             dups_to_remove.append(sub)
@@ -530,8 +574,13 @@ async def submit_batch(
         )
         if sub.parent_submission_id is not None:
             old_sub = await db.get(DocumentSubmission, sub.parent_submission_id)
+            # Compiled-PDF child (Feature 3): the parent is the split container,
+            # not a replaced duplicate — skip replacement lineage history.
+            if old_sub is not None and old_sub.is_compiled_parent:
+                continue
             flag_reason = old_sub.rejection_reason if old_sub else None
-            flag_actor = old_sub.flagged_by if old_sub and old_sub.flagged_by else user.id
+            flag_actor = (old_sub.flagged_by if old_sub and old_sub.flagged_by
+                          else student.user_id)
 
             db.add(
                 DocumentSubmissionHistory(
@@ -612,16 +661,67 @@ async def delete_document(
         SubmissionStatus.VERIFIED,
         SubmissionStatus.SUBMITTED,
         SubmissionStatus.IN_REVIEW,
+        SubmissionStatus.PROCESSING,
     ):
         raise HTTPException(
             status_code=409,
-            detail="Cannot delete a document that has been submitted or verified.",
+            detail="Cannot delete a document that is being processed, submitted, or verified.",
         )
 
-    await asyncio.to_thread(gcs_delete_file, submission.file_key)
+    # Reject deleting a compiled container that still has child segments. The UI
+    # hides the parent's delete button, but the endpoint is still reachable
+    # directly; deleting the parent alone would orphan its children (their
+    # parent_submission_id is SET NULL) and drop their grouping/page-range context.
+    if getattr(submission, "is_compiled_parent", False):
+        remaining = await db.execute(
+            select(DocumentSubmission.id).where(
+                DocumentSubmission.parent_submission_id == submission.id
+            )
+        )
+        if remaining.first() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete a compiled document that still has child segments.",
+            )
+
+    # Collect GCS keys first, but delete them only after the DB transaction
+    # commits. Deleting files before commit risks leaving DB rows pointing at
+    # deleted objects if the transaction later fails (lock timeout, integrity
+    # error), producing broken references.
+    keys_to_delete: list[str] = [submission.file_key]
+
+    # Compiled-PDF cascade: if this submission was the last child of a compiled
+    # parent, delete the now-empty parent container too so it does not linger as
+    # an undeletable orphan in the UI or the database.
+    parent_id = submission.parent_submission_id
 
     await db.delete(submission)
+    await db.flush()
+
+    if parent_id is not None:
+        parent = await db.get(DocumentSubmission, parent_id)
+        if (
+            parent is not None
+            and parent.is_compiled_parent
+            and parent.student_id == student.id
+        ):
+            remaining = await db.execute(
+                select(DocumentSubmission.id).where(
+                    DocumentSubmission.parent_submission_id == parent_id
+                )
+            )
+            if remaining.first() is None:
+                if parent.file_key:
+                    keys_to_delete.append(parent.file_key)
+                await db.delete(parent)
+
     await db.commit()
+
+    for file_key in keys_to_delete:
+        try:
+            await asyncio.to_thread(gcs_delete_file, file_key)
+        except Exception:
+            logger.exception("Failed to delete GCS file %s after successful commit", file_key)
 
     return {"ok": True}
 
