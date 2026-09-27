@@ -24,7 +24,6 @@ import { Link } from "react-router";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { toast } from "sonner";
 import StatSummaryCards from "@/components/student/Dashboard/StatSummaryCards";
-import AnnouncementBar from "@/components/student/Dashboard/AnnouncementBar";
 import SubmissionsTable from "@/components/student/Dashboard/SubmissionsTable";
 import DocumentDetailModal from "@/components/student/Dashboard/DocumentDetailModal";
 import {
@@ -92,12 +91,21 @@ function toSubmission(detail: SubmissionDetail): Submission {
   return {
     id: detail.id,
     documentName: detail.original_filename,
-    documentType: detail.document_type_name ?? "Unclassified",
+    documentType: detail.document_type_name ?? (detail.is_compiled_parent ? "Compiled document" : "Unclassified"),
     uploadDate: formatDate(detail.created_at),
     status: detail.status as SubmissionStatusType,
     fileType: mimeToLabel(detail.mime_type),
     fileSize: formatFileSize(detail.file_size),
   };
+}
+
+function flattenCompiled(docs: SubmissionDetail[]): SubmissionDetail[] {
+  const out: SubmissionDetail[] = [];
+  for (const d of docs) {
+    out.push(d);
+    for (const child of d.children ?? []) out.push(child);
+  }
+  return out;
 }
 
 export default function StudentDashboard() {
@@ -187,8 +195,13 @@ export default function StudentDashboard() {
         if (docsRes.ok) {
           const docs = (await docsRes.json()) as SubmissionDetail[];
           if (isMounted) {
-            setFlaggedSubmissions(docs.filter((d) => d.status === "flagged"));
-            setSubmissions(docs.filter((d) => d.status !== "flagged").map(toSubmission));
+            const flattened = flattenCompiled(docs);
+            setFlaggedSubmissions(flattened.filter((d) => d.status === "flagged"));
+            setSubmissions(
+              flattened
+                .filter((d) => !d.is_compiled_parent && d.status !== "flagged")
+                .map(toSubmission),
+            );
             setLoadingDocs(false);
           }
         }
@@ -400,11 +413,11 @@ export default function StudentDashboard() {
                 <SelectValue placeholder="Select your program..." />
               </SelectTrigger>
               <SelectContent>
-                {departments.map((dept) => (
-                  <SelectItem key={dept.id} value={dept.id}>
-                    {dept.code} — {dept.name}
-                  </SelectItem>
-                ))}
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.code}: {dept.name}
+                      </SelectItem>
+                    ))}
               </SelectContent>
             </Select>
           </div>
@@ -478,7 +491,7 @@ export default function StudentDashboard() {
                   <SelectContent>
                     {departments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id}>
-                        {dept.code} — {dept.name}
+                    {dept.code}: {dept.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -497,7 +510,7 @@ export default function StudentDashboard() {
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  By selecting <strong>{pendingDept?.code} — {pendingDept?.name}</strong>, you confirm
+                  By selecting <strong>{pendingDept?.code}: {pendingDept?.name}</strong>, you confirm
                   you are enrolled in this program.
                 </p>
 
@@ -672,9 +685,6 @@ export default function StudentDashboard() {
 
       {/* Stat Cards */}
       <StatSummaryCards submissions={submissions} />
-
-      {/* Announcements */}
-      <AnnouncementBar />
 
       {/* Submissions Table */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">

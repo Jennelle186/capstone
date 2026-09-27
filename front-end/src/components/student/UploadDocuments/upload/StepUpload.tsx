@@ -66,6 +66,8 @@ export default function StepUpload({
     open: false,
     message: "",
   });
+  // Whether the selected PDF is a compiled multi-document file (Feature 3).
+  const [isCompiled, setIsCompiled] = useState(false);
 
   // Adds incoming files to the local selection, filtering out any that exceed the size limit
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -98,6 +100,8 @@ export default function StepUpload({
         name: item.file.name,
         type: item.file.type || "application/octet-stream",
         size: item.file.size,
+        // Splitting only applies to PDFs — ignore the checkbox for images.
+        is_compiled: isCompiled && item.file.type === "application/pdf",
       };
       if (replaceSubmissionId) {
         body.replace_submission_id = replaceSubmissionId;
@@ -125,7 +129,7 @@ export default function StepUpload({
       }
       return res.json() as Promise<InitiateUploadResponse>;
     },
-    [],
+    [replaceSubmissionId, isCompiled],
   );
 
   // Uploads the file directly to GCS using the presigned signed URL.
@@ -234,6 +238,7 @@ export default function StepUpload({
           next.delete(item.id);
           return next;
         });
+        setIsCompiled(false);
       }
     },
     [uploadOne],
@@ -280,6 +285,7 @@ export default function StepUpload({
         });
       }
     }
+    setIsCompiled(false);
   }, [uploadOne, uploadedIds, files]);
 
   // Handles the delete of a previously uploaded submission via the backend DELETE endpoint
@@ -391,6 +397,26 @@ export default function StepUpload({
           getToken={getToken}
           isReadOnly={isSchoolYearClosed}
         />
+        {canUpload && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-4">
+            <input
+              type="checkbox"
+              checked={isCompiled}
+              onChange={(e) => setIsCompiled(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+            />
+            <span className="text-sm">
+              <span className="font-semibold text-slate-800">
+                This PDF contains multiple documents
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Check this if you're uploading a single PDF that combines several
+                documents (e.g. admission form + birth certificate). We'll split it
+                into separate documents automatically.
+              </span>
+            </span>
+          </label>
+        )}
         {canUpload && (
           <DropZone onFilesAdded={addFiles} />
         )}

@@ -241,7 +241,7 @@ export default function ExtractionCard({ item, onAutoSave, readOnly = false }: E
             <DialogTitle className="text-base font-semibold text-slate-900">
               {item.fileName}
               <span className="ml-2 text-sm font-normal text-slate-500">
-                — {item.documentTypeName}
+                : {item.documentTypeName}
               </span>
             </DialogTitle>
           </DialogHeader>

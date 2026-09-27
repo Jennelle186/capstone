@@ -28,7 +28,7 @@ const REPORTS: ReportDefinition[] = [
     slug: "advisers",
     title: "Adviser Report",
     description:
-      "All advisers and their programme assignments with per-department counts. One sheet per school year — active year first.",
+      "All advisers and their programme assignments with per-department counts. One sheet per school year: active year first.",
     filename: "adviser-report.xlsx",
   },
   {

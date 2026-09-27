@@ -199,7 +199,7 @@ export default function ProgramMismatchBanner({
                 <SelectContent>
                   {departments.map((dept) => (
                     <SelectItem key={dept.id} value={dept.id}>
-                      {dept.code} — {dept.name}
+                      {dept.code}: {dept.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -102,7 +102,29 @@ vi.mock(
 );
 
 vi.mock("@/components/student/UploadDocuments/upload/NewFileList", () => ({
-  default: () => <div data-testid="new-file-list">NewFileList</div>,
+  default: (props: {
+    onUpload?: (item: unknown) => void;
+    onUploadAll?: () => void;
+  }) => (
+    <div data-testid="new-file-list">
+      <button
+        data-testid="upload-one"
+        onClick={() =>
+          props.onUpload?.({
+            id: "f1",
+            file: new File(["pdf"], "a.pdf", { type: "application/pdf" }),
+            previewUrl: undefined,
+            pdfUrl: undefined,
+          })
+        }
+      >
+        UploadOne
+      </button>
+      <button data-testid="upload-all" onClick={() => props.onUploadAll?.()}>
+        UploadAll
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/student/UploadDocuments/upload/UploadSidebar", () => ({
@@ -270,6 +292,36 @@ describe("StepUpload", () => {
     render(<StepUpload getToken={mockGetToken} />);
     expect(screen.getByTestId("upload-sidebar")).toBeDefined();
   });
+
+  it("resets the compiled checkbox after a single-file upload completes", async () => {
+    mockFetchWithClerk.mockImplementation((url: string) => {
+      if (url.includes("initiate")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ url: "https://gcs.example/file", submission_id: "sub-1" }),
+        });
+      }
+      if (url.includes("confirm")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+    render(<StepUpload requiredSlots={[]} getToken={mockGetToken} />);
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: /multiple documents/i,
+    });
+    await userEvent.setup().click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    await userEvent.setup().click(screen.getByTestId("upload-one"));
+
+    await waitFor(() => expect(checkbox).not.toBeChecked());
+
+    vi.unstubAllGlobals();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -294,6 +346,11 @@ const makeSubmission = (overrides: Partial<SubmissionDetail> = {}) => ({
   document_type_code: null,
   file_key: "",
   parent_submission_id: null,
+  page_range: null,
+  segment_index: null,
+  is_compiled_parent: false,
+  page_count: null,
+  children: [],
   llama_job_id: null,
 });
 
@@ -402,6 +459,36 @@ describe("StepClassify", () => {
       />,
     );
     expect(screen.queryByText("Classify All")).toBeNull();
+  });
+
+  it("does not flag documents as non-requirements when no slots are configured", () => {
+    render(
+      <StepClassify
+        requiredSlots={[]}
+        requiredDocuments={[
+          {
+            id: "dt-1",
+            name: "Form 137",
+            code: "form_137",
+            description: "",
+            is_required: true,
+          },
+        ]}
+        submissions={[
+          makeSubmission({
+            id: "sub-1",
+            status: "classified",
+            document_type_id: "dt-1",
+            classification_result: {
+              confidence: 0.95,
+              accepted_by_user: false,
+            },
+          }),
+        ]}
+        getToken={mockGetToken}
+      />,
+    );
+    expect(screen.queryByText(/not part of your requirements/)).toBeNull();
   });
 
   it("triggers onClassificationChange(true) when all items are classified", async () => {
@@ -798,6 +885,11 @@ describe("StepSubmit", () => {
             document_type_code: null,
             file_key: "",
             parent_submission_id: null,
+            page_range: null,
+            segment_index: null,
+            is_compiled_parent: false,
+            page_count: null,
+            children: [],
             llama_job_id: null,
           },
         ]}
@@ -828,6 +920,11 @@ describe("StepSubmit", () => {
             document_type_code: null,
             file_key: "",
             parent_submission_id: null,
+            page_range: null,
+            segment_index: null,
+            is_compiled_parent: false,
+            page_count: null,
+            children: [],
             llama_job_id: null,
           },
         ]}
@@ -858,6 +955,11 @@ describe("StepSubmit", () => {
             document_type_code: null,
             file_key: "",
             parent_submission_id: null,
+            page_range: null,
+            segment_index: null,
+            is_compiled_parent: false,
+            page_count: null,
+            children: [],
             llama_job_id: null,
           },
         ]}
@@ -888,6 +990,11 @@ describe("StepSubmit", () => {
             document_type_code: null,
             file_key: "",
             parent_submission_id: null,
+            page_range: null,
+            segment_index: null,
+            is_compiled_parent: false,
+            page_count: null,
+            children: [],
             llama_job_id: null,
           },
         ]}

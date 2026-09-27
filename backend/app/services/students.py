@@ -395,6 +395,8 @@ async def get_student_detail(
             "extraction_fields": sub.extracted_data or {},
             "classification_result": sub.classification_result,
             "rejection_reason": sub.rejection_reason,
+            "page_range": sub.page_range,
+            "parent_submission_id": str(sub.parent_submission_id) if sub.parent_submission_id else None,
         }
         for sub in submissions
     ]

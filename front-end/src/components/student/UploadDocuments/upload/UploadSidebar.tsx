@@ -51,7 +51,7 @@ export default function UploadSidebar({ slots, legacyDocuments }: UploadSidebarP
                                     </div>
                                     {slot.is_complete && (
                                         <p className="mt-1 text-[11px] text-emerald-600 bg-emerald-50/50 rounded-md px-2 py-0.5">
-                                            Requirement fulfilled — new uploads add alternate copies.
+                                            Requirement fulfilled: new uploads add alternate copies.
                                         </p>
                                     )}
                                     {!slot.is_complete && (
@@ -116,7 +116,9 @@ export default function UploadSidebar({ slots, legacyDocuments }: UploadSidebarP
                         throughout the verification process.
                     </p>
                     <a
-                        href="#"
+                        href="/privacy-policy"
+                        target="_blank"
+                        rel="noreferrer"
                         className="text-xs font-semibold text-primary flex items-center gap-1 hover:gap-2 transition-all"
                     >
                         View Privacy Policy

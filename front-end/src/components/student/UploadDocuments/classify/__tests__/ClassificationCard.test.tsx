@@ -17,6 +17,10 @@ const baseItem: ClassificationItem = {
   confidence: 90,
   needsReview: false,
   isCompiledPdf: false,
+  isCompiledParent: false,
+  pageRange: null,
+  segmentIndex: null,
+  pageCount: null,
   status: "classified",
   classificationResult: { type: "ADMISSION_FORM", confidence: 0.9 },
 };
@@ -28,7 +32,6 @@ function renderCard(overrides: Partial<ClassificationItem> = {}, props: Record<s
       item={item}
       documentTypes={[]}
       onOverride={() => {}}
-      onSplit={() => {}}
       onClassify={() => {}}
       onConfirm={() => {}}
       onDelete={() => {}}

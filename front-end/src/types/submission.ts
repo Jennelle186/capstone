@@ -41,6 +41,11 @@ export interface SubmissionDetail {
   extracted_data: Record<string, unknown> | null;
   rejection_reason: string | null;
   parent_submission_id: string | null;
+  page_range: string | null;
+  segment_index: number | null;
+  is_compiled_parent: boolean;
+  page_count: number | null;
+  children: SubmissionDetail[];
   llama_job_id: string | null;
   created_at: string;
 }

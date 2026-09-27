@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import Depends
 from pydantic import BaseModel
 from typing_extensions import Annotated
@@ -22,4 +24,9 @@ class SubmissionDetailResponse(BaseModel):
     extracted_data: dict | None = None
     rejection_reason: str | None = None
     parent_submission_id: str | None = None
+    page_range: str | None = None
+    segment_index: int | None = None
+    is_compiled_parent: bool = False
+    page_count: int | None = None
+    children: list[SubmissionDetailResponse] = []
     created_at: str

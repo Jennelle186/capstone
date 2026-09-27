@@ -145,6 +145,8 @@ class AdviserStudentSubmissionResponse(BaseModel):
     status: str
     submitted_at: str
     extraction_fields: dict
+    page_range: str | None = None
+    parent_submission_id: str | None = None
 
 
 class AdviserStudentDetailResponse(BaseModel):

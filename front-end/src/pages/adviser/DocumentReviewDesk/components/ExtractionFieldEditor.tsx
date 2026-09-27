@@ -43,6 +43,11 @@ export default function ExtractionFieldEditor({
           {docType}
           <Sparkles className="h-4 w-4 text-primary shrink-0" />
         </h2>
+        {currentSubmission.page_range && (
+          <p className="text-[11px] font-medium text-slate-500 mt-1">
+            From compiled document · pages {currentSubmission.page_range}
+          </p>
+        )}
       </div>
 
       {currentExtractions.length > 1 && !isFlat && (

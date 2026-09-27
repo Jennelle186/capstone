@@ -43,7 +43,7 @@ export default function JobProgress({
           <div>
             <p className="text-sm font-semibold">{label} finished with errors</p>
             <p className="text-xs text-amber-700 mt-0.5">
-              {progress} / {total} processed — some documents failed.
+              {progress} / {total} processed: some documents failed.
             </p>
             {errorMessage && (
               <p className="text-xs text-amber-700 mt-0.5">{errorMessage}</p>
@@ -74,7 +74,7 @@ export default function JobProgress({
           {label} documents
           {total > 0 && (
             <span className="font-normal text-blue-700">
-              {" "}— {progress} / {total}
+              {" "}: {progress} / {total}
             </span>
           )}
         </p>

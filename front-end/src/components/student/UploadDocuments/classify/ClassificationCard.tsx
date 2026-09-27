@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FileText, ImageIcon, Scissors, AlertTriangle, CheckCircle, Loader2, SearchCheck, Check } from "lucide-react";
+import { FileText, ImageIcon, AlertTriangle, CheckCircle, Loader2, SearchCheck, Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchWithClerkAuth } from "@/lib/api";
 import {
@@ -27,7 +27,6 @@ interface ClassificationCardProps {
   item: ClassificationItem;
   documentTypes: RequiredDocument[];
   onOverride: (fileId: string, documentTypeId: string) => void;
-  onSplit: (fileId: string) => void;
   onClassify: (id: string) => void;
   onConfirm: (id: string, updatedItem: ClassificationItem) => void;
   onDelete?: (id: string) => void;
@@ -83,6 +82,10 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     confidence,
     needsReview: status === "needs-review",
     isCompiledPdf: s.is_compiled,
+    isCompiledParent: s.is_compiled_parent,
+    pageRange: s.page_range,
+    segmentIndex: s.segment_index,
+    pageCount: s.page_count,
     status,
     classificationResult: result as ClassificationItem["classificationResult"],
     mimeType: s.mime_type,
@@ -154,7 +157,7 @@ function StatusBadge({ status, confidence }: { status: ClassificationStatus; con
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-slate-500">
           <CheckCircle className="h-3 w-3 text-slate-400" />
-          Submitted — locked
+          Submitted: locked
         </span>
       );
     case "verified":
@@ -173,7 +176,6 @@ export default function ClassificationCard({
   item,
   documentTypes,
   onOverride,
-  onSplit,
   onClassify,
   onConfirm,
   onDelete,
@@ -276,7 +278,22 @@ export default function ClassificationCard({
 
   return (
     <>
-      {isConflict ? (
+      {item.isCompiledParent ? (
+        /* Compiled-parent group header — read-only container */
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <FileText className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-slate-900">{item.fileName}</p>
+            <p className="text-xs text-slate-500">
+              Compiled document
+              {item.pageCount ? ` · ${item.pageCount} pages` : ""}: split into the
+              documents below
+            </p>
+          </div>
+        </div>
+      ) : isConflict ? (
         /* Conflict card — read-only, shows error message + delete button */
         <div className="flex flex-col lg:flex-row lg:items-center gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm">
           <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -377,6 +394,11 @@ export default function ClassificationCard({
               <p className="truncate max-w-[280px] text-sm font-bold text-slate-900">
                 {item.fileName}
               </p>
+              {item.pageRange && (
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500">
+                  pages {item.pageRange}
+                </span>
+              )}
               <StatusBadge status={item.status} confidence={item.confidence} />
             </div>
             <div className="flex items-center gap-1.5 text-xs text-slate-500 whitespace-nowrap">
@@ -464,18 +486,24 @@ export default function ClassificationCard({
                   Accept
                 </Button>
               )}
-              {item.isCompiledPdf && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-10 rounded-xl whitespace-nowrap shrink-0"
-                  onClick={() => onSplit(item.id)}
-                >
-                  <Scissors className="h-4 w-4 mr-1" />
-                  Split
-                </Button>
-              )}
             </>
+          )}
+          {item.status !== "pending" && item.status !== "submitted" && item.status !== "processing" && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 shrink-0 rounded-lg p-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              onClick={handleDeleteDocument}
+              disabled={deleting}
+              aria-label="Remove document"
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+            </Button>
           )}
         </div>
       </div>
