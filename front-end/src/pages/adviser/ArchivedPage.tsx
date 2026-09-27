@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "framer-motion";
+import { type ColumnDef } from "@tanstack/react-table";
 import {
   PieChart, Pie, Cell,
   BarChart, Bar, XAxis, YAxis,
@@ -12,12 +13,14 @@ import {
   Clock,
   ChevronRight,
   Database,
+  ArrowUpDown,
 } from "lucide-react";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -27,21 +30,17 @@ import {
 } from "@/components/ui/select";
 import PageHeader from "@/components/adviser/ui/PageHeader";
 import ProgramSelector from "@/components/adviser/dashboard/ProgramSelector";
+import DataTable from "@/components/common/data-table/DataTable";
 import { useAdviserSchoolYears } from "@/hooks/useAdviserSchoolYears";
 import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope";
 import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { AdviserStudent } from "@/types/adviser-students";
-import { CLASSIFICATION_LABELS } from "@/types/adviser-students";
+import { CLASSIFICATION_LABELS, CLASSIFICATION_BADGE_CLASSES } from "@/types/adviser-students";
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
-};
-
-const staggerContainer = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
 };
 
 const COLORS_PIE = [
@@ -49,6 +48,155 @@ const COLORS_PIE = [
   "var(--chart-1, #3b82f6)",
   "oklch(0.577 0.245 27.325)",
   "oklch(0.75 0.15 70.0)",
+];
+
+const classificationOptions = [
+  { label: "All Classification", value: "all" },
+  { label: "Freshman", value: "freshman" },
+  { label: "Transferee", value: "transferee" },
+  { label: "Shifter", value: "shifter" },
+  { label: "Returning / Continuing", value: "returning" },
+  { label: "Cross-Enrolee", value: "cross_enrollee" },
+  { label: "Second Courser", value: "second_courser" },
+];
+
+const columns: ColumnDef<AdviserStudent>[] = [
+  {
+    id: "student",
+    accessorFn: (row) => `${row.name} ${row.student_number ?? ""}`,
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Student
+        <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+      </Button>
+    ),
+    cell: ({ row }) => (
+      <div className="flex items-center gap-3">
+        <Avatar className="h-9 w-9">
+          <AvatarImage src={row.original.image_url ?? undefined} />
+          <AvatarFallback>{row.original.initials}</AvatarFallback>
+        </Avatar>
+        <div>
+          <div className="font-bold text-slate-900 text-sm">{row.original.name}</div>
+          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+            {row.original.student_number || (
+              <span className="text-destructive font-semibold">NO STUDENT ID</span>
+            )}
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    accessorKey: "classification",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Classification
+        <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+      </Button>
+    ),
+    cell: ({ row }) => {
+      const classification = row.getValue("classification") as AdviserStudent["classification"];
+      return (
+        <span
+          className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[classification]}`}
+        >
+          {CLASSIFICATION_LABELS[classification]}
+        </span>
+      );
+    },
+    filterFn: "equals",
+  },
+  {
+    accessorKey: "application_status",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Application Status
+        <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+      </Button>
+    ),
+    cell: ({ row }) => {
+      const status = row.getValue("application_status") as AdviserStudent["application_status"];
+      if (status === "SUBMITTED_COMPLETE") {
+        return (
+          <Badge className="bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
+            Complete
+          </Badge>
+        );
+      }
+      if (status === "PENDING_DOCUMENTS") {
+        return (
+          <Badge className="bg-amber-100 text-amber-700 text-[10px] font-semibold">
+            Pending Docs
+          </Badge>
+        );
+      }
+      return (
+        <Badge className="bg-slate-100 text-slate-600 text-[10px] font-semibold">
+          In Progress
+        </Badge>
+      );
+    },
+  },
+  {
+    accessorKey: "completion_pct",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 text-xs font-semibold uppercase tracking-wider text-slate-600"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Document Progress
+        <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+      </Button>
+    ),
+    cell: ({ row }) => {
+      const pct = (row.getValue("completion_pct") as number) ?? 0;
+      const barColor = pct === 100 ? "bg-emerald-500" : pct > 50 ? "bg-primary" : "bg-amber-500";
+      return (
+        <div className="space-y-1.5 min-w-[140px] max-w-[200px]">
+          <div className="text-[10px] font-bold text-slate-900">
+            {pct}% ({row.original.documents_submitted}/{row.original.documents_total} reqs)
+          </div>
+          <div className="relative h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    id: "actions",
+    header: "Actions",
+    enableSorting: false,
+    cell: () => (
+      <div className="text-right">
+        <div className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-primary transition-colors cursor-pointer">
+          <span>Audit Record</span>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </div>
+      </div>
+    ),
+  },
 ];
 
 interface ArchivedAnalytics {
@@ -251,79 +399,86 @@ export default function ArchivedPage() {
         </Card>
       </div>
 
-      {/* Two-column layout: Student Grid + Analytics */}
+      {/* Two-column layout: Student Table + Analytics */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Student Grid */}
+        {/* Left: Cohort Student Table */}
         <div className="lg:col-span-8 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Cohort Student Grid</h2>
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Cohort Student Records</h2>
             <span className="text-[10px] text-slate-400 font-bold">
               Showing {students.length} records
             </span>
           </div>
 
           {loadingData ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[1, 2, 3, 4].map((i) => (
-                <Card key={i} className="h-40" />
-              ))}
-            </div>
+            <Card className="border-slate-200 shadow-sm">
+              <div className="p-6 space-y-4">
+                <Skeleton className="h-9 w-64" />
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            </Card>
           ) : (
-            <motion.div
-              variants={staggerContainer}
-              initial="hidden"
-              animate="visible"
-              className="grid grid-cols-1 md:grid-cols-2 gap-4"
-            >
-              {students.map((s) => (
-                <motion.div
-                  key={s.id}
-                  variants={fadeInUp}
-                  onClick={() => navigate(`/adviser/students/${s.id}`)}
-                  className="group cursor-pointer"
-                >
-                  <Card className="p-4 flex flex-col justify-between border-slate-200 hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-9 w-9">
-                          <AvatarFallback>{s.initials}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <h3 className="text-xs font-bold text-slate-900 group-hover:text-primary transition">
-                            {s.name}
-                          </h3>
-                          <p className="text-[10px] text-slate-400 font-mono mt-0.5">{s.student_number}</p>
+            <motion.div variants={fadeInUp} initial="hidden" animate="visible">
+              <DataTable
+                data={students}
+                columns={columns}
+                searchColumn="student"
+                searchPlaceholder="Search by name or student ID..."
+                filterColumn="classification"
+                filterOptions={classificationOptions}
+                onRowClick={(student) => navigate(`/adviser/students/${student.id}`)}
+                mobileCard={(student) => (
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 transition-all hover:shadow-sm active:scale-[0.99]">
+                    <div className="flex items-start gap-3">
+                      <Avatar className="h-9 w-9 shrink-0">
+                        <AvatarImage src={student.image_url ?? undefined} />
+                        <AvatarFallback>{student.initials}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {student.name}
+                        </p>
+                        <p className="text-[10px] uppercase tracking-tighter text-slate-400">
+                          {student.student_number ?? (
+                            <span className="text-destructive font-semibold">NO STUDENT ID</span>
+                          )}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${CLASSIFICATION_BADGE_CLASSES[student.classification]}`}
+                          >
+                            {CLASSIFICATION_LABELS[student.classification]}
+                          </span>
+                          {student.application_status === "PENDING_DOCUMENTS" && (
+                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-700">
+                              Pending Docs
+                            </span>
+                          )}
+                          {student.application_status === "SUBMITTED_COMPLETE" && (
+                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-700">
+                              Complete
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-2 space-y-1">
+                          <div className="text-[10px] font-bold text-slate-900">
+                            {(student.completion_pct ?? 0)}% ({student.documents_submitted}/{student.documents_total} reqs)
+                          </div>
+                          <div className="relative h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${(student.completion_pct ?? 0) === 100 ? "bg-emerald-500" : (student.completion_pct ?? 0) > 50 ? "bg-primary" : "bg-amber-500"}`}
+                              style={{ width: `${student.completion_pct ?? 0}%` }}
+                            />
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-[10px]">
-                          {CLASSIFICATION_LABELS[s.classification as keyof typeof CLASSIFICATION_LABELS] || s.classification}
-                        </Badge>
-                        {s.application_status === "PENDING_DOCUMENTS" && (
-                          <Badge className="bg-amber-100 text-amber-700 text-[10px] font-semibold">
-                            Pending Docs
-                          </Badge>
-                        )}
-                        {s.application_status === "SUBMITTED_COMPLETE" && (
-                          <Badge className="bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
-                            Complete
-                          </Badge>
-                        )}
-                      </div>
+                      <ChevronRight className="h-4 w-4 text-slate-400 shrink-0 mt-2" />
                     </div>
-                    <div className="mt-4 flex items-center justify-between text-[10px] text-slate-500 bg-slate-50/50 p-2 rounded-lg border border-slate-100">
-                      <span>
-                        Requirements: <b>{s.documents_submitted}/{s.documents_total}</b>
-                      </span>
-                      <span className="font-bold text-slate-700">{s.completion_pct}% Satisfied</span>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between text-[10px] font-extrabold text-slate-500 uppercase">
-                      <span>Audit Record</span>
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:translate-x-1 group-hover:text-primary transition-all" />
-                    </div>
-                  </Card>
-                </motion.div>
-              ))}
+                  </div>
+                )}
+              />
             </motion.div>
           )}
         </div>
