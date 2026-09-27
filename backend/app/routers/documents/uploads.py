@@ -31,6 +31,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["documents"])
 
 
+# Statuses that lock a submission (or a compiled segment) against deletion.
+# Shared by the top-level delete guard and the compiled-parent cascade so the
+# two checks cannot drift apart: any row in one of these states is either
+# already committed to the adviser review workflow or being actively processed.
+DELETE_LOCKED_STATUSES = (
+    SubmissionStatus.VERIFIED,
+    SubmissionStatus.SUBMITTED,
+    SubmissionStatus.IN_REVIEW,
+    SubmissionStatus.PROCESSING,
+)
+
+
 async def _ensure_school_year_not_closed(db: SessionDep, student: Student) -> None:
     if student.school_year_id is None:
         return
@@ -657,38 +669,46 @@ async def delete_document(
 
         raise HTTPException(status_code=403, detail="You do not have permission to delete this document.")
 
-    if submission.status in (
-        SubmissionStatus.VERIFIED,
-        SubmissionStatus.SUBMITTED,
-        SubmissionStatus.IN_REVIEW,
-        SubmissionStatus.PROCESSING,
-    ):
+    if submission.status in DELETE_LOCKED_STATUSES:
         raise HTTPException(
             status_code=409,
             detail="Cannot delete a document that is being processed, submitted, or verified.",
         )
-
-    # Reject deleting a compiled container that still has child segments. The UI
-    # hides the parent's delete button, but the endpoint is still reachable
-    # directly; deleting the parent alone would orphan its children (their
-    # parent_submission_id is SET NULL) and drop their grouping/page-range context.
-    if getattr(submission, "is_compiled_parent", False):
-        remaining = await db.execute(
-            select(DocumentSubmission.id).where(
-                DocumentSubmission.parent_submission_id == submission.id
-            )
-        )
-        if remaining.first() is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="Cannot delete a compiled document that still has child segments.",
-            )
 
     # Collect GCS keys first, but delete them only after the DB transaction
     # commits. Deleting files before commit risks leaving DB rows pointing at
     # deleted objects if the transaction later fails (lock timeout, integrity
     # error), producing broken references.
     keys_to_delete: list[str] = [submission.file_key]
+
+    # Deleting a compiled parent cascades to its child segments (and their GCS
+    # files) so the whole container is removed atomically instead of orphaning
+    # the segments (their parent_submission_id would otherwise be SET NULL and
+    # lose their grouping/page-range context). Segments that have already been
+    # submitted or verified are locked and block the entire delete.
+    if getattr(submission, "is_compiled_parent", False):
+        # Lock the child rows FOR UPDATE so a concurrent submit_batch cannot
+        # flip a segment CLASSIFIED -> SUBMITTED between this read and the
+        # delete below (which would silently remove a just-submitted segment).
+        children_result = await db.execute(
+            select(DocumentSubmission)
+            .where(DocumentSubmission.parent_submission_id == submission.id)
+            .with_for_update()
+        )
+        children = list(children_result.scalars().all())
+        locked = [
+            c for c in children
+            if c.status in DELETE_LOCKED_STATUSES
+        ]
+        if locked:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete a compiled document that has segments being processed, submitted, in review, or verified.",
+            )
+        for child in children:
+            if child.file_key:
+                keys_to_delete.append(child.file_key)
+            await db.delete(child)
 
     # Compiled-PDF cascade: if this submission was the last child of a compiled
     # parent, delete the now-empty parent container too so it does not linger as
