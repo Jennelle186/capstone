@@ -20,6 +20,8 @@ backend/test_concurrency.py
 backend/create_missing_schemas.py
 backend/seed_sample_data_6_types_docu.py
 backend/_manual_pdf_test.py
+backend/tests/test_analysis.py
+backend/tests/test_requirement_kinds.py
 
 # --- Frontend/Node Artifacts ---
 .vite/
