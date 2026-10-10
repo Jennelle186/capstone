@@ -145,10 +145,11 @@ def test_extract_status_code_falls_back_to_message_scan() -> None:
 
 
 @patch("app.services.gcp_pipeline.time.sleep")
-def test_retry_on_504(mock_sleep) -> None:
-    """504 server timeout is transient and should be retried."""
-    assert _retry_on_gemini_error(_api_error(504), "f.pdf", 0, "classification") is True
-    mock_sleep.assert_called_once()
+def test_no_retry_on_server_deadline(mock_sleep) -> None:
+    """502/503/504 mean the call already blew its deadline — they must fail fast, not be retried."""
+    for code in (502, 503, 504):
+        assert _retry_on_gemini_error(_api_error(code), "f.pdf", 0, "classification") is False
+    mock_sleep.assert_not_called()
 
 
 @patch("app.services.gcp_pipeline.time.sleep")
@@ -169,7 +170,7 @@ def test_no_retry_on_client_error(mock_sleep) -> None:
 @patch("app.services.gcp_pipeline.time.sleep")
 def test_no_retry_when_attempts_exhausted(mock_sleep) -> None:
     """Even a transient error is not retried beyond the retry limit."""
-    assert _retry_on_gemini_error(_api_error(504), "f.pdf", 3, "classification") is False
+    assert _retry_on_gemini_error(_api_error(429), "f.pdf", 3, "classification") is False
     mock_sleep.assert_not_called()
 
 

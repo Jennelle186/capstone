@@ -1,0 +1,30 @@
+.git
+.gitignore
+docs/
+test/
+*.md
+*.docx
+
+# Backend build exclusions
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+backend/.pytest_cache/
+backend/test_output/
+backend/test_samples/
+backend/tests/
+backend/llm_calls.log
+backend/eval_report.json
+backend/eval_classify.py
+
+# Frontend build exclusions
+front-end/node_modules/
+front-end/dist/
+front-end/.vite/
+
+# Secrets / local env
+.env
+.env.*
+deploy/.env
+deploy/gcp-credentials/
