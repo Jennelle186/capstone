@@ -105,13 +105,16 @@ def _is_transport_error(exc: Exception) -> bool:
 def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_label: str) -> bool:
     """Decide whether a Gemini call failure should be retried, and sleep if so.
 
-    Transient errors are retried: 429 rate-limit, 502/503/504 server timeouts,
-    and transport-level errors (timeouts, resets, unparseable responses, which
-    carry no HTTP status code). Permanent client errors (auth/validation) fail
-    immediately.
+    Transient errors are retried: 429 rate-limit and transport-level errors
+    (timeouts, resets, unparseable responses, which carry no HTTP status code).
+    502/503/504 fail fast instead: by the time the API reports one of those, the
+    call has already burned its full per-call deadline (e.g. DEADLINE_EXCEEDED),
+    so retrying only re-runs the same slow call and compounds the wait (observed:
+    4x ~60s blueprint timeouts -> ~5 min -> eventual 502 / nginx 504).
+    Permanent client errors (auth/validation) fail immediately.
 
-    Backoff is exponential with a base of 1s for 429 and 2s for 502/503/504
-    (reduced from the previous 5s), plus full random jitter. The jitter spreads
+    Backoff is exponential with a base of 1s for 429, plus full random jitter.
+    The jitter spreads
     concurrent retrying workers apart so a burst of simultaneous retries doesn't
     re-trigger the very overload that caused the 504s. ``Retry-After`` is
     intentionally not honored: the SDK does not surface it cleanly on all
@@ -128,21 +131,27 @@ def _retry_on_gemini_error(exc: Exception, file_key: str, attempt: int, context_
     # but only retry known transport exception types (timeouts, resets,
     # unparseable responses). Unknown no-status errors must fail fast.
     is_transport_error = code is None and _is_transport_error(exc)
-    if code not in _TRANSIENT_STATUS_CODES and not is_transport_error:
+    if code not in _TRANSIENT_STATUS_CODES - {502, 503, 504} and not is_transport_error:
         logger.error("Gemini %s failed for %s: %s", context_label, file_key, exc)
         return False
 
-    is_server_timeout = code in (502, 503, 504)
-    base = 2.0 if is_server_timeout else 1.0
-    backoff = base * (2 ** attempt)
+    # 502/503/504 are terminal: the upstream already blew its deadline or died,
+    # so a retry would burn another full timeout with no real chance of success.
+    if code in (502, 503, 504):
+        logger.error(
+            "Gemini %s failed for %s (terminal status %s, not retried): %s",
+            context_label,
+            file_key,
+            code,
+            exc,
+        )
+        return False
+
+    # Only 429 and transport errors reach here (transport carries no status).
+    backoff = 1.0 * (2 ** attempt)
     jitter = random.uniform(0, backoff)
     wait = backoff + jitter
-    if is_transport_error:
-        reason = "Transport error"
-    elif is_server_timeout:
-        reason = "Server timeout"
-    else:
-        reason = "Rate limited"
+    reason = "Transport error" if is_transport_error else "Rate limited"
     logger.warning("%s (%s), retry %d/%d in %.2fs...", reason, file_key, attempt + 1, _MAX_RETRY_ATTEMPTS, wait)
     time.sleep(wait)
     return True
@@ -707,7 +716,9 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
     contents.append(types.Part.from_text(text=prompt))
 
     last_error: Exception | None = None
+    retry_count = 0
     for attempt in range(_MAX_RETRY_ATTEMPTS + 1):
+        attempt_start = time.perf_counter()
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -718,14 +729,30 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
                     response_schema=schema,
                     media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
                     temperature=0.0,
-                    http_options=types.HttpOptions(timeout=60_000),
+                    http_options=types.HttpOptions(timeout=240_000),
                 ),
+            )
+            log_llm_call(
+                stage="blueprint",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status="success",
+                **_usage_from_response(response),
             )
             last_error = None
             break
         except Exception as exc:
             last_error = exc
+            log_llm_call(
+                stage="blueprint",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status=_status_for_error(exc),
+            )
             if _retry_on_gemini_error(exc, file_key, attempt, "blueprint generation"):
+                retry_count += 1
                 continue
             raise GcpPipelineError(f"Gemini blueprint generation failed: {exc}") from exc
 
@@ -839,7 +866,7 @@ def extract_fields_from_document(
                     response_mime_type="application/json",
                     media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
                     temperature=0.0,
-                    http_options=types.HttpOptions(timeout=60_000),
+                    http_options=types.HttpOptions(timeout=120_000),
                 ),
             )
             # Log the successful attempt with token counts and latency.

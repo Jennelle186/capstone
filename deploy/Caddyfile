@@ -1,0 +1,3 @@
+ccs-edms.bid {
+    reverse_proxy frontend:80
+}

@@ -5,7 +5,6 @@ import { Mail, User } from "lucide-react";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { ProfileSettingsConfig } from "@/components/common/profile/types";
 import ProfileSettings from "@/components/common/profile/ProfileSettings";
-import NotificationPreferencesCard from "./NotificationPreferencesCard";
 import DeactivateAccountDialog from "./DeactivateAccountDialog";
 
 const fetchStudentProfile: ProfileSettingsConfig["fetchProfile"] = async (token) => {
@@ -72,14 +71,10 @@ export default function StudentProfileSettings() {
       ]}
       showAvatarUpload
       title="Profile Settings"
-      description="Manage your personal information, security, and notification preferences."
-      extraSections={<NotificationPreferencesCard />}
+      description="Manage your personal information and security."
       footer={
         <div className="flex flex-col sm:flex-row justify-between items-center py-6 border-t border-slate-200 gap-4">
           <DeactivateAccountDialog />
-          <p className="text-xs text-slate-400">
-            Changes to notifications are saved locally.
-          </p>
         </div>
       }
     />

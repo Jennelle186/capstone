@@ -1,6 +1,7 @@
 # --- Bug Reports & Planning ---
 bug_report.md
 SESSION_SUMMARY.md
+deploy/deployment_bugs.md
 docs/
 *.docx
 report.docx
@@ -43,3 +44,7 @@ backend/llm_calls.log
 backend/eval_report.json
 backend/eval_classify.py
 backend/dump_document_types.py
+
+# --- Deployment secrets (deploy/ itself is tracked) ---
+deploy/.env
+deploy/gcp-credentials/
