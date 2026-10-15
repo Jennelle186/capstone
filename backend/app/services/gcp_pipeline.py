@@ -772,6 +772,16 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
     return result
 
 
+def generate_form_blueprint(description: str) -> dict[str, Any]:
+    """Generate an AdminSchemaBlueprint for a *new* form from a free-text description.
+
+    Thin wrapper over :func:`generate_schema_blueprint` (description-only mode).
+    Kept as a named seam so the "create form" prompt can diverge from the
+    document-deconstruction prompt without touching callers.
+    """
+    return generate_schema_blueprint(description=description)
+
+
 # ── Student Field Extraction ────────────────────────────────────────────────
 
 

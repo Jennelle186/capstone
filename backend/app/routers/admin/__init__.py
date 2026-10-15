@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from .access_control import router as access_control_router
 from .extractions import router as extractions_router
 from .extraction_schemas import router as extraction_schemas_router
+from .forms import router as forms_router
 from .adviser_invitations import router as adviser_invitation_router
 from .adviser_management import router as adviser_management_router
 from .departments import router as departments_router
@@ -36,6 +37,8 @@ router.include_router(reports_router)
 router.include_router(requirements_router)
 # Extraction schema namespace (formerly admission form schemas).
 router.include_router(extraction_schemas_router)
+# Form generation namespace (editable, printable forms, optionally schema-linked).
+router.include_router(forms_router)
 # Admin sandbox extraction endpoint.
 router.include_router(extractions_router)
 # Access control namespace (endpoints to be added incrementally).

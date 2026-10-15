@@ -18,7 +18,7 @@ from fastapi import (
 from sqlalchemy import desc, select, update
 
 from ...database import SessionDep
-from ...models import DocumentType, ExtractionSchema, ExtractionSchemaStatus
+from ...models import DocumentType, ExtractionSchema, ExtractionSchemaStatus, Form as FormModel
 from ...rbac import require_admin
 from ...schemas.extraction_schemas import (
     ExtractionSchemaCreateRequest,
@@ -27,11 +27,13 @@ from ...schemas.extraction_schemas import (
     ExtractionSchemaResponse,
     ExtractionSchemaUpdateRequest,
 )
+from ...schemas.forms import FormResponse
 from ...services.analytics_inheritance import (
     inherit_analytics_from_previous,
     validate_analytics_fields,
 )
 from ...services.concurrency import BLUEPRINT_SEMAPHORE
+from ...services.form_document import schema_to_document
 from ...services.gcp_pipeline import (
     GcpPipelineError,
     classify_document,
@@ -43,6 +45,7 @@ from ...services.gcp_storage import (
     upload_file_bytes,
 )
 from ...services.schema_generation import blueprint_to_fields
+from .forms import resolve_creator_id, serialize_form
 
 logger = logging.getLogger(__name__)
 
@@ -313,3 +316,47 @@ async def activate_extraction_schema(
     await db.commit()
     await db.refresh(schema)
     return serialize_extraction_schema(schema)
+
+
+@router.post(
+    "/extraction-schemas/{schema_id}/create-form",
+    response_model=FormResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_form_from_schema(
+    schema_id: UUID,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    """Materialize a linked ``Form`` from an existing extraction schema.
+
+    For legacy schemas that predate the form feature (scenario C). A schema can
+    have at most one form (1:1), enforced by ``uq_forms_extraction_schema_id``.
+    """
+    schema = await db.get(ExtractionSchema, schema_id)
+    if schema is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
+
+    existing = (
+        await db.execute(select(FormModel).where(FormModel.extraction_schema_id == schema.id))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This schema already has a linked form.",
+        )
+
+    document_json = schema_to_document(schema)
+    creator_id = await resolve_creator_id(db, current_user)
+
+    form = FormModel(
+        name=schema.name,
+        description=schema.description,
+        document_json=document_json,
+        extraction_schema_id=schema.id,
+        created_by=creator_id,
+    )
+    db.add(form)
+    await db.commit()
+    await db.refresh(form)
+    return serialize_form(form)

@@ -540,6 +540,38 @@ class ExtractionSchema(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class Form(Base):
+    __tablename__ = "forms"
+    __table_args__ = (
+        UniqueConstraint("extraction_schema_id", name="uq_forms_extraction_schema_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    name = Column(String(120), nullable=False)
+    description = Column(Text, nullable=True)
+
+    document_json = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    pdf_file_key = Column(String(512), nullable=True)
+
+    extraction_schema_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("extraction_schemas.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    extraction_schema = relationship("ExtractionSchema", foreign_keys=[extraction_schema_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
 class AnalyticsDimension(Base):
     """Single source of truth for canonical analytics keys. (FOR ANALYTICS / ADMIN SIDE)
 
