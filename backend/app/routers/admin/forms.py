@@ -32,6 +32,7 @@ def serialize_form(form: Form) -> FormResponse:
         id=form.id,
         name=form.name,
         description=form.description,
+        creation_mode=form.creation_mode,
         document_json=form.document_json or {},
         pdf_file_key=form.pdf_file_key,
         extraction_schema_id=form.extraction_schema_id,
@@ -88,6 +89,7 @@ async def create_form(
     form = Form(
         name=payload.name,
         description=payload.description,
+        creation_mode=payload.creation_mode,
         document_json=payload.document_json,
         created_by=creator_id,
     )
@@ -146,6 +148,8 @@ async def update_form(
         form.name = payload.name
     if "description" in payload.model_fields_set:
         form.description = payload.description
+    if "creation_mode" in payload.model_fields_set and payload.creation_mode is not None:
+        form.creation_mode = payload.creation_mode
     if "document_json" in payload.model_fields_set:
         form.document_json = payload.document_json
 

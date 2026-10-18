@@ -12,9 +12,10 @@ from .extraction_schemas import ExtractionSchemaField
 class FormBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
+    creation_mode: str = Field(default="structured", max_length=32)
     document_json: dict[str, Any] = Field(
         default_factory=dict,
-        description="Editable form document: { header, footer, body: [blocks] }.",
+        description="Editable form document: a versioned, structured document.",
     )
 
 
@@ -25,6 +26,7 @@ class FormCreate(FormBase):
 class FormUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = None
+    creation_mode: str | None = Field(default=None, max_length=32)
     document_json: dict[str, Any] | None = None
 
 
@@ -34,6 +36,7 @@ class FormResponse(BaseModel):
     id: UUID
     name: str
     description: str | None
+    creation_mode: str
     document_json: dict[str, Any]
     pdf_file_key: str | None
     extraction_schema_id: UUID | None

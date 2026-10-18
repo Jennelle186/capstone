@@ -352,6 +352,7 @@ async def create_form_from_schema(
     form = FormModel(
         name=schema.name,
         description=schema.description,
+        creation_mode="structured",
         document_json=document_json,
         extraction_schema_id=schema.id,
         created_by=creator_id,

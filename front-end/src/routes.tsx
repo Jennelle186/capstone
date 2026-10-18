@@ -34,6 +34,7 @@ import DocumentTypesPage from "./pages/admin/document-types/DocumentTypesPage";
 import RequirementsPage from "./pages/admin/requirements/RequirementsPage";
 import ExtractionSchemasPage from "./pages/admin/extraction-schemas/ExtractionSchemasPage";
 import SchemaRegistryPage from "./pages/admin/extraction-schemas/SchemaRegistryPage";
+import FormsPage from "./pages/admin/forms/FormsPage";
 import AdminAnalyticsPage from "./pages/admin/analytics/AnalyticsPage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
@@ -131,6 +132,7 @@ const AppRoutes = createBrowserRouter([
                         ],
                     },
                     { path: "requirements", Component: RequirementsPage },
+                    { path: "forms", Component: FormsPage },
                     { path: "analytics", Component: AdminAnalyticsPage },
                     { path: "reports", Component: ReportsPage },
                     { path: "settings/school-year", Component: SchoolYearsPage },

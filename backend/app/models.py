@@ -552,6 +552,12 @@ class Form(Base):
 
     document_json = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     pdf_file_key = Column(String(512), nullable=True)
+    creation_mode = Column(
+        String(32),
+        nullable=False,
+        default="structured",
+        server_default="structured",
+    )
 
     extraction_schema_id = Column(
         UUID(as_uuid=True),

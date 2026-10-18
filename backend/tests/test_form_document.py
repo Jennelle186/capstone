@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 from app.schemas.extraction_schemas import ExtractionSchemaField
 from app.services.form_document import (
-    blueprint_field_to_block,
+    blueprint_field_to_spec,
     blueprint_to_document,
     document_to_fields,
-    flat_field_to_block,
+    flat_field_to_spec,
     normalize_field_key,
     schema_to_document,
 )
@@ -20,8 +20,8 @@ def test_normalize_field_key():
     assert normalize_field_key("") == ""
 
 
-def test_blueprint_field_to_block():
-    block = blueprint_field_to_block(
+def test_blueprint_field_to_spec():
+    spec = blueprint_field_to_spec(
         {
             "field_id": "enrollment_status",
             "label": "Enrollment Status",
@@ -33,12 +33,12 @@ def test_blueprint_field_to_block():
             ],
         }
     )
-    assert block["type"] == "field"
-    assert block["field_key"] == "enrollment_status"
-    assert block["label"] == "Enrollment Status"
-    assert block["ui_component"] == "radio_group"
-    assert block["required"] is True
-    assert block["options"] == [
+    assert isinstance(spec["id"], str) and spec["id"]
+    assert spec["field_key"] == "enrollment_status"
+    assert spec["label"] == "Enrollment Status"
+    assert spec["ui_component"] == "radio_group"
+    assert spec["required"] is True
+    assert spec["options"] == [
         {"value": "freshman", "label": "Freshman"},
         {"value": "transferee", "label": "Transferee"},
     ]
@@ -74,38 +74,50 @@ def test_blueprint_to_document():
 
     doc = blueprint_to_document(blueprint)
 
-    assert doc["header"] == []
-    assert doc["footer"] == []
-    # heading + field, heading + field
-    assert [b["type"] for b in doc["body"]] == ["heading", "field", "heading", "field"]
-    assert doc["body"][0]["content"] == "STUDENT PERSONAL DATA"
-    assert doc["body"][1]["field_key"] == "full_name"
-    assert doc["body"][3]["field_key"] == "gender"
+    assert doc["version"] == 1
+    assert doc["creation_mode"] == "structured"
+    assert doc["title"] == "Admission Form"
+    assert [s["heading"] for s in doc["sections"]] == ["STUDENT PERSONAL DATA", "ACADEMIC INFORMATION"]
+    assert doc["sections"][0]["fields"][0]["field_key"] == "full_name"
+    assert doc["sections"][1]["fields"][0]["field_key"] == "gender"
 
 
 def test_document_to_fields_prefill():
     doc = {
-        "header": [],
-        "footer": [],
-        "body": [
-            {"type": "heading", "level": 2, "content": "PERSONAL"},
-            {"type": "field", "field_key": "full_name", "label": "Full Name", "ui_component": "text_input", "required": True},
+        "version": 1,
+        "creation_mode": "structured",
+        "title": "Admission Form",
+        "sections": [
             {
-                "type": "field",
-                "field_key": "gender",
-                "label": "Sex",
-                "ui_component": "radio_group",
-                "required": False,
-                "options": [{"value": "male", "label": "Male"}, {"value": "female", "label": "Female"}],
-            },
-            {
-                "type": "field",
-                "field_key": "interests",
-                "label": "Interests",
-                "ui_component": "checkbox_group",
-                "required": False,
-                "options": [{"value": "sports", "label": "Sports"}],
-            },
+                "id": "sec-1",
+                "heading": "PERSONAL",
+                "fields": [
+                    {
+                        "id": "f1",
+                        "field_key": "full_name",
+                        "label": "Full Name",
+                        "ui_component": "text_input",
+                        "required": True,
+                        "options": None,
+                    },
+                    {
+                        "id": "f2",
+                        "field_key": "gender",
+                        "label": "Sex",
+                        "ui_component": "radio_group",
+                        "required": False,
+                        "options": [{"value": "male", "label": "Male"}, {"value": "female", "label": "Female"}],
+                    },
+                    {
+                        "id": "f3",
+                        "field_key": "interests",
+                        "label": "Interests",
+                        "ui_component": "checkbox_group",
+                        "required": False,
+                        "options": [{"value": "sports", "label": "Sports"}],
+                    },
+                ],
+            }
         ],
     }
 
@@ -114,20 +126,29 @@ def test_document_to_fields_prefill():
     assert [f["key"] for f in fields] == ["full_name", "gender", "interests"]
     assert fields[0]["type"] == "string"
     assert fields[0]["required"] is True
+    assert fields[0]["section_title"] == "PERSONAL"
     assert fields[1]["type"] == "select"
     assert fields[2]["type"] == "multi-select"
 
-    # Every produced field must validate as an ExtractionSchemaField.
     for f in fields:
         ExtractionSchemaField(**f)
 
 
 def test_document_to_fields_dedups_duplicate_keys():
     doc = {
-        "body": [
-            {"type": "field", "field_key": "name", "label": "Name", "ui_component": "text_input", "required": False},
-            {"type": "field", "field_key": "name", "label": "Name Again", "ui_component": "text_input", "required": False},
-        ]
+        "version": 1,
+        "creation_mode": "structured",
+        "title": "X",
+        "sections": [
+            {
+                "id": "sec-1",
+                "heading": "S",
+                "fields": [
+                    {"id": "f1", "field_key": "name", "label": "Name", "ui_component": "text_input", "required": False, "options": None},
+                    {"id": "f2", "field_key": "name", "label": "Name Again", "ui_component": "text_input", "required": False, "options": None},
+                ],
+            }
+        ],
     }
     fields = document_to_fields(doc)
     assert len(fields) == 1
@@ -135,6 +156,7 @@ def test_document_to_fields_dedups_duplicate_keys():
 
 def test_schema_to_document_from_blueprint_sections():
     schema = SimpleNamespace(
+        name="Contact Form",
         schema_json={
             "sections": [
                 {
@@ -148,13 +170,15 @@ def test_schema_to_document_from_blueprint_sections():
         fields_json=[],
     )
     doc = schema_to_document(schema)
-    assert [b["type"] for b in doc["body"]] == ["heading", "field"]
-    assert doc["body"][0]["content"] == "CONTACT DETAILS"
-    assert doc["body"][1]["field_key"] == "email"
+    assert doc["version"] == 1
+    assert doc["creation_mode"] == "structured"
+    assert doc["sections"][0]["heading"] == "CONTACT DETAILS"
+    assert doc["sections"][0]["fields"][0]["field_key"] == "email"
 
 
 def test_schema_to_document_from_flat_fields_json():
     schema = SimpleNamespace(
+        name="Address Form",
         schema_json={"type": "object", "properties": {}},  # flat, no sections
         fields_json=[
             {
@@ -174,14 +198,14 @@ def test_schema_to_document_from_flat_fields_json():
         ],
     )
     doc = schema_to_document(schema)
-    assert [b["type"] for b in doc["body"]] == ["heading", "field", "field"]
-    assert doc["body"][0]["content"] == "ADDRESS"
-    assert doc["body"][1]["field_key"] == "address"
-    assert doc["body"][2]["ui_component"] == "date_picker"
+    section = doc["sections"][0]
+    assert section["heading"] == "ADDRESS"
+    assert [f["field_key"] for f in section["fields"]] == ["address", "birth_date"]
+    assert section["fields"][1]["ui_component"] == "date_picker"
 
 
-def test_flat_field_to_block():
-    block = flat_field_to_block(
+def test_flat_field_to_spec():
+    spec = flat_field_to_spec(
         {
             "key": "shs_track",
             "description": "SHS Track",
@@ -190,11 +214,8 @@ def test_flat_field_to_block():
             "options": [{"value": "stem", "label": "STEM"}],
         }
     )
-    assert block == {
-        "type": "field",
-        "field_key": "shs_track",
-        "label": "SHS Track",
-        "ui_component": "dropdown",
-        "required": True,
-        "options": [{"value": "stem", "label": "STEM"}],
-    }
+    assert spec["field_key"] == "shs_track"
+    assert spec["label"] == "SHS Track"
+    assert spec["ui_component"] == "dropdown"
+    assert spec["required"] is True
+    assert spec["options"] == [{"value": "stem", "label": "STEM"}]
