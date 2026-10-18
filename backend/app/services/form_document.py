@@ -81,6 +81,11 @@ def _field_spec(
     }
 
 
+def _field_block(spec: dict[str, Any]) -> dict[str, Any]:
+    """Wrap a field spec into an authoritative ``field`` block."""
+    return {"type": "field", **spec}
+
+
 def blueprint_field_to_spec(bf: dict[str, Any]) -> dict[str, Any]:
     """Convert one blueprint field (AdminBuilderField) into a field spec."""
     field_id = str(bf.get("field_id", "") or "")
@@ -134,6 +139,43 @@ def blueprint_to_document(blueprint: dict[str, Any]) -> dict[str, Any]:
         "signatureLabel": "Signature over Printed Name",
         "footer": "",
     }
+
+
+# ── Normalization (legacy `fields[]` → authoritative `blocks[]`) ────────
+
+
+def normalize_to_blocks(document: dict[str, Any]) -> dict[str, Any]:
+    """Convert a document's legacy ``fields[]`` into ``blocks[]`` (field blocks).
+
+    ``blocks[]`` is authoritative for new documents; this is the one-way
+    compatibility adapter. If a section already carries ``blocks``, they win and
+    its ``fields`` are dropped (never merged). Preserves field_key, order,
+    required, and options. Callers should only run this on save, never on load.
+    """
+    if not isinstance(document, dict):
+        return document
+
+    sections = document.get("sections")
+    if not isinstance(sections, list):
+        return document
+
+    normalized_sections: list[dict[str, Any]] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            normalized_sections.append(section)
+            continue
+        next_section = dict(section)
+        if section.get("blocks"):
+            # Blocks already authoritative — drop the legacy fields list.
+            next_section["fields"] = []
+        else:
+            legacy_fields = section.get("fields") or []
+            blocks = [_field_block(spec) for spec in legacy_fields if isinstance(spec, dict)]
+            next_section["blocks"] = blocks
+            next_section["fields"] = []
+        normalized_sections.append(next_section)
+
+    return {**document, "sections": normalized_sections}
 
 
 # ── Document → fields (pre-fill) ───────────────────────────────────────
@@ -203,6 +245,11 @@ def document_to_fields(document: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             section_id = str(section.get("id", "") or "") or None
             section_title = str(section.get("heading", "") or "") or None
+
+            # Authoritative blocks first (field blocks), then legacy `fields`.
+            for block in section.get("blocks", []) or []:
+                if isinstance(block, dict) and block.get("type") == "field":
+                    _append_schema_field(fields, seen, block, section_id, section_title)
             for spec in section.get("fields", []) or []:
                 if isinstance(spec, dict):
                     _append_schema_field(fields, seen, spec, section_id, section_title)

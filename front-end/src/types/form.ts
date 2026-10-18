@@ -23,11 +23,85 @@ export interface FormFieldSpec extends FieldNodeAttrs {
     id: string;
 }
 
-/** A titled group of fields. Fields flow into a fixed 2-column grid. */
+/** Typography controls applied to a block. */
+export interface TextStyle {
+    fontSize?: number | null;
+    bold?: boolean;
+    italic?: boolean;
+    align?: "left" | "center" | "right" | "justify" | null;
+    spacing?: number | null;
+}
+
+/** A field placed as an authoritative `block` in a section. */
+export interface FieldBlock extends FieldNodeAttrs {
+    type: "field";
+    id: string;
+    columnSpan?: number;
+    pageBreakBefore?: boolean;
+    style?: TextStyle | null;
+}
+
+export interface ParagraphBlock {
+    type: "paragraph";
+    id: string;
+    text: string;
+    style?: TextStyle | null;
+    pageBreakBefore?: boolean;
+}
+
+export interface TableBlock {
+    type: "table";
+    id: string;
+    columns: number;
+    rows: string[][];
+    columnWidths?: string[] | null;
+    pageBreakBefore?: boolean;
+}
+
+export interface SignatureBlock {
+    type: "signature";
+    id: string;
+    label: string;
+    pageBreakBefore?: boolean;
+}
+
+/** A field key invented by the AI with no matching configured field. Never persisted. */
+export interface UnresolvedFieldBlock {
+    type: "unresolved_field";
+    id: string;
+    field_key: string;
+    label: string;
+}
+
+export type FormBlock = FieldBlock | ParagraphBlock | TableBlock | SignatureBlock | UnresolvedFieldBlock;
+
+/** Per-form letterhead text overrides; the logo itself is global (Branding). */
+export interface Letterhead {
+    institutionName?: string | null;
+    addressLines?: string[];
+    contactLine?: string | null;
+    formNumber?: string | null;
+}
+
+export interface PageMargins {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+}
+
+export interface PageSettings {
+    size: "A4" | "Letter";
+    orientation: "portrait" | "landscape";
+    margins?: PageMargins;
+}
+
+/** A titled group of fields/blocks. Fields flow into a fixed 2-column grid. */
 export interface FormLayoutSection {
     id: string;
     heading: string;
     fields: FormFieldSpec[];
+    blocks?: FormBlock[];
 }
 
 export type FormPaperMode = "edit" | "preview";
@@ -41,6 +115,8 @@ export interface StructuredFormDocument {
     title: string;
     subtitle?: string;
     instructions?: string;
+    letterhead?: Letterhead | null;
+    page?: PageSettings | null;
     sections: FormLayoutSection[];
     signatureLabel: string;
     footer?: string;

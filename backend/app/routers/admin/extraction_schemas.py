@@ -330,21 +330,12 @@ async def create_form_from_schema(
 ):
     """Materialize a linked ``Form`` from an existing extraction schema.
 
-    For legacy schemas that predate the form feature (scenario C). A schema can
-    have at most one form (1:1), enforced by ``uq_forms_extraction_schema_id``.
+    For legacy schemas that predate the form feature (scenario C). The form
+    inherits the schema's document type; multiple forms may share a schema.
     """
     schema = await db.get(ExtractionSchema, schema_id)
     if schema is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
-
-    existing = (
-        await db.execute(select(FormModel).where(FormModel.extraction_schema_id == schema.id))
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This schema already has a linked form.",
-        )
 
     document_json = schema_to_document(schema)
     creator_id = await resolve_creator_id(db, current_user)
@@ -355,6 +346,7 @@ async def create_form_from_schema(
         creation_mode="structured",
         document_json=document_json,
         extraction_schema_id=schema.id,
+        document_type_id=schema.document_type_id,
         created_by=creator_id,
     )
     db.add(form)

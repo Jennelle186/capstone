@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type {
     FieldNodeAttrs,
+    FormBlock,
     FormFieldSpec,
     FormLayoutSection,
     StructuredFormDocument,
@@ -106,10 +107,91 @@ const formFieldSchema = z.object({
     options: z.array(fieldOptionSchema).nullable(),
 });
 
+const textStyleSchema = z.object({
+    fontSize: z.number().int().min(6).max(72).nullable().optional(),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    align: z.enum(["left", "center", "right", "justify"]).nullable().optional(),
+    spacing: z.number().int().min(0).max(48).nullable().optional(),
+});
+
+const fieldBlockSchema = z.object({
+    type: z.literal("field"),
+    id: z.string(),
+    field_key: z.string(),
+    label: z.string(),
+    ui_component: z.enum(["text_input", "radio_group", "checkbox_group", "dropdown", "date_picker"]),
+    required: z.boolean(),
+    options: z.array(fieldOptionSchema).nullable(),
+    columnSpan: z.number().int().min(1).max(12).optional(),
+    pageBreakBefore: z.boolean().optional(),
+    style: textStyleSchema.nullable().optional(),
+});
+
+const paragraphBlockSchema = z.object({
+    type: z.literal("paragraph"),
+    id: z.string(),
+    text: z.string(),
+    style: textStyleSchema.nullable().optional(),
+    pageBreakBefore: z.boolean().optional(),
+});
+
+const tableBlockSchema = z.object({
+    type: z.literal("table"),
+    id: z.string(),
+    columns: z.number().int().min(1).max(12),
+    rows: z.array(z.array(z.string())),
+    columnWidths: z.array(z.string()).nullable().optional(),
+    pageBreakBefore: z.boolean().optional(),
+});
+
+const signatureBlockSchema = z.object({
+    type: z.literal("signature"),
+    id: z.string(),
+    label: z.string(),
+    pageBreakBefore: z.boolean().optional(),
+});
+
+const unresolvedFieldBlockSchema = z.object({
+    type: z.literal("unresolved_field"),
+    id: z.string(),
+    field_key: z.string(),
+    label: z.string(),
+});
+
+const formBlockSchema = z.discriminatedUnion("type", [
+    fieldBlockSchema,
+    paragraphBlockSchema,
+    tableBlockSchema,
+    signatureBlockSchema,
+    unresolvedFieldBlockSchema,
+]);
+
+const letterheadSchema = z.object({
+    institutionName: z.string().nullable().optional(),
+    addressLines: z.array(z.string()).optional(),
+    contactLine: z.string().nullable().optional(),
+    formNumber: z.string().nullable().optional(),
+});
+
+const pageMarginsSchema = z.object({
+    top: z.number().min(0).max(50),
+    right: z.number().min(0).max(50),
+    bottom: z.number().min(0).max(50),
+    left: z.number().min(0).max(50),
+});
+
+const pageSettingsSchema = z.object({
+    size: z.enum(["A4", "Letter"]),
+    orientation: z.enum(["portrait", "landscape"]),
+    margins: pageMarginsSchema.optional(),
+});
+
 const formSectionSchema = z.object({
     id: z.string(),
     heading: z.string(),
-    fields: z.array(formFieldSchema),
+    fields: z.array(formFieldSchema).default([]),
+    blocks: z.array(formBlockSchema).default([]),
 });
 
 export const structuredFormDocumentSchema = z.object({
@@ -118,6 +200,8 @@ export const structuredFormDocumentSchema = z.object({
     title: z.string(),
     subtitle: z.string().optional(),
     instructions: z.string().optional(),
+    letterhead: letterheadSchema.nullable().optional(),
+    page: pageSettingsSchema.nullable().optional(),
     sections: z.array(formSectionSchema),
     signatureLabel: z.string(),
     footer: z.string().optional(),
@@ -126,4 +210,28 @@ export const structuredFormDocumentSchema = z.object({
 export function parseStructuredDocument(value: unknown): StructuredFormDocument | null {
     const result = structuredFormDocumentSchema.safeParse(value);
     return result.success ? (result.data as StructuredFormDocument) : null;
+}
+
+// ── Normalization + persist gate ────────────────────────────────────────
+
+export function fieldsToBlocks(doc: StructuredFormDocument): StructuredFormDocument {
+    return {
+        ...doc,
+        sections: doc.sections.map((section) => {
+            if (section.blocks && section.blocks.length > 0) {
+                // Blocks are authoritative — drop the legacy fields list.
+                return { ...section, fields: [] };
+            }
+            const blocks: FormBlock[] = section.fields.map((field) => ({ type: "field", ...field }));
+            return { ...section, blocks, fields: [] };
+        }),
+    };
+}
+
+export function hasUnresolvedBlocks(doc: StructuredFormDocument): boolean {
+    return doc.sections.some((section) => (section.blocks ?? []).some((b) => b.type === "unresolved_field"));
+}
+
+export function isPersistable(doc: StructuredFormDocument): boolean {
+    return !hasUnresolvedBlocks(doc);
 }

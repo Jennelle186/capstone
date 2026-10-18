@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .extraction_schemas import ExtractionSchemaField
+from .form_layout import create_empty_document
 
 
 class FormBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
-    creation_mode: str = Field(default="structured", max_length=32)
+    creation_mode: Literal["structured"] = Field(default="structured", max_length=32)
+    document_type_id: UUID | None = None
     document_json: dict[str, Any] = Field(
-        default_factory=dict,
+        default_factory=create_empty_document,
         description="Editable form document: a versioned, structured document.",
     )
 
@@ -26,7 +28,8 @@ class FormCreate(FormBase):
 class FormUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = None
-    creation_mode: str | None = Field(default=None, max_length=32)
+    creation_mode: Literal["structured"] | None = Field(default=None, max_length=32)
+    document_type_id: UUID | None = None
     document_json: dict[str, Any] | None = None
 
 
@@ -37,6 +40,7 @@ class FormResponse(BaseModel):
     name: str
     description: str | None
     creation_mode: str
+    document_type_id: UUID | None
     document_json: dict[str, Any]
     pdf_file_key: str | None
     extraction_schema_id: UUID | None

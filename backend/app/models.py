@@ -542,9 +542,6 @@ class ExtractionSchema(Base):
 
 class Form(Base):
     __tablename__ = "forms"
-    __table_args__ = (
-        UniqueConstraint("extraction_schema_id", name="uq_forms_extraction_schema_id"),
-    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     name = Column(String(120), nullable=False)
@@ -565,6 +562,12 @@ class Form(Base):
         nullable=True,
         index=True,
     )
+    document_type_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_types.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     created_by = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -575,6 +578,7 @@ class Form(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     extraction_schema = relationship("ExtractionSchema", foreign_keys=[extraction_schema_id])
+    document_type = relationship("DocumentType", foreign_keys=[document_type_id])
     creator = relationship("User", foreign_keys=[created_by])
 
 

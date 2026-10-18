@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import desc, select
 
 from ...database import SessionDep
@@ -21,10 +23,26 @@ from ...schemas.forms import (
 from ...services.concurrency import BLUEPRINT_SEMAPHORE
 from ...services.form_document import blueprint_to_document, document_to_fields
 from ...services.gcp_pipeline import GcpPipelineError, generate_form_blueprint
+from ...schemas.form_layout import validate_persistable
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _validate_document(document_json: Any) -> dict:
+    """Validate and normalize ``document_json`` before persisting.
+
+    Raises 422 for a structurally invalid document or one containing unresolved
+    field blocks (the save = approval gate).
+    """
+    try:
+        return validate_persistable(document_json).model_dump()
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid form document: {exc}",
+        ) from exc
 
 
 def serialize_form(form: Form) -> FormResponse:
@@ -33,6 +51,7 @@ def serialize_form(form: Form) -> FormResponse:
         name=form.name,
         description=form.description,
         creation_mode=form.creation_mode,
+        document_type_id=form.document_type_id,
         document_json=form.document_json or {},
         pdf_file_key=form.pdf_file_key,
         extraction_schema_id=form.extraction_schema_id,
@@ -86,11 +105,13 @@ async def create_form(
     db: SessionDep = None,
 ):
     creator_id = await resolve_creator_id(db, current_user)
+    document_json = _validate_document(payload.document_json)
     form = Form(
         name=payload.name,
         description=payload.description,
         creation_mode=payload.creation_mode,
-        document_json=payload.document_json,
+        document_type_id=payload.document_type_id,
+        document_json=document_json,
         created_by=creator_id,
     )
     db.add(form)
@@ -150,8 +171,10 @@ async def update_form(
         form.description = payload.description
     if "creation_mode" in payload.model_fields_set and payload.creation_mode is not None:
         form.creation_mode = payload.creation_mode
+    if "document_type_id" in payload.model_fields_set:
+        form.document_type_id = payload.document_type_id
     if "document_json" in payload.model_fields_set:
-        form.document_json = payload.document_json
+        form.document_json = _validate_document(payload.document_json)
 
     await db.commit()
     await db.refresh(form)

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchWithClerkAuth } from "@/lib/api";
-import { parseStructuredDocument } from "@/lib/formLayout";
+import { isPersistable, parseStructuredDocument } from "@/lib/formLayout";
 import type { FormPaperMode, FormRecord, FormUpdatePayload, StructuredFormDocument } from "@/types/form";
 import type { LucideIcon } from "lucide-react";
 
@@ -72,6 +72,10 @@ export default function FormsPage() {
 
     const handleSave = async () => {
         if (!selectedForm || !doc) return;
+        if (!isPersistable(doc)) {
+            toast.error("This form has unresolved AI-generated fields. Map or delete them before saving.");
+            return;
+        }
         setIsSaving(true);
         try {
             const payload: FormUpdatePayload = {
