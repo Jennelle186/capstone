@@ -178,6 +178,52 @@ def normalize_to_blocks(document: dict[str, Any]) -> dict[str, Any]:
     return {**document, "sections": normalized_sections}
 
 
+def ground_field_keys(
+    document: dict[str, Any],
+    valid_keys: set[str],
+) -> tuple[dict[str, Any], list[str]]:
+    """Normalize a generated document to blocks and flag unknown field keys.
+
+    Converts legacy ``fields[]`` into ``blocks[]``, then converts any ``field``
+    block whose key is not in ``valid_keys`` into an ``unresolved_field`` block.
+    Returns ``(document, warnings)``. Unknown keys are never silently dropped —
+    they surface as unresolved blocks for the admin to map or delete.
+    """
+    normalized = normalize_to_blocks(document)
+    warnings: list[str] = []
+    sections = normalized.get("sections")
+    if not isinstance(sections, list):
+        return normalized, warnings
+
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        blocks = section.get("blocks")
+        if not isinstance(blocks, list):
+            continue
+        resolved_blocks: list[dict[str, Any]] = []
+        for block in blocks:
+            if isinstance(block, dict) and block.get("type") == "field":
+                key = normalize_field_key(str(block.get("field_key", "") or ""))
+                if key not in valid_keys:
+                    warnings.append(
+                        f"Unknown field key '{block.get('field_key')}' was flagged for review."
+                    )
+                    resolved_blocks.append(
+                        {
+                            "type": "unresolved_field",
+                            "id": block.get("id") or _new_id(),
+                            "field_key": block.get("field_key", ""),
+                            "label": block.get("label", ""),
+                        }
+                    )
+                    continue
+            resolved_blocks.append(block)
+        section["blocks"] = resolved_blocks
+
+    return normalized, warnings
+
+
 # ── Document → fields (pre-fill) ───────────────────────────────────────
 
 

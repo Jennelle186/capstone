@@ -8,6 +8,7 @@ from app.services.form_document import (
     blueprint_to_document,
     document_to_fields,
     flat_field_to_spec,
+    ground_field_keys,
     normalize_field_key,
     schema_to_document,
 )
@@ -219,3 +220,46 @@ def test_flat_field_to_spec():
     assert spec["ui_component"] == "dropdown"
     assert spec["required"] is True
     assert spec["options"] == [{"value": "stem", "label": "STEM"}]
+
+
+def _grounded_doc() -> dict:
+    return {
+        "version": 1,
+        "creation_mode": "structured",
+        "title": "X",
+        "sections": [
+            {
+                "id": "s1",
+                "heading": "PERSONAL",
+                "fields": [
+                    {"id": "f1", "field_key": "full_name", "label": "Full Name", "ui_component": "text_input", "required": True, "options": None},
+                    {"id": "f2", "field_key": "invented", "label": "Invented", "ui_component": "text_input", "required": False, "options": None},
+                ],
+            }
+        ],
+        "signatureLabel": "Sig",
+    }
+
+
+def test_ground_field_keys_flags_unknown_keys():
+    result, warnings = ground_field_keys(_grounded_doc(), {"full_name"})
+    blocks = result["sections"][0]["blocks"]
+    assert [b["type"] for b in blocks] == ["field", "unresolved_field"]
+    assert blocks[0]["field_key"] == "full_name"
+    assert blocks[1]["field_key"] == "invented"
+    assert len(warnings) == 1
+    assert "invented" in warnings[0]
+
+
+def test_ground_field_keys_keeps_known_keys():
+    result, warnings = ground_field_keys(_grounded_doc(), {"full_name", "invented"})
+    blocks = result["sections"][0]["blocks"]
+    assert [b["type"] for b in blocks] == ["field", "field"]
+    assert warnings == []
+
+
+def test_ground_field_keys_normalizes_to_blocks():
+    result, _ = ground_field_keys(_grounded_doc(), {"full_name"})
+    section = result["sections"][0]
+    assert section["fields"] == []
+    assert section["blocks"][0]["type"] == "field"

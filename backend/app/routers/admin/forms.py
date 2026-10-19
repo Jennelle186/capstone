@@ -21,8 +21,8 @@ from ...schemas.forms import (
     FormUpdate,
 )
 from ...services.concurrency import BLUEPRINT_SEMAPHORE
-from ...services.form_document import blueprint_to_document, document_to_fields
-from ...services.gcp_pipeline import GcpPipelineError, generate_form_blueprint
+from ...services.form_document import blueprint_to_document, document_to_fields, ground_field_keys, normalize_field_key
+from ...services.gcp_pipeline import GcpPipelineError, generate_form_blueprint, generate_form_layout
 from ...schemas.form_layout import validate_persistable
 
 logger = logging.getLogger(__name__)
@@ -131,7 +131,11 @@ async def generate_form(
 
     try:
         async with BLUEPRINT_SEMAPHORE:
-            blueprint = await asyncio.to_thread(generate_form_blueprint, payload.description)
+            if payload.fields:
+                raw_fields = [f.model_dump() for f in payload.fields]
+                blueprint = await asyncio.to_thread(generate_form_layout, raw_fields, payload.description)
+            else:
+                blueprint = await asyncio.to_thread(generate_form_blueprint, payload.description)
     except GcpPipelineError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     except Exception as exc:
@@ -142,13 +146,20 @@ async def generate_form(
         )
 
     document_json = blueprint_to_document(blueprint)
-    fields = document_to_fields(document_json)
+    warnings: list[str] = []
+    if payload.fields:
+        valid_keys = {normalize_field_key(f.key) for f in payload.fields}
+        document_json, warnings = ground_field_keys(document_json, valid_keys)
+        fields_json = payload.fields
+    else:
+        fields_json = [ExtractionSchemaField(**f) for f in document_to_fields(document_json)]
 
     return FormGenerateResponse(
         document_json=document_json,
-        fields_json=[ExtractionSchemaField(**f) for f in fields],
+        fields_json=fields_json,
         form_name=blueprint.get("form_name", ""),
         form_control_id=blueprint.get("form_control_id", ""),
+        warnings=warnings,
     )
 
 

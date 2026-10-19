@@ -50,6 +50,10 @@ class FormResponse(BaseModel):
 
 class FormGenerateRequest(BaseModel):
     description: str = Field(min_length=1, max_length=4000)
+    fields: list[ExtractionSchemaField] | None = Field(
+        default=None,
+        description="Optional field catalog to ground the layout on; when omitted, Gemini invents fields from the description.",
+    )
 
 
 class FormGenerateResponse(BaseModel):
@@ -57,3 +61,4 @@ class FormGenerateResponse(BaseModel):
     fields_json: list[ExtractionSchemaField]
     form_name: str
     form_control_id: str
+    warnings: list[str] = Field(default_factory=list)
