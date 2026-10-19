@@ -8,7 +8,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createFieldBlock } from "@/lib/formLayout";
+import { createFieldBlock, textStyleToCss } from "@/lib/formLayout";
 import FieldConfigDialog from "./FieldConfigDialog";
 import type { FieldNodeAttrs } from "@/types/form";
 import type { FieldBlock, FormLayoutSection } from "@/types/formLayout";
@@ -205,7 +205,10 @@ function SortableField({
                     <GripVertical className="h-3.5 w-3.5" />
                 </button>
                 <div className="min-w-0 flex-1">
-                    <div className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-700">
+                    <div
+                        className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-700"
+                        style={textStyleToCss(field.style)}
+                    >
                         {field.label}
                         {field.required && <span className="ml-0.5 text-primary">*</span>}
                     </div>

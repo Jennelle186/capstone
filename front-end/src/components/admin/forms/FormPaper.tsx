@@ -24,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { addSection, moveSection, removeSection, replaceSection } from "@/lib/formLayout";
 import FormFieldPreview from "./FormFieldPreview";
 import SectionCard from "./SectionCard";
-import type { FormBlock, FormLayoutSection, FormPaperMode, StructuredFormDocument } from "@/types/formLayout";
+import type { FormBlock, FormLayoutSection, FormPaperMode, Letterhead, StructuredFormDocument } from "@/types/formLayout";
 
 const PRINT_CSS = `
 @media print {
@@ -49,6 +49,18 @@ interface FormPaperProps {
 
 export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
     const editing = mode === "edit";
+
+    const letterhead = doc.letterhead;
+    const institutionName = letterhead?.institutionName ?? "College of Computer Studies";
+    const addressLines =
+        letterhead?.addressLines && letterhead.addressLines.length > 0
+            ? letterhead.addressLines
+            : ["Campus Address, City, Province"];
+    const contactLine = letterhead?.contactLine ?? "registrar@example.edu · (000) 000-0000";
+    const formNumber = letterhead?.formNumber ?? "ADS-01";
+
+    const setLetterhead = (patch: Partial<Letterhead>) =>
+        onChange({ ...doc, letterhead: { ...(letterhead ?? {}), ...patch } });
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -89,18 +101,54 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
 
             <header className="flex items-center gap-4 border-b-[3px] border-primary pb-3">
                 <img src="/ccs-logo.jpg" alt="Institution logo" className="h-16 w-16 shrink-0 object-contain" />
-                <div className="flex-1 text-center">
-                    <div className="font-serif text-lg font-bold uppercase leading-tight tracking-[0.02em] text-slate-900">
-                        College of Computer Studies
+                {editing ? (
+                    <div className="flex-1 space-y-1">
+                        <Input
+                            value={institutionName}
+                            onChange={(e) => setLetterhead({ institutionName: e.target.value })}
+                            className="h-7 text-center font-serif font-bold uppercase tracking-[0.02em]"
+                            placeholder="Institution name"
+                        />
+                        <Textarea
+                            value={addressLines.join("\n")}
+                            onChange={(e) => setLetterhead({ addressLines: e.target.value.split("\n") })}
+                            className="min-h-0 resize-none text-center text-[11px] leading-snug"
+                            rows={2}
+                            placeholder="Address lines (one per line)"
+                        />
+                        <Input
+                            value={contactLine}
+                            onChange={(e) => setLetterhead({ contactLine: e.target.value })}
+                            className="h-6 text-center text-[11px]"
+                            placeholder="Contact (email · phone)"
+                        />
                     </div>
-                    <div className="text-[11px] text-slate-500">Campus Address, City, Province</div>
-                    <div className="text-[11px] text-slate-500">registrar@example.edu · (000) 000-0000</div>
-                </div>
+                ) : (
+                    <div className="flex-1 text-center">
+                        <div className="font-serif text-lg font-bold uppercase leading-tight tracking-[0.02em] text-slate-900">
+                            {institutionName}
+                        </div>
+                        {addressLines.map((line, i) => (
+                            <div key={i} className="text-[11px] text-slate-500">
+                                {line}
+                            </div>
+                        ))}
+                        <div className="text-[11px] text-slate-500">{contactLine}</div>
+                    </div>
+                )}
                 <div className="w-[70px] shrink-0 text-right">
                     <div className="inline-block rounded border border-slate-300 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
                         Form No.
                     </div>
-                    <div className="mt-1 font-mono text-[10px] text-slate-500">ADS-01</div>
+                    {editing ? (
+                        <Input
+                            value={formNumber}
+                            onChange={(e) => setLetterhead({ formNumber: e.target.value })}
+                            className="mt-1 h-6 text-right font-mono text-[10px]"
+                        />
+                    ) : (
+                        <div className="mt-1 font-mono text-[10px] text-slate-500">{formNumber}</div>
+                    )}
                 </div>
             </header>
 
@@ -276,7 +324,7 @@ function StaticSection({ section, index }: { section: FormLayoutSection; index: 
 function StaticBlock({ block }: { block: FormBlock }) {
     switch (block.type) {
         case "field":
-            return <FormFieldPreview field={block} />;
+            return <FormFieldPreview field={block} style={block.style} />;
         case "unresolved_field":
             return (
                 <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700">

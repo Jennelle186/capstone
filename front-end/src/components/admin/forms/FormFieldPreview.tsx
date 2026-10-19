@@ -1,12 +1,16 @@
 import { ChevronDown } from "lucide-react";
 
-import type { FormFieldSpec } from "@/types/formLayout";
+import { textStyleToCss } from "@/lib/formLayout";
+import type { FormFieldSpec, TextStyle } from "@/types/formLayout";
 
 /** Renders a single field exactly as it should appear on the printed form. */
-export default function FormFieldPreview({ field }: { field: FormFieldSpec }) {
+export default function FormFieldPreview({ field, style }: { field: FormFieldSpec; style?: TextStyle | null }) {
     return (
         <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+            <div
+                className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600"
+                style={textStyleToCss(style)}
+            >
                 {field.label}
                 {field.required && <span className="ml-0.5 text-primary">*</span>}
             </div>

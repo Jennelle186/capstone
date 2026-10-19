@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CSSProperties } from "react";
 
 import type {
     FieldNodeAttrs,
@@ -7,6 +8,7 @@ import type {
     FormFieldSpec,
     FormLayoutSection,
     StructuredFormDocument,
+    TextStyle,
 } from "@/types/form";
 
 export function makeId(): string {
@@ -38,8 +40,19 @@ export function createField(partial?: Partial<FieldNodeAttrs>): FormFieldSpec {
     };
 }
 
-export function createFieldBlock(partial?: Partial<FieldNodeAttrs>): FieldBlock {
-    return { type: "field", ...createField(partial) };
+export function createFieldBlock(partial?: Partial<FieldNodeAttrs> & { style?: TextStyle | null }): FieldBlock {
+    return { type: "field", ...createField(partial), style: partial?.style ?? null };
+}
+
+export function textStyleToCss(style: TextStyle | null | undefined): CSSProperties {
+    if (!style) return {};
+    return {
+        fontSize: style.fontSize ?? undefined,
+        fontWeight: style.bold ? 700 : undefined,
+        fontStyle: style.italic ? "italic" : undefined,
+        textAlign: style.align ?? undefined,
+        lineHeight: style.spacing ? `${style.spacing}px` : undefined,
+    };
 }
 
 export function createSection(heading = "New Section"): FormLayoutSection {
