@@ -5,10 +5,10 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createField } from "@/lib/formLayout";
+import { createFieldBlock } from "@/lib/formLayout";
 import FieldConfigDialog from "./FieldConfigDialog";
 import type { FieldNodeAttrs } from "@/types/form";
-import type { FormFieldSpec, FormLayoutSection } from "@/types/formLayout";
+import type { FieldBlock, FormLayoutSection } from "@/types/formLayout";
 
 const TYPE_LABELS: Record<string, string> = {
     text_input: "Text",
@@ -38,13 +38,15 @@ export default function SectionCard({
     onMove,
 }: SectionCardProps) {
     const [dialogOpen, setDialogOpen] = useState(false);
-    const [editingField, setEditingField] = useState<FormFieldSpec | null>(null);
+    const [editingField, setEditingField] = useState<FieldBlock | null>(null);
+
+    const fieldBlocks = (section.blocks ?? []).filter((b): b is FieldBlock => b.type === "field");
 
     const openAdd = () => {
         setEditingField(null);
         setDialogOpen(true);
     };
-    const openEdit = (field: FormFieldSpec) => {
+    const openEdit = (field: FieldBlock) => {
         setEditingField(field);
         setDialogOpen(true);
     };
@@ -53,23 +55,26 @@ export default function SectionCard({
         if (editingField) {
             onChange({
                 ...section,
-                fields: section.fields.map((f) => (f.id === editingField.id ? { ...f, ...attrs } : f)),
+                blocks: (section.blocks ?? []).map((b) =>
+                    b.type === "field" && b.id === editingField.id ? { ...b, ...attrs } : b,
+                ),
             });
         } else {
-            onChange({ ...section, fields: [...section.fields, createField(attrs)] });
+            onChange({ ...section, blocks: [...(section.blocks ?? []), createFieldBlock(attrs)] });
         }
     };
 
     const removeField = (id: string) =>
-        onChange({ ...section, fields: section.fields.filter((f) => f.id !== id) });
+        onChange({ ...section, blocks: (section.blocks ?? []).filter((b) => !(b.type === "field" && b.id === id)) });
 
     const moveField = (id: string, direction: -1 | 1) => {
-        const from = section.fields.findIndex((f) => f.id === id);
+        const blocks = section.blocks ?? [];
+        const from = blocks.findIndex((b) => b.type === "field" && b.id === id);
         const to = from + direction;
-        if (from < 0 || to < 0 || to >= section.fields.length) return;
-        const fields = [...section.fields];
-        [fields[from], fields[to]] = [fields[to], fields[from]];
-        onChange({ ...section, fields });
+        if (from < 0 || to < 0 || to >= blocks.length) return;
+        const next = [...blocks];
+        [next[from], next[to]] = [next[to], next[from]];
+        onChange({ ...section, blocks: next });
     };
 
     return (
@@ -119,7 +124,7 @@ export default function SectionCard({
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3">
-                {section.fields.map((field) => (
+                {fieldBlocks.map((field) => (
                     <div
                         key={field.id}
                         className="group relative rounded-md border border-dashed border-slate-300 bg-white px-3 py-2"

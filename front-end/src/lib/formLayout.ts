@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type {
     FieldNodeAttrs,
+    FieldBlock,
     FormBlock,
     FormFieldSpec,
     FormLayoutSection,
@@ -37,8 +38,12 @@ export function createField(partial?: Partial<FieldNodeAttrs>): FormFieldSpec {
     };
 }
 
+export function createFieldBlock(partial?: Partial<FieldNodeAttrs>): FieldBlock {
+    return { type: "field", ...createField(partial) };
+}
+
 export function createSection(heading = "New Section"): FormLayoutSection {
-    return { id: makeId(), heading, fields: [] };
+    return { id: makeId(), heading, fields: [], blocks: [] };
 }
 
 export function createEmptyStructuredDocument(): StructuredFormDocument {

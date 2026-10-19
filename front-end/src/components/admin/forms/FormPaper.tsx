@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { addSection, moveSection, removeSection, replaceSection } from "@/lib/formLayout";
 import FormFieldPreview from "./FormFieldPreview";
 import SectionCard from "./SectionCard";
-import type { FormLayoutSection, FormPaperMode, StructuredFormDocument } from "@/types/formLayout";
+import type { FormBlock, FormLayoutSection, FormPaperMode, StructuredFormDocument } from "@/types/formLayout";
 
 const PRINT_CSS = `
 @media print {
@@ -163,6 +163,11 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
 }
 
 function StaticSection({ section, index }: { section: FormLayoutSection; index: number }) {
+    const blocks = section.blocks;
+    const useBlocks = !!blocks && blocks.length > 0;
+    const fieldCount = useBlocks
+        ? (blocks as FormBlock[]).filter((b) => b.type === "field").length
+        : section.fields.length;
     return (
         <section>
             <div className="mb-3 flex items-center gap-2">
@@ -173,11 +178,53 @@ function StaticSection({ section, index }: { section: FormLayoutSection; index: 
                 <div className="h-px flex-1 bg-slate-200" />
             </div>
             <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-                {section.fields.map((field) => (
-                    <FormFieldPreview key={field.id} field={field} />
-                ))}
+                {useBlocks
+                    ? (blocks as FormBlock[]).map((block) => <StaticBlock key={block.id} block={block} />)
+                    : section.fields.map((field) => (
+                          <FormFieldPreview key={field.id} field={field} />
+                      ))}
             </div>
-            {section.fields.length === 0 && <p className="text-[11px] italic text-slate-300">No fields in this section.</p>}
+            {fieldCount === 0 && <p className="text-[11px] italic text-slate-300">No fields in this section.</p>}
         </section>
     );
+}
+
+function StaticBlock({ block }: { block: FormBlock }) {
+    switch (block.type) {
+        case "field":
+            return <FormFieldPreview field={block} />;
+        case "unresolved_field":
+            return (
+                <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+                    ⚠ Unresolved field “{block.label || block.field_key}” — map or delete before saving.
+                </div>
+            );
+        case "paragraph":
+            return <p className="col-span-2 text-[11px] leading-relaxed text-slate-600">{block.text}</p>;
+        case "table":
+            return (
+                <table className="col-span-2 w-full border-collapse text-[11px]">
+                    <tbody>
+                        {block.rows.map((row, i) => (
+                            <tr key={i}>
+                                {row.map((cell, j) => (
+                                    <td key={j} className="border border-slate-300 px-2 py-1">
+                                        {cell}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            );
+        case "signature":
+            return (
+                <div className="col-span-2 mt-4">
+                    <div className="h-9 border-b border-slate-400" />
+                    <div className="mt-1 text-[10px] uppercase tracking-[0.08em] text-slate-500">{block.label}</div>
+                </div>
+            );
+        default:
+            return null;
+    }
 }

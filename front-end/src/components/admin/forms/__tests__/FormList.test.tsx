@@ -14,6 +14,7 @@ const baseForm: FormRecord = {
     name: "Admission Form",
     description: "For freshmen",
     creation_mode: "structured",
+    document_type_id: null,
     document_json: createEmptyStructuredDocument(),
     pdf_file_key: null,
     extraction_schema_id: null,
