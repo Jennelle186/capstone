@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.form_layout import (
+    PageSettings,
     StructuredFormDocument,
     create_empty_document,
     has_unresolved_blocks,
@@ -231,6 +232,24 @@ def test_normalize_to_blocks_blocks_win():
     section = normalized["sections"][0]
     assert section["fields"] == []
     assert [b["type"] for b in section["blocks"]] == ["paragraph"]
+
+
+def test_page_settings_fit_to_page_defaults_and_round_trips():
+    assert PageSettings().fitToPage is False
+    assert PageSettings(fitToPage=True).fitToPage is True
+
+    doc = parse_structured_document(
+        {
+            "version": 1,
+            "creation_mode": "structured",
+            "title": "Admission Form",
+            "page": {"size": "A4", "fitToPage": True},
+            "sections": [],
+            "signatureLabel": "Signature",
+        }
+    )
+    assert doc.page is not None
+    assert doc.page.fitToPage is True
 
 
 def test_document_to_fields_reads_blocks():

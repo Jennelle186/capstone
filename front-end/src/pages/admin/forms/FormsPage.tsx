@@ -1,14 +1,16 @@
 "use client";
 
 import { useAuth } from "@clerk/clerk-react";
-import { Eye, Loader2, Pencil, Save, TriangleAlert } from "lucide-react";
+import { Eye, Loader2, Pencil, Printer, Save, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import CreateFormModal from "@/components/admin/forms/CreateFormModal";
 import FormList from "@/components/admin/forms/FormList";
 import FormPaper from "@/components/admin/forms/FormPaper";
+import FormPrintRoot from "@/components/admin/forms/FormPrintRoot";
 import PageSettingsPanel from "@/components/admin/forms/PageSettingsPanel";
+import type { PrintMetrics } from "@/components/admin/forms/FormPrintDocument";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -40,11 +42,22 @@ export default function FormsPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
     const [documentTypes, setDocumentTypes] = useState<DocumentTypeApiRecord[]>([]);
+    const [printMetrics, setPrintMetrics] = useState<PrintMetrics | null>(null);
 
     const request = useCallback(async (path: string, init?: RequestInit): Promise<Response> => {
         const token = await getTokenRef.current();
         if (!token) throw new Error("Missing admin authentication token.");
         return fetchWithClerkAuth(path, token, init);
+    }, []);
+
+    const handlePrintMeasured = useCallback((metrics: PrintMetrics) => {
+        setPrintMetrics((prev) =>
+            prev &&
+            prev.pageCount === metrics.pageCount &&
+            Math.abs(prev.scale - metrics.scale) < 0.001
+                ? prev
+                : metrics,
+        );
     }, []);
 
     const loadForms = useCallback(async () => {
@@ -88,6 +101,7 @@ export default function FormsPage() {
         setDoc(normalized);
         setIsLegacy(parsed === null);
         setMode("edit");
+        setPrintMetrics(null);
     };
 
     const handleCreated = (form: FormRecord) => {
@@ -135,6 +149,7 @@ export default function FormsPage() {
                 setSelectedForm(null);
                 setDoc(null);
                 setIsLegacy(false);
+                setPrintMetrics(null);
             }
             toast.success("Form deleted.");
         } catch (error) {
@@ -180,7 +195,18 @@ export default function FormsPage() {
                                     placeholder="Description (optional)"
                                 />
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {printMetrics && (
+                                    <span
+                                        title="Estimated printed pages"
+                                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[10px] font-medium text-slate-500"
+                                    >
+                                        <Printer className="h-3.5 w-3.5" />
+                                        {printMetrics.pageCount === 1 ? "1 page" : `~${printMetrics.pageCount} pages`}
+                                        {Math.round(printMetrics.scale * 100) < 100 &&
+                                            ` · ${Math.round(printMetrics.scale * 100)}%`}
+                                    </span>
+                                )}
                                 <Select
                                     value={selectedForm.document_type_id ?? "__none__"}
                                     onValueChange={(value) =>
@@ -238,6 +264,10 @@ export default function FormsPage() {
                     </div>
                 )}
             </div>
+
+            {selectedForm && doc && !isLegacy && (
+                <FormPrintRoot doc={doc} onMeasured={handlePrintMeasured} />
+            )}
 
             <CreateFormModal open={createOpen} onOpenChange={setCreateOpen} onCreated={handleCreated} />
         </div>

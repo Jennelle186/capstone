@@ -127,3 +127,13 @@
     @apply font-sans;
     }
 }
+/* Print-only form copy: mounted on <body>, laid out off-screen so it can be
+   measured, then revealed by the document's @media print rules. */
+.form-print-root {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
+}

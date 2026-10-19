@@ -98,6 +98,8 @@ export interface PageSettings {
     size: "A4" | "Letter";
     orientation: "portrait" | "landscape";
     margins?: PageMargins;
+    /** Scale the printed form down so it fits on a single page. */
+    fitToPage?: boolean;
 }
 
 /** A titled group of fields/blocks. Fields flow into a fixed 2-column grid. */

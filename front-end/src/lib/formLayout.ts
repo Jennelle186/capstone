@@ -113,7 +113,22 @@ export const DEFAULT_PAGE_SETTINGS: PageSettings = {
     size: "A4",
     orientation: "portrait",
     margins: { top: 14, right: 16, bottom: 14, left: 16 },
+    fitToPage: false,
 };
+
+export const PAPER_SIZES = {
+    A4: { width: 210, height: 297 },
+    Letter: { width: 215.9, height: 279.4 },
+} as const;
+
+/** Physical page dimensions in millimetres, accounting for orientation. */
+export function getPaperDimensions(page: PageSettings | null | undefined): { width: number; height: number } {
+    const settings = normalizePageSettings(page);
+    const size = PAPER_SIZES[settings.size];
+    return settings.orientation === "portrait"
+        ? { width: size.width, height: size.height }
+        : { width: size.height, height: size.width };
+}
 
 /** Clamp page margins to the backend bounds (0–50 mm). */
 export function normalizePageSettings(page: PageSettings | null | undefined): PageSettings {
@@ -127,6 +142,7 @@ export function normalizePageSettings(page: PageSettings | null | undefined): Pa
         size: page?.size === "Letter" ? "Letter" : "A4",
         orientation: page?.orientation === "landscape" ? "landscape" : "portrait",
         margins,
+        fitToPage: page?.fitToPage === true,
     };
 }
 
@@ -352,6 +368,7 @@ const pageSettingsSchema = z.object({
     size: z.enum(["A4", "Letter"]),
     orientation: z.enum(["portrait", "landscape"]),
     margins: pageMarginsSchema.optional(),
+    fitToPage: z.boolean().optional(),
 });
 
 const formSectionSchema = z.object({

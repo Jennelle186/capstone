@@ -116,7 +116,7 @@ async def create_logo_upload_url(
     extension = ALLOWED_LOGO_TYPES.get(content_type)
     if extension is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Unsupported logo type. Use PNG, JPEG, WebP, or SVG.",
         )
 
@@ -142,13 +142,13 @@ async def confirm_logo_upload(
     try:
         meta = await asyncio.to_thread(head_object, file_key)
     except HTTPException as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc.detail)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc.detail)) from exc
 
     size = meta.get("size") or 0
     if size > MAX_LOGO_SIZE_BYTES:
         await asyncio.to_thread(gcs_delete_file, file_key)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Logo exceeds the 5 MB limit.",
         )
 

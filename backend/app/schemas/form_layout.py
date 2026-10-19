@@ -75,6 +75,8 @@ class PageSettings(BaseModel):
     size: PageSize = "A4"
     orientation: Orientation = "portrait"
     margins: PageMargins = Field(default_factory=PageMargins)
+    # Additive v1 key: scale the printed form down so it fits on a single page.
+    fitToPage: bool = False
 
 
 # ── Legacy field spec (``sections[].fields[]``) ──────────────────────────

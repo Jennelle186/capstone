@@ -170,6 +170,17 @@ describe("page settings", () => {
         expect(page.orientation).toBe("portrait");
     });
 
+    it("defaults fit-to-page off and preserves it through normalization", () => {
+        expect(normalizePageSettings(undefined).fitToPage).toBe(false);
+        expect(
+            normalizePageSettings({ size: "A4", orientation: "portrait", fitToPage: true }).fitToPage,
+        ).toBe(true);
+
+        const doc = parseStructuredDocument(blocksDoc)!;
+        const next = updatePageSettings(doc, { fitToPage: true });
+        expect(next.page!.fitToPage).toBe(true);
+    });
+
     it("merges a partial margin patch without dropping other margins", () => {
         const doc = parseStructuredDocument(blocksDoc)!;
         const next = updatePageSettings(doc, { margins: { top: 25 } });
@@ -198,5 +209,233 @@ describe("block layout controls", () => {
         const doc = parseStructuredDocument(blocksDoc)!;
         const next = setBlockPageBreak(doc, "p1", true);
         expect(next.sections[0].blocks![0]).toMatchObject({ id: "p1", pageBreakBefore: true });
+    });
+});
+
+// ── Phase 2D acceptance ────────────────────────────────────────────────
+
+const generatedDoc = {
+    version: 1,
+    creation_mode: "structured",
+    title: "Admission Form",
+    subtitle: "First Semester",
+    instructions: "Print legibly.",
+    letterhead: {
+        institutionName: "College of Computer Studies",
+        addressLines: ["Campus Address", "City, Province"],
+        contactLine: "registrar@example.edu",
+        formNumber: "ADS-01",
+    },
+    page: { size: "A4", orientation: "portrait", margins: { top: 14, right: 16, bottom: 14, left: 16 } },
+    sections: [
+        {
+            id: "s1",
+            heading: "PERSONAL INFORMATION",
+            fields: [],
+            blocks: [
+                { type: "paragraph", id: "p1", text: "Complete all fields.", style: { bold: true, fontSize: 11 } },
+                {
+                    type: "field",
+                    id: "b1",
+                    field_key: "full_name",
+                    label: "Full Name",
+                    ui_component: "text_input",
+                    required: true,
+                    options: null,
+                    columnSpan: 2,
+                    pageBreakBefore: false,
+                },
+                {
+                    type: "field",
+                    id: "b2",
+                    field_key: "sex",
+                    label: "Sex",
+                    ui_component: "radio_group",
+                    required: true,
+                    options: [
+                        { value: "male", label: "Male" },
+                        { value: "female", label: "Female" },
+                    ],
+                },
+                {
+                    type: "table",
+                    id: "t1",
+                    columns: 2,
+                    rows: [
+                        ["School", "Year"],
+                        ["WMSU", "2026"],
+                    ],
+                    columnWidths: ["60%", "40%"],
+                    headerRow: true,
+                    pageBreakBefore: true,
+                },
+                { type: "signature", id: "sig1", label: "Registrar" },
+                { type: "unresolved_field", id: "u1", field_key: "invented_key", label: "Invented Key" },
+            ],
+        },
+        {
+            id: "s2",
+            heading: "EDUCATION",
+            fields: [],
+            blocks: [
+                {
+                    type: "field",
+                    id: "b3",
+                    field_key: "school_name",
+                    label: "School Name",
+                    ui_component: "text_input",
+                    required: false,
+                    options: null,
+                },
+            ],
+        },
+    ],
+    signatureLabel: "Signature over Printed Name",
+    footer: "Office of the Registrar",
+};
+
+describe("2D: generated document opens in the editor", () => {
+    it("parses a mixed generated document and keeps every block type", () => {
+        const doc = parseStructuredDocument(generatedDoc);
+        expect(doc).not.toBeNull();
+        expect(doc!.sections).toHaveLength(2);
+        expect(doc!.sections[0].blocks!.map((b) => b.type)).toEqual([
+            "paragraph",
+            "field",
+            "field",
+            "table",
+            "signature",
+            "unresolved_field",
+        ]);
+    });
+
+    it("is not persistable while an unresolved block remains", () => {
+        const doc = parseStructuredDocument(generatedDoc)!;
+        expect(hasUnresolvedBlocks(doc)).toBe(true);
+        expect(isPersistable(doc)).toBe(false);
+    });
+
+    it("becomes persistable once the unresolved block is removed", () => {
+        const doc = parseStructuredDocument(generatedDoc)!;
+        const resolved: typeof doc = {
+            ...doc,
+            sections: doc.sections.map((section) => ({
+                ...section,
+                blocks: (section.blocks ?? []).filter((b) => b.type !== "unresolved_field"),
+            })),
+        };
+        expect(hasUnresolvedBlocks(resolved)).toBe(false);
+        expect(isPersistable(resolved)).toBe(true);
+    });
+
+    it("preserves layout metadata through a parse → save round trip", () => {
+        const doc = parseStructuredDocument(generatedDoc)!;
+        const roundTripped = parseStructuredDocument(JSON.parse(JSON.stringify(doc)))!;
+        const blocks = roundTripped.sections[0].blocks!;
+        expect(blocks[1]).toMatchObject({ columnSpan: 2 });
+        expect(blocks[3]).toMatchObject({ headerRow: true, columnWidths: ["60%", "40%"], pageBreakBefore: true });
+        expect(roundTripped.page).toEqual(generatedDoc.page);
+        expect(roundTripped.letterhead).toEqual(generatedDoc.letterhead);
+    });
+
+    it("rejects a document with an out-of-range columnSpan", () => {
+        const invalid = JSON.parse(JSON.stringify(generatedDoc)) as typeof generatedDoc;
+        (invalid.sections[0].blocks[1] as { columnSpan: number }).columnSpan = 13;
+        expect(parseStructuredDocument(invalid)).toBeNull();
+    });
+
+    it("rejects a document with an invalid page size", () => {
+        const invalid = JSON.parse(JSON.stringify(generatedDoc)) as typeof generatedDoc;
+        (invalid.page as { size: string }).size = "Legal";
+        expect(parseStructuredDocument(invalid)).toBeNull();
+    });
+
+    it("rejects a document with an out-of-bounds margin", () => {
+        const invalid = JSON.parse(JSON.stringify(generatedDoc)) as typeof generatedDoc;
+        (invalid.page!.margins as { top: number }).top = 80;
+        expect(parseStructuredDocument(invalid)).toBeNull();
+    });
+});
+
+describe("2D: legacy normalization fidelity", () => {
+    it("preserves key, order, required flag and options when converting fields → blocks", () => {
+        const legacy = {
+            ...legacyDoc,
+            sections: [
+                {
+                    id: "sec-1",
+                    heading: "PERSONAL",
+                    fields: [
+                        {
+                            id: "f1",
+                            field_key: "full_name",
+                            label: "Full Name",
+                            ui_component: "text_input",
+                            required: true,
+                            options: null,
+                        },
+                        {
+                            id: "f2",
+                            field_key: "sex",
+                            label: "Sex",
+                            ui_component: "radio_group",
+                            required: false,
+                            options: [
+                                { value: "male", label: "Male" },
+                                { value: "female", label: "Female" },
+                            ],
+                        },
+                        {
+                            id: "f3",
+                            field_key: "birth_date",
+                            label: "Birth Date",
+                            ui_component: "date_picker",
+                            required: false,
+                            options: null,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const doc = parseStructuredDocument(legacy)!;
+        const normalized = fieldsToBlocks(doc);
+        const blocks = normalized.sections[0].blocks!;
+
+        expect(blocks.map((b) => b.id)).toEqual(["f1", "f2", "f3"]);
+        expect(blocks.map((b) => (b.type === "field" ? b.field_key : null))).toEqual([
+            "full_name",
+            "sex",
+            "birth_date",
+        ]);
+        expect(blocks[0]).toMatchObject({ type: "field", required: true, options: null });
+        expect(blocks[1]).toMatchObject({
+            type: "field",
+            required: false,
+            options: [
+                { value: "male", label: "Male" },
+                { value: "female", label: "Female" },
+            ],
+        });
+        expect(blocks[2]).toMatchObject({ ui_component: "date_picker" });
+    });
+
+    it("keeps section order and headings stable", () => {
+        const legacy = {
+            ...legacyDoc,
+            sections: [
+                { id: "a", heading: "FIRST", fields: [] },
+                { id: "b", heading: "SECOND", fields: [] },
+                { id: "c", heading: "THIRD", fields: [] },
+            ],
+        };
+        const normalized = fieldsToBlocks(parseStructuredDocument(legacy)!);
+        expect(normalized.sections.map((s) => s.heading)).toEqual(["FIRST", "SECOND", "THIRD"]);
+    });
+
+    it("normalization is idempotent", () => {
+        const once = fieldsToBlocks(parseStructuredDocument(legacyDoc)!);
+        const twice = fieldsToBlocks(once);
+        expect(twice).toEqual(once);
     });
 });

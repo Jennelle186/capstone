@@ -11,6 +11,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { normalizePageSettings } from "@/lib/formLayout";
 import type { PageMargins, PageSettings } from "@/types/form";
 
@@ -115,8 +116,23 @@ export default function PageSettingsPanel({ page, onChange }: PageSettingsPanelP
                         </div>
                     </div>
 
+                    <div className="flex items-center justify-between gap-3 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-2">
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-medium text-slate-600">Fit to one page</p>
+                            <p className="text-[10px] leading-relaxed text-slate-400">
+                                Shrinks the printed form just enough to keep everything on a single page.
+                            </p>
+                        </div>
+                        <Switch
+                            checked={settings.fitToPage === true}
+                            onCheckedChange={(checked) => onChange({ fitToPage: checked })}
+                            aria-label="Fit to one page"
+                        />
+                    </div>
+
                     <p className="text-[10px] leading-relaxed text-slate-400">
-                        Page size and margins apply to both the editor canvas and the printed output.
+                        Page size and margins apply to both the editor canvas and the printed output. Fit to one page
+                        only affects printing.
                     </p>
                 </div>
             )}

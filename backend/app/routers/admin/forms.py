@@ -40,7 +40,7 @@ def _validate_document(document_json: Any) -> dict:
         return validate_persistable(document_json).model_dump()
     except (ValidationError, ValueError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid form document: {exc}",
         ) from exc
 
