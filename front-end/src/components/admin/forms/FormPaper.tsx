@@ -18,13 +18,15 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { addSection, moveSection, removeSection, replaceSection } from "@/lib/formLayout";
+import { addSection, applyStyleToBlocks, getSelectedStyle, moveSection, removeSection, replaceSection } from "@/lib/formLayout";
 import FormFieldPreview from "./FormFieldPreview";
 import SectionCard from "./SectionCard";
-import type { FormBlock, FormLayoutSection, FormPaperMode, Letterhead, StructuredFormDocument } from "@/types/formLayout";
+import TypographyToolbar from "./TypographyToolbar";
+import type { FormBlock, FormLayoutSection, FormPaperMode, Letterhead, StructuredFormDocument, TextStyle } from "@/types/formLayout";
 
 const PRINT_CSS = `
 @media print {
@@ -62,6 +64,38 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
     const setLetterhead = (patch: Partial<Letterhead>) =>
         onChange({ ...doc, letterhead: { ...(letterhead ?? {}), ...patch } });
 
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+    const handleSelectField = (id: string, additive: boolean) => {
+        setSelectedIds((prev) => {
+            if (additive) {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+            }
+            return new Set([id]);
+        });
+    };
+
+    const clearSelection = () => setSelectedIds(new Set());
+
+    useEffect(() => {
+        if (!editing) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setSelectedIds(new Set());
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [editing]);
+
+    const selectedStyle = useMemo(() => getSelectedStyle(doc, selectedIds), [doc, selectedIds]);
+
+    const applyStyle = (patch: Partial<TextStyle>) => {
+        console.log("[forms] apply style", { count: selectedIds.size, patch });
+        onChange(applyStyleToBlocks(doc, selectedIds, patch));
+    };
+
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -96,7 +130,16 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
     };
 
     return (
-        <div className="form-paper mx-auto w-[210mm] min-h-[297mm] bg-white px-[16mm] py-[14mm] text-slate-900 shadow-[0_1px_3px_rgba(15,23,42,0.10),0_18px_50px_-20px_rgba(15,23,42,0.35)]">
+        <>
+            {editing && selectedIds.size > 0 && (
+                <TypographyToolbar
+                    style={selectedStyle}
+                    count={selectedIds.size}
+                    onApply={applyStyle}
+                    onClear={clearSelection}
+                />
+            )}
+            <div className="form-paper mx-auto w-[210mm] min-h-[297mm] bg-white px-[16mm] py-[14mm] text-slate-900 shadow-[0_1px_3px_rgba(15,23,42,0.10),0_18px_50px_-20px_rgba(15,23,42,0.35)]">
             <style>{PRINT_CSS}</style>
 
             <header className="flex items-center gap-4 border-b-[3px] border-primary pb-3">
@@ -207,6 +250,8 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
                                     onChange={(next) => onChange(replaceSection(doc, next))}
                                     onRemove={() => onChange(removeSection(doc, section.id))}
                                     onMove={(direction) => onChange(moveSection(doc, section.id, direction))}
+                                    selectedIds={selectedIds}
+                                    onSelectField={handleSelectField}
                                 />
                             ))}
                         </SortableContext>
@@ -261,6 +306,7 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
                 )}
             </div>
         </div>
+        </>
     );
 }
 
@@ -272,9 +318,21 @@ interface SortableSectionProps {
     onChange: (next: FormLayoutSection) => void;
     onRemove: () => void;
     onMove: (direction: -1 | 1) => void;
+    selectedIds: Set<string>;
+    onSelectField: (id: string, additive: boolean) => void;
 }
 
-function SortableSection({ section, index, canMoveUp, canMoveDown, onChange, onRemove, onMove }: SortableSectionProps) {
+function SortableSection({
+    section,
+    index,
+    canMoveUp,
+    canMoveDown,
+    onChange,
+    onRemove,
+    onMove,
+    selectedIds,
+    onSelectField,
+}: SortableSectionProps) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: section.id });
     const style = { transform: CSS.Transform.toString(transform), transition };
 
@@ -289,6 +347,8 @@ function SortableSection({ section, index, canMoveUp, canMoveDown, onChange, onR
                 onRemove={onRemove}
                 onMove={onMove}
                 dragHandle={{ attributes, listeners }}
+                selectedIds={selectedIds}
+                onSelectField={onSelectField}
             />
         </div>
     );

@@ -33,6 +33,8 @@ interface SectionCardProps {
         attributes: DraggableAttributes;
         listeners: DraggableSyntheticListeners;
     } | null;
+    selectedIds: Set<string>;
+    onSelectField: (id: string, additive: boolean) => void;
 }
 
 export default function SectionCard({
@@ -44,6 +46,8 @@ export default function SectionCard({
     onRemove,
     onMove,
     dragHandle,
+    selectedIds,
+    onSelectField,
 }: SectionCardProps) {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingField, setEditingField] = useState<FieldBlock | null>(null);
@@ -147,6 +151,8 @@ export default function SectionCard({
                         <SortableField
                             key={field.id}
                             field={field}
+                            isSelected={selectedIds.has(field.id)}
+                            onSelect={(additive) => onSelectField(field.id, additive)}
                             onEdit={() => openEdit(field)}
                             onDelete={() => removeField(field.id)}
                             onMove={(dir) => moveField(field.id, dir)}
@@ -176,11 +182,15 @@ export default function SectionCard({
 
 function SortableField({
     field,
+    isSelected,
+    onSelect,
     onEdit,
     onDelete,
     onMove,
 }: {
     field: FieldBlock;
+    isSelected: boolean;
+    onSelect: (additive: boolean) => void;
     onEdit: () => void;
     onDelete: () => void;
     onMove: (direction: -1 | 1) => void;
@@ -192,13 +202,17 @@ function SortableField({
         <div
             ref={setNodeRef}
             style={style}
-            className={`group relative rounded-md border border-dashed border-slate-300 bg-white px-2 py-2 ${isDragging ? "opacity-50" : ""}`}
+            onClick={(e) => onSelect(e.shiftKey || e.ctrlKey || e.metaKey)}
+            className={`group relative rounded-md border border-dashed border-slate-300 bg-white px-2 py-2 ${
+                isSelected ? "ring-2 ring-primary ring-offset-1" : ""
+            } ${isDragging ? "opacity-50" : ""}`}
         >
             <div className="flex items-center gap-2">
                 <button
                     type="button"
                     className="h-6 w-4 shrink-0 cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
                     title="Drag to reorder field"
+                    onClick={(e) => e.stopPropagation()}
                     {...attributes}
                     {...listeners}
                 >
@@ -214,7 +228,10 @@ function SortableField({
                     </div>
                     <div className="text-[10px] text-slate-400">{TYPE_LABELS[field.ui_component] ?? field.ui_component}</div>
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                <div
+                    className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                    onClick={(e) => e.stopPropagation()}
+                >
                     <Button
                         type="button"
                         variant="ghost"

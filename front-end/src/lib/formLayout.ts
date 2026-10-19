@@ -55,6 +55,51 @@ export function textStyleToCss(style: TextStyle | null | undefined): CSSProperti
     };
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+export function applyStyleToBlocks(
+    doc: StructuredFormDocument,
+    ids: Set<string>,
+    patch: Partial<TextStyle>,
+): StructuredFormDocument {
+    return {
+        ...doc,
+        sections: doc.sections.map((section) => ({
+            ...section,
+            blocks: (section.blocks ?? []).map((block) => {
+                if (block.type !== "field" || !ids.has(block.id)) return block;
+                const style: TextStyle = { ...(block.style ?? {}), ...patch };
+                if (style.fontSize != null) style.fontSize = clampNumber(style.fontSize, 6, 72);
+                if (style.spacing != null) style.spacing = clampNumber(style.spacing, 0, 48);
+                return { ...block, style };
+            }),
+        })),
+    };
+}
+
+export function getSelectedStyle(doc: StructuredFormDocument, ids: Set<string>): Partial<TextStyle> {
+    const styles: TextStyle[] = [];
+    for (const section of doc.sections) {
+        for (const block of section.blocks ?? []) {
+            if (block.type === "field" && ids.has(block.id)) styles.push(block.style ?? {});
+        }
+    }
+    if (styles.length === 0) return {};
+
+    const first = styles[0];
+    const result: Partial<TextStyle> = {};
+    if (styles.every((s) => s.fontSize === first.fontSize)) result.fontSize = first.fontSize ?? null;
+    if (styles.every((s) => s.bold === first.bold)) result.bold = first.bold ?? false;
+    if (styles.every((s) => s.italic === first.italic)) result.italic = first.italic ?? false;
+    if (styles.every((s) => s.align === first.align)) result.align = first.align ?? null;
+    if (styles.every((s) => s.spacing === first.spacing)) result.spacing = first.spacing ?? null;
+    return result;
+}
+
 export function createSection(heading = "New Section"): FormLayoutSection {
     return { id: makeId(), heading, fields: [], blocks: [] };
 }
