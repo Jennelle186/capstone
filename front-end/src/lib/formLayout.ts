@@ -7,6 +7,8 @@ import type {
     FormBlock,
     FormFieldSpec,
     FormLayoutSection,
+    PageMargins,
+    PageSettings,
     ParagraphBlock,
     SignatureBlock,
     StructuredFormDocument,
@@ -107,12 +109,98 @@ export function createSection(heading = "New Section"): FormLayoutSection {
     return { id: makeId(), heading, fields: [], blocks: [] };
 }
 
+export const DEFAULT_PAGE_SETTINGS: PageSettings = {
+    size: "A4",
+    orientation: "portrait",
+    margins: { top: 14, right: 16, bottom: 14, left: 16 },
+};
+
+/** Clamp page margins to the backend bounds (0–50 mm). */
+export function normalizePageSettings(page: PageSettings | null | undefined): PageSettings {
+    const margins: PageMargins = {
+        top: clampNumber(page?.margins?.top ?? DEFAULT_PAGE_SETTINGS.margins!.top, 0, 50),
+        right: clampNumber(page?.margins?.right ?? DEFAULT_PAGE_SETTINGS.margins!.right, 0, 50),
+        bottom: clampNumber(page?.margins?.bottom ?? DEFAULT_PAGE_SETTINGS.margins!.bottom, 0, 50),
+        left: clampNumber(page?.margins?.left ?? DEFAULT_PAGE_SETTINGS.margins!.left, 0, 50),
+    };
+    return {
+        size: page?.size === "Letter" ? "Letter" : "A4",
+        orientation: page?.orientation === "landscape" ? "landscape" : "portrait",
+        margins,
+    };
+}
+
+/** Merge a page-settings patch into a document, clamping to backend bounds. */
+export function updatePageSettings(
+    doc: StructuredFormDocument,
+    patch: Partial<Omit<PageSettings, "margins">> & { margins?: Partial<PageMargins> },
+): StructuredFormDocument {
+    const current = normalizePageSettings(doc.page);
+    return {
+        ...doc,
+        page: normalizePageSettings({
+            ...current,
+            ...patch,
+            margins: { ...current.margins!, ...(patch.margins ?? {}) },
+        }),
+    };
+}
+
+export function setBlockColumnSpan(
+    doc: StructuredFormDocument,
+    blockId: string,
+    columnSpan: number,
+): StructuredFormDocument {
+    const span = clampNumber(Math.round(columnSpan), 1, 12);
+    return {
+        ...doc,
+        sections: doc.sections.map((section) => ({
+            ...section,
+            blocks: (section.blocks ?? []).map((block) =>
+                block.type === "field" && block.id === blockId ? { ...block, columnSpan: span } : block,
+            ),
+        })),
+    };
+}
+
+export function setBlockPageBreak(
+    doc: StructuredFormDocument,
+    blockId: string,
+    pageBreakBefore: boolean,
+): StructuredFormDocument {
+    return {
+        ...doc,
+        sections: doc.sections.map((section) => ({
+            ...section,
+            blocks: (section.blocks ?? []).map((block) =>
+                block.id === blockId ? ({ ...block, pageBreakBefore } as FormBlock) : block,
+            ),
+        })),
+    };
+}
+
+export function setTableColumnWidths(
+    doc: StructuredFormDocument,
+    blockId: string,
+    columnWidths: string[] | null,
+): StructuredFormDocument {
+    return {
+        ...doc,
+        sections: doc.sections.map((section) => ({
+            ...section,
+            blocks: (section.blocks ?? []).map((block) =>
+                block.type === "table" && block.id === blockId ? { ...block, columnWidths } : block,
+            ),
+        })),
+    };
+}
+
 export function createParagraphBlock(text = ""): ParagraphBlock {
     return { type: "paragraph", id: makeId(), text, style: null, pageBreakBefore: false };
 }
 
 export function createTableBlock(columns = 2): TableBlock {
-    return { type: "table", id: makeId(), columns, rows: [], columnWidths: null, pageBreakBefore: false };
+    return { type: "table", id: makeId(), columns, rows: [], columnWidths: null, headerRow: false, pageBreakBefore: false };
 }
 
 export function createSignatureBlock(label = "Signature over Printed Name"): SignatureBlock {
@@ -220,6 +308,7 @@ const tableBlockSchema = z.object({
     columns: z.number().int().min(1).max(12),
     rows: z.array(z.array(z.string())),
     columnWidths: z.array(z.string()).nullable().optional(),
+    headerRow: z.boolean().optional(),
     pageBreakBefore: z.boolean().optional(),
 });
 

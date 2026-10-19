@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, FileText, Shield } from "lucide-react";
 
+import { usePublicBranding } from "@/hooks/usePublicBranding";
+
 interface AuthLayoutProps {
     children: ReactNode;
     title?: string;
@@ -26,6 +28,7 @@ const stagger: Variants = {
 };
 
 export default function AuthLayout({ children, title, description }: AuthLayoutProps) {
+    const { branding } = usePublicBranding();
     return (
         <div className="grid min-h-svh lg:grid-cols-2 bg-background">
             {/* Left (Brand / Context) */}
@@ -54,7 +57,7 @@ export default function AuthLayout({ children, title, description }: AuthLayoutP
                     <motion.div variants={fadeInUp} className="flex items-center gap-3">
                         <div className="h-12 w-12 rounded-xl bg-white border border-border p-2">
                             <img
-                                src="/ccs-logo.jpg"
+                                src={branding.logo_url ?? "/ccs-logo.jpg"}
                                 alt="CCS logo"
                                 className="h-full w-full object-contain"
                             />

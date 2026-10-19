@@ -72,7 +72,7 @@ def test_blocks_document_parses():
                     "blocks": [
                         {"type": "field", "id": "b1", "field_key": "full_name", "label": "Full Name", "ui_component": "text_input", "required": True, "columnSpan": 1},
                         {"type": "paragraph", "id": "b2", "text": "Instructions go here.", "style": {"bold": True, "align": "center"}},
-                        {"type": "table", "id": "b3", "columns": 2, "rows": [["a", "b"], ["c", "d"]], "columnWidths": ["50%", "50%"]},
+                        {"type": "table", "id": "b3", "columns": 2, "rows": [["a", "b"], ["c", "d"]], "columnWidths": ["50%", "50%"], "headerRow": True},
                         {"type": "signature", "id": "b4", "label": "Signature"},
                     ],
                     "fields": [],
@@ -86,6 +86,8 @@ def test_blocks_document_parses():
     assert doc.page.size == "A4"
     blocks = doc.sections[0].blocks
     assert [b.type for b in blocks] == ["field", "paragraph", "table", "signature"]
+    assert blocks[2].headerRow is True
+    assert blocks[2].columnWidths == ["50%", "50%"]
 
 
 def test_unresolved_blocks_detected():

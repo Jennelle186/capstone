@@ -15,6 +15,7 @@ from .student_management import router as student_management_router
 from .users import router as users_router
 from .analytics import router as analytics_router
 from .analytics_dimensions import router as analytics_dimensions_router
+from .branding import router as branding_router
 
 # Root admin router. All admin sub-domains are mounted here under `/api/admin`.
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -49,3 +50,5 @@ router.include_router(student_management_router)
 router.include_router(analytics_router)
 # Analytics dimensions registry namespace.
 router.include_router(analytics_dimensions_router)
+# Global branding settings (institution name, address, contact, logo).
+router.include_router(branding_router)

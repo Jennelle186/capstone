@@ -22,26 +22,33 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { addSection, applyStyleToBlocks, getSelectedStyle, moveSection, removeSection, replaceSection, textStyleToCss } from "@/lib/formLayout";
+import {
+    addSection,
+    applyStyleToBlocks,
+    getSelectedStyle,
+    moveSection,
+    normalizePageSettings,
+    removeSection,
+    replaceSection,
+    textStyleToCss,
+} from "@/lib/formLayout";
 import FormFieldPreview from "./FormFieldPreview";
 import SectionCard from "./SectionCard";
 import TypographyToolbar from "./TypographyToolbar";
-import type { FormBlock, FormLayoutSection, FormPaperMode, Letterhead, StructuredFormDocument, TextStyle } from "@/types/formLayout";
+import { usePublicBranding } from "@/hooks/usePublicBranding";
+import type {
+    FormBlock,
+    FormLayoutSection,
+    FormPaperMode,
+    Letterhead,
+    StructuredFormDocument,
+    TextStyle,
+} from "@/types/formLayout";
 
-const PRINT_CSS = `
-@media print {
-    body * { visibility: hidden !important; }
-    .form-paper, .form-paper * { visibility: visible !important; }
-    .form-paper {
-        position: absolute;
-        left: 0;
-        top: 0;
-        margin: 0 !important;
-        box-shadow: none !important;
-    }
-    @page { size: A4; margin: 0; }
-}
-`;
+const PAPER_SIZES = {
+    A4: { width: 210, height: 297 },
+    Letter: { width: 215.9, height: 279.4 },
+} as const;
 
 interface FormPaperProps {
     doc: StructuredFormDocument;
@@ -51,15 +58,19 @@ interface FormPaperProps {
 
 export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
     const editing = mode === "edit";
+    const { branding } = usePublicBranding();
 
     const letterhead = doc.letterhead;
-    const institutionName = letterhead?.institutionName ?? "College of Computer Studies";
+    const institutionName = letterhead?.institutionName ?? branding.institution_name ?? "College of Computer Studies";
     const addressLines =
         letterhead?.addressLines && letterhead.addressLines.length > 0
             ? letterhead.addressLines
-            : ["Campus Address, City, Province"];
-    const contactLine = letterhead?.contactLine ?? "registrar@example.edu · (000) 000-0000";
+            : branding.address_lines.length > 0
+              ? branding.address_lines
+              : ["Campus Address, City, Province"];
+    const contactLine = letterhead?.contactLine ?? branding.contact_line ?? "registrar@example.edu · (000) 000-0000";
     const formNumber = letterhead?.formNumber ?? "ADS-01";
+    const logoSrc = branding.logo_url ?? "/ccs-logo.jpg";
 
     const setLetterhead = (patch: Partial<Letterhead>) =>
         onChange({ ...doc, letterhead: { ...(letterhead ?? {}), ...patch } });
@@ -114,7 +125,7 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
             return;
         }
 
-        // Field reorder within its section.
+        // Block reorder within its section.
         const sectionIndex = doc.sections.findIndex((s) => (s.blocks ?? []).some((b) => b.id === active.id));
         if (sectionIndex < 0) return;
         const section = doc.sections[sectionIndex];
@@ -126,6 +137,43 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
         onChange(replaceSection(doc, { ...section, blocks: reordered }));
     };
 
+    const page = normalizePageSettings(doc.page);
+    const margins = page.margins!;
+    const size = PAPER_SIZES[page.size];
+    const paperWidth = page.orientation === "portrait" ? size.width : size.height;
+    const paperHeight = page.orientation === "portrait" ? size.height : size.width;
+
+    const usedFieldKeys = useMemo(
+        () =>
+            doc.sections
+                .flatMap((section) => section.blocks ?? [])
+                .filter((block) => block.type === "field")
+                .map((block) => block.field_key.trim().toLowerCase().replace(/\s+/g, "_")),
+        [doc.sections],
+    );
+
+    const printCss = `
+@media print {
+    @page { size: ${page.size} ${page.orientation}; margin: 0; }
+    html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+    body * { visibility: hidden !important; }
+    .form-paper, .form-paper * { visibility: visible !important; }
+    .form-paper {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: ${paperWidth}mm !important;
+        min-height: ${paperHeight}mm !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+    }
+    .form-keep { break-inside: avoid; }
+    .form-section-header { break-after: avoid; }
+    .form-table thead { display: table-header-group; }
+    .form-table tr { break-inside: avoid; }
+}
+`;
+
     return (
         <>
             {editing && selectedIds.size > 0 && (
@@ -136,11 +184,18 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
                     onClear={clearSelection}
                 />
             )}
-            <div className="form-paper mx-auto w-[210mm] min-h-[297mm] bg-white px-[16mm] py-[14mm] text-slate-900 shadow-[0_1px_3px_rgba(15,23,42,0.10),0_18px_50px_-20px_rgba(15,23,42,0.35)]">
-            <style>{PRINT_CSS}</style>
+            <div
+                className="form-paper mx-auto bg-white text-slate-900 shadow-[0_1px_3px_rgba(15,23,42,0.10),0_18px_50px_-20px_rgba(15,23,42,0.35)]"
+                style={{
+                    width: `${paperWidth}mm`,
+                    minHeight: `${paperHeight}mm`,
+                    padding: `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`,
+                }}
+            >
+            <style>{printCss}</style>
 
             <header className="flex items-center gap-4 border-b-[3px] border-primary pb-3">
-                <img src="/ccs-logo.jpg" alt="Institution logo" className="h-16 w-16 shrink-0 object-contain" />
+                <img src={logoSrc} alt="Institution logo" className="h-16 w-16 shrink-0 object-contain" />
                 {editing ? (
                     <div className="flex-1 space-y-1">
                         <Input
@@ -249,6 +304,7 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
                                     onMove={(direction) => onChange(moveSection(doc, section.id, direction))}
                                     selectedIds={selectedIds}
                                     onSelectField={handleSelectField}
+                                    usedFieldKeys={usedFieldKeys}
                                 />
                             ))}
                         </SortableContext>
@@ -269,7 +325,7 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
                 )}
             </div>
 
-            <div className="mt-14 grid grid-cols-2 gap-12">
+            <div className="form-keep mt-14 grid grid-cols-2 gap-12">
                 <div>
                     <div className="h-9 border-b border-slate-400" />
                     {editing ? (
@@ -317,6 +373,7 @@ interface SortableSectionProps {
     onMove: (direction: -1 | 1) => void;
     selectedIds: Set<string>;
     onSelectField: (id: string, additive: boolean) => void;
+    usedFieldKeys: string[];
 }
 
 function SortableSection({
@@ -329,6 +386,7 @@ function SortableSection({
     onMove,
     selectedIds,
     onSelectField,
+    usedFieldKeys,
 }: SortableSectionProps) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: section.id });
     const style = { transform: CSS.Transform.toString(transform), transition };
@@ -346,6 +404,7 @@ function SortableSection({
                 dragHandle={{ attributes, listeners }}
                 selectedIds={selectedIds}
                 onSelectField={onSelectField}
+                usedFieldKeys={usedFieldKeys}
             />
         </div>
     );
@@ -359,7 +418,7 @@ function StaticSection({ section, index }: { section: FormLayoutSection; index: 
         : section.fields.length;
     return (
         <section>
-            <div className="mb-3 flex items-center gap-2">
+            <div className="form-section-header mb-3 flex items-center gap-2">
                 <span className="grid h-5 w-5 place-items-center rounded bg-primary/10 text-[10px] font-bold text-primary">
                     {String(index + 1).padStart(2, "0")}
                 </span>
@@ -368,7 +427,19 @@ function StaticSection({ section, index }: { section: FormLayoutSection; index: 
             </div>
             <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                 {useBlocks
-                    ? (blocks as FormBlock[]).map((block) => <StaticBlock key={block.id} block={block} />)
+                    ? (blocks as FormBlock[]).map((block) => {
+                          const fullWidth = block.type !== "field" || (block.columnSpan ?? 1) >= 2;
+                          const pageBreakBefore = block.type !== "unresolved_field" && block.pageBreakBefore === true;
+                          return (
+                              <div
+                                  key={block.id}
+                                  className={fullWidth ? "col-span-2" : undefined}
+                                  style={pageBreakBefore ? { breakBefore: "page" } : undefined}
+                              >
+                                  <StaticBlock block={block} />
+                              </div>
+                          );
+                      })
                     : section.fields.map((field) => (
                           <FormFieldPreview key={field.id} field={field} />
                       ))}
@@ -390,19 +461,41 @@ function StaticBlock({ block }: { block: FormBlock }) {
             );
         case "paragraph":
             return (
-                <p className="col-span-2 text-[11px] leading-relaxed text-slate-600" style={textStyleToCss(block.style)}>
+                <p className="text-[11px] leading-relaxed text-slate-600" style={textStyleToCss(block.style)}>
                     {block.text}
                 </p>
             );
-        case "table":
+        case "table": {
+            const widths = block.columnWidths;
+            const rows = block.rows;
+            const header = block.headerRow && rows.length > 0 ? rows[0] : null;
+            const body = header ? rows.slice(1) : rows;
             return (
-                <table className="col-span-2 w-full border-collapse text-[11px]">
+                <table className="form-table w-full border-collapse text-[11px]">
+                    {widths && widths.length === block.columns && (
+                        <colgroup>
+                            {widths.map((width, i) => (
+                                <col key={i} style={{ width }} />
+                            ))}
+                        </colgroup>
+                    )}
+                    {header && (
+                        <thead>
+                            <tr>
+                                {Array.from({ length: block.columns }).map((_, i) => (
+                                    <th key={i} className="border border-slate-300 bg-slate-50 px-2 py-1 text-left font-semibold">
+                                        {header[i] ?? ""}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                    )}
                     <tbody>
-                        {block.rows.map((row, i) => (
+                        {body.map((row, i) => (
                             <tr key={i}>
-                                {row.map((cell, j) => (
+                                {Array.from({ length: block.columns }).map((_, j) => (
                                     <td key={j} className="border border-slate-300 px-2 py-1">
-                                        {cell}
+                                        {row[j] ?? ""}
                                     </td>
                                 ))}
                             </tr>
@@ -410,9 +503,10 @@ function StaticBlock({ block }: { block: FormBlock }) {
                     </tbody>
                 </table>
             );
+        }
         case "signature":
             return (
-                <div className="col-span-2 mt-4">
+                <div className="form-keep mt-4">
                     <div className="h-9 border-b border-slate-400" />
                     <div className="mt-1 text-[10px] uppercase tracking-[0.08em] text-slate-500">{block.label}</div>
                 </div>

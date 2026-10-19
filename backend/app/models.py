@@ -1,7 +1,7 @@
 import uuid
 import enum
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -934,3 +934,27 @@ class JobSubmission(Base):
 
     job = relationship("Job", back_populates="submissions")
     submission = relationship("DocumentSubmission")
+
+
+class BrandingSettings(Base):
+    """Singleton row (id = 1) holding global institution branding.
+
+    The logo is stored as a stable GCS object key, never a signed URL; the
+    backend mints short-lived read URLs on demand.
+    """
+
+    __tablename__ = "branding_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_branding_settings_singleton"),)
+
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=False, default=1)
+    institution_name = Column(String(200), nullable=True)
+    address_lines = Column(JSON, nullable=True)
+    contact_line = Column(String(200), nullable=True)
+    logo_file_key = Column(String(512), nullable=True)
+    logo_content_type = Column(String(100), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

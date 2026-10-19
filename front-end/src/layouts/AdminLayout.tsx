@@ -20,6 +20,7 @@ export default function AdminLayout() {
         "/admin/reports": { section: "Management", page: "Reports" },
         "/admin/students": { section: "Management", page: "Students" },
         "/admin/settings/school-year": { section: "Settings", page: "School Year" },
+        "/admin/settings/branding": { section: "Settings", page: "Branding" },
     };
     const routeMeta = routeMetaByPath[location.pathname] ?? { section: "Management", page: "Admin Portal" };
 

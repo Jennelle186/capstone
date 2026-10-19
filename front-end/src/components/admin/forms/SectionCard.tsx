@@ -3,11 +3,18 @@
 import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, GripVertical, PenLine, Plus, Settings2, Table2, Trash2, Type } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, GripVertical, PenLine, Plus, Settings2, Table2, Trash2, Type } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { createFieldBlock, createParagraphBlock, createSignatureBlock, createTableBlock, textStyleToCss } from "@/lib/formLayout";
 import { ParagraphBlockCard, SignatureBlockCard, TableBlockCard, UnresolvedBlockCard } from "./BlockEditors";
 import FieldConfigDialog from "./FieldConfigDialog";
@@ -36,6 +43,8 @@ interface SectionCardProps {
     } | null;
     selectedIds: Set<string>;
     onSelectField: (id: string, additive: boolean) => void;
+    /** Field keys already used anywhere in the form (cross-section duplicate guard). */
+    usedFieldKeys: string[];
 }
 
 export default function SectionCard({
@@ -49,6 +58,7 @@ export default function SectionCard({
     dragHandle,
     selectedIds,
     onSelectField,
+    usedFieldKeys,
 }: SectionCardProps) {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingField, setEditingField] = useState<FieldBlock | null>(null);
@@ -93,6 +103,27 @@ export default function SectionCard({
         onChange({ ...section, blocks: [...(section.blocks ?? []), createTableBlock()] });
     const addSignature = () =>
         onChange({ ...section, blocks: [...(section.blocks ?? []), createSignatureBlock()] });
+
+    const resolveUnresolved = (id: string, fieldKey: string, label: string) =>
+        onChange({
+            ...section,
+            blocks: (section.blocks ?? []).map((b) =>
+                b.id === id
+                    ? {
+                          type: "field" as const,
+                          id: b.id,
+                          field_key: fieldKey,
+                          label,
+                          ui_component: "text_input" as const,
+                          required: false,
+                          options: null,
+                          columnSpan: 1,
+                          pageBreakBefore: false,
+                          style: null,
+                      }
+                    : b,
+            ),
+        });
 
     const moveField = (id: string, direction: -1 | 1) => {
         const blocksArr = section.blocks ?? [];
@@ -170,18 +201,39 @@ export default function SectionCard({
                     {blocks.map((block) => {
                         const isSelected = selectedIds.has(block.id);
                         const onSelect = (additive: boolean) => onSelectField(block.id, additive);
+                        const span = block.type === "field" ? (block.columnSpan ?? 1) : 2;
+                        const spanClass = span >= 2 ? "col-span-2" : "";
                         switch (block.type) {
                             case "field":
                                 return (
-                                    <SortableField
-                                        key={block.id}
-                                        field={block}
-                                        isSelected={isSelected}
-                                        onSelect={onSelect}
-                                        onEdit={() => openEdit(block)}
-                                        onDelete={() => removeBlock(block.id)}
-                                        onMove={(dir) => moveField(block.id, dir)}
-                                    />
+                                    <div key={block.id} className={spanClass}>
+                                        <SortableField
+                                            field={block}
+                                            isSelected={isSelected}
+                                            onSelect={onSelect}
+                                            onEdit={() => openEdit(block)}
+                                            onDelete={() => removeBlock(block.id)}
+                                            onMove={(dir) => moveField(block.id, dir)}
+                                            onColumnSpanChange={(value) =>
+                                                onChange({
+                                                    ...section,
+                                                    blocks: (section.blocks ?? []).map((b) =>
+                                                        b.type === "field" && b.id === block.id
+                                                            ? { ...b, columnSpan: value }
+                                                            : b,
+                                                    ),
+                                                })
+                                            }
+                                            onPageBreakChange={(value) =>
+                                                onChange({
+                                                    ...section,
+                                                    blocks: (section.blocks ?? []).map((b) =>
+                                                        b.id === block.id ? ({ ...b, pageBreakBefore: value } as FormBlock) : b,
+                                                    ),
+                                                })
+                                            }
+                                        />
+                                    </div>
                                 );
                             case "paragraph":
                                 return (
@@ -224,6 +276,8 @@ export default function SectionCard({
                                         isSelected={isSelected}
                                         onSelect={onSelect}
                                         onDelete={() => removeBlock(block.id)}
+                                        onResolve={(fieldKey, label) => resolveUnresolved(block.id, fieldKey, label)}
+                                        usedFieldKeys={usedFieldKeys}
                                     />
                                 );
                             default:
@@ -285,6 +339,8 @@ function SortableField({
     onEdit,
     onDelete,
     onMove,
+    onColumnSpanChange,
+    onPageBreakChange,
 }: {
     field: FieldBlock;
     isSelected: boolean;
@@ -292,6 +348,8 @@ function SortableField({
     onEdit: () => void;
     onDelete: () => void;
     onMove: (direction: -1 | 1) => void;
+    onColumnSpanChange: (value: number) => void;
+    onPageBreakChange: (value: boolean) => void;
 }) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
     const style = { transform: CSS.Transform.toString(transform), transition };
@@ -330,6 +388,28 @@ function SortableField({
                     className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                     onClick={(e) => e.stopPropagation()}
                 >
+                    <Select
+                        value={String(field.columnSpan ?? 1)}
+                        onValueChange={(value) => onColumnSpanChange(Number(value))}
+                    >
+                        <SelectTrigger className="h-6 w-[74px] text-[10px]" title="Column span">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="1">1 col</SelectItem>
+                            <SelectItem value="2">Full width</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={`h-6 w-6 ${field.pageBreakBefore ? "text-primary" : "text-slate-400"}`}
+                        title={field.pageBreakBefore ? "Page break before this field (on)" : "Start this field on a new page"}
+                        onClick={() => onPageBreakChange(!field.pageBreakBefore)}
+                    >
+                        <ArrowDownToLine className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                         type="button"
                         variant="ghost"

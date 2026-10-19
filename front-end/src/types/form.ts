@@ -1,3 +1,5 @@
+import type { ExtractionSchemaField } from "./extractionSchema";
+
 export type FormFieldUiComponent =
     | "text_input"
     | "radio_group"
@@ -55,6 +57,8 @@ export interface TableBlock {
     columns: number;
     rows: string[][];
     columnWidths?: string[] | null;
+    /** Render the first row as a repeating header in print output. */
+    headerRow?: boolean;
     pageBreakBefore?: boolean;
 }
 
@@ -159,18 +163,21 @@ export interface FormRecord {
 export interface FormCreatePayload {
     name: string;
     description?: string | null;
+    document_type_id?: string | null;
     document_json: FormDocument;
 }
 
 export interface FormUpdatePayload {
     name?: string;
     description?: string | null;
+    document_type_id?: string | null;
     document_json?: FormDocument;
 }
 
 export interface FormGenerateResponse {
     document_json: FormDocument;
-    fields_json: unknown[];
+    fields_json: ExtractionSchemaField[];
     form_name: string;
     form_control_id: string;
+    warnings: string[];
 }

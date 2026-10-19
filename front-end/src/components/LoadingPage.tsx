@@ -2,10 +2,12 @@ import { motion } from "framer-motion";
 import { Shield, FileText, CheckCircle } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 const easeOut = [0.16, 1, 0.3, 1] as const;
 
 export default function LoadingPage() {
+  const { branding } = usePublicBranding();
   return (
     <div className="grid min-h-svh lg:grid-cols-2 bg-background">
       {/* Brand / context column to mirror AuthLayout */}
@@ -22,7 +24,7 @@ export default function LoadingPage() {
         <div className="relative space-y-6">
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 rounded-xl bg-white border border-border p-2 shadow-sm">
-              <img src="/ccs-logo.jpg" alt="CCS logo" className="h-full w-full object-contain" />
+              <img src={branding.logo_url ?? "/ccs-logo.jpg"} alt="CCS logo" className="h-full w-full object-contain" />
             </div>
             <div>
               <div className="font-bold text-lg text-foreground">CCS • WMSU</div>

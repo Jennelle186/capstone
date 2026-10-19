@@ -8,11 +8,20 @@ import { toast } from "sonner";
 import CreateFormModal from "@/components/admin/forms/CreateFormModal";
 import FormList from "@/components/admin/forms/FormList";
 import FormPaper from "@/components/admin/forms/FormPaper";
+import PageSettingsPanel from "@/components/admin/forms/PageSettingsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchWithClerkAuth } from "@/lib/api";
-import { fieldsToBlocks, isPersistable, parseStructuredDocument } from "@/lib/formLayout";
+import { fieldsToBlocks, isPersistable, parseStructuredDocument, updatePageSettings } from "@/lib/formLayout";
+import type { DocumentTypeApiRecord } from "@/types/documentType";
 import type { FormPaperMode, FormRecord, FormUpdatePayload, StructuredFormDocument } from "@/types/form";
 import type { LucideIcon } from "lucide-react";
 
@@ -30,6 +39,7 @@ export default function FormsPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
+    const [documentTypes, setDocumentTypes] = useState<DocumentTypeApiRecord[]>([]);
 
     const request = useCallback(async (path: string, init?: RequestInit): Promise<Response> => {
         const token = await getTokenRef.current();
@@ -57,6 +67,19 @@ export default function FormsPage() {
         }
     }, [isLoaded, isSignedIn, loadForms]);
 
+    useEffect(() => {
+        if (!isLoaded || !isSignedIn) return;
+        void (async () => {
+            try {
+                const res = await request("/api/admin/document-types?status=active");
+                if (!res.ok) return;
+                setDocumentTypes((await res.json()) as DocumentTypeApiRecord[]);
+            } catch {
+                // Non-fatal: the dropdown simply stays empty.
+            }
+        })();
+    }, [isLoaded, isSignedIn, request]);
+
     const handleSelect = (form: FormRecord) => {
         setSelectedId(form.id);
         setSelectedForm(form);
@@ -83,6 +106,7 @@ export default function FormsPage() {
             const payload: FormUpdatePayload = {
                 name: selectedForm.name,
                 description: selectedForm.description,
+                document_type_id: selectedForm.document_type_id,
                 document_json: doc,
             };
             const res = await request(`/api/admin/forms/${selectedForm.id}`, {
@@ -157,6 +181,26 @@ export default function FormsPage() {
                                 />
                             </div>
                             <div className="flex items-center gap-2">
+                                <Select
+                                    value={selectedForm.document_type_id ?? "__none__"}
+                                    onValueChange={(value) =>
+                                        setSelectedForm((prev) =>
+                                            prev ? { ...prev, document_type_id: value === "__none__" ? null : value } : prev,
+                                        )
+                                    }
+                                >
+                                    <SelectTrigger className="h-8 w-48" title="Document type">
+                                        <SelectValue placeholder="Document type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="__none__">No document type</SelectItem>
+                                        {documentTypes.map((type) => (
+                                            <SelectItem key={type.id} value={type.id}>
+                                                {type.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                                 <div className="flex rounded-lg border border-slate-200 p-0.5">
                                     <SegmentButton
                                         active={mode === "edit"}
@@ -177,6 +221,11 @@ export default function FormsPage() {
                                 </Button>
                             </div>
                         </div>
+
+                        <PageSettingsPanel
+                            page={doc.page}
+                            onChange={(patch) => setDoc((prev) => (prev ? updatePageSettings(prev, patch) : prev))}
+                        />
 
                         <div className="overflow-x-auto rounded-2xl bg-slate-100/70 p-6">
                             <FormPaper doc={doc} mode={mode} onChange={setDoc} />

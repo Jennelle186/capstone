@@ -121,6 +121,8 @@ class TableBlock(BaseModel):
     columns: int = Field(default=2, ge=1, le=12)
     rows: list[list[str]] = Field(default_factory=list)
     columnWidths: list[str] | None = None
+    # Render the first row as a repeating header in print output.
+    headerRow: bool = False
     pageBreakBefore: bool = False
 
 
