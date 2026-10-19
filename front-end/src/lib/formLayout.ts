@@ -7,7 +7,10 @@ import type {
     FormBlock,
     FormFieldSpec,
     FormLayoutSection,
+    ParagraphBlock,
+    SignatureBlock,
     StructuredFormDocument,
+    TableBlock,
     TextStyle,
 } from "@/types/form";
 
@@ -71,7 +74,7 @@ export function applyStyleToBlocks(
         sections: doc.sections.map((section) => ({
             ...section,
             blocks: (section.blocks ?? []).map((block) => {
-                if (block.type !== "field" || !ids.has(block.id)) return block;
+                if ((block.type !== "field" && block.type !== "paragraph") || !ids.has(block.id)) return block;
                 const style: TextStyle = { ...(block.style ?? {}), ...patch };
                 if (style.fontSize != null) style.fontSize = clampNumber(style.fontSize, 6, 72);
                 if (style.spacing != null) style.spacing = clampNumber(style.spacing, 0, 48);
@@ -85,7 +88,7 @@ export function getSelectedStyle(doc: StructuredFormDocument, ids: Set<string>):
     const styles: TextStyle[] = [];
     for (const section of doc.sections) {
         for (const block of section.blocks ?? []) {
-            if (block.type === "field" && ids.has(block.id)) styles.push(block.style ?? {});
+            if ((block.type === "field" || block.type === "paragraph") && ids.has(block.id)) styles.push(block.style ?? {});
         }
     }
     if (styles.length === 0) return {};
@@ -102,6 +105,18 @@ export function getSelectedStyle(doc: StructuredFormDocument, ids: Set<string>):
 
 export function createSection(heading = "New Section"): FormLayoutSection {
     return { id: makeId(), heading, fields: [], blocks: [] };
+}
+
+export function createParagraphBlock(text = ""): ParagraphBlock {
+    return { type: "paragraph", id: makeId(), text, style: null, pageBreakBefore: false };
+}
+
+export function createTableBlock(columns = 2): TableBlock {
+    return { type: "table", id: makeId(), columns, rows: [], columnWidths: null, pageBreakBefore: false };
+}
+
+export function createSignatureBlock(label = "Signature over Printed Name"): SignatureBlock {
+    return { type: "signature", id: makeId(), label, pageBreakBefore: false };
 }
 
 export function createEmptyStructuredDocument(): StructuredFormDocument {

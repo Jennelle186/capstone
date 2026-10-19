@@ -3,15 +3,16 @@
 import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, GripVertical, Plus, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, GripVertical, PenLine, Plus, Settings2, Table2, Trash2, Type } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createFieldBlock, textStyleToCss } from "@/lib/formLayout";
+import { createFieldBlock, createParagraphBlock, createSignatureBlock, createTableBlock, textStyleToCss } from "@/lib/formLayout";
+import { ParagraphBlockCard, SignatureBlockCard, TableBlockCard, UnresolvedBlockCard } from "./BlockEditors";
 import FieldConfigDialog from "./FieldConfigDialog";
 import type { FieldNodeAttrs } from "@/types/form";
-import type { FieldBlock, FormLayoutSection } from "@/types/formLayout";
+import type { FieldBlock, FormBlock, FormLayoutSection } from "@/types/formLayout";
 
 const TYPE_LABELS: Record<string, string> = {
     text_input: "Text",
@@ -52,8 +53,8 @@ export default function SectionCard({
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingField, setEditingField] = useState<FieldBlock | null>(null);
 
-    const fieldBlocks = (section.blocks ?? []).filter((b): b is FieldBlock => b.type === "field");
-    const fieldIds = fieldBlocks.map((f) => f.id);
+    const blocks = section.blocks ?? [];
+    const blockIds = blocks.map((b) => b.id);
 
     const openAdd = () => {
         setEditingField(null);
@@ -77,15 +78,34 @@ export default function SectionCard({
         }
     };
 
-    const removeField = (id: string) =>
-        onChange({ ...section, blocks: (section.blocks ?? []).filter((b) => !(b.type === "field" && b.id === id)) });
+    const removeBlock = (id: string) =>
+        onChange({ ...section, blocks: (section.blocks ?? []).filter((b) => b.id !== id) });
+
+    const updateBlock = (id: string, patch: object) =>
+        onChange({
+            ...section,
+            blocks: (section.blocks ?? []).map((b) => (b.id === id ? ({ ...b, ...patch } as FormBlock) : b)),
+        });
+
+    const addParagraph = () =>
+        onChange({ ...section, blocks: [...(section.blocks ?? []), createParagraphBlock()] });
+    const addTable = () =>
+        onChange({ ...section, blocks: [...(section.blocks ?? []), createTableBlock()] });
+    const addSignature = () =>
+        onChange({ ...section, blocks: [...(section.blocks ?? []), createSignatureBlock()] });
 
     const moveField = (id: string, direction: -1 | 1) => {
-        const blocks = section.blocks ?? [];
-        const from = blocks.findIndex((b) => b.type === "field" && b.id === id);
-        const to = from + direction;
-        if (from < 0 || to < 0 || to >= blocks.length) return;
-        const next = [...blocks];
+        const blocksArr = section.blocks ?? [];
+        const fieldIndices = blocksArr
+            .map((b, i) => (b.type === "field" ? i : -1))
+            .filter((i) => i >= 0);
+        const pos = fieldIndices.findIndex((i) => (blocksArr[i] as FieldBlock).id === id);
+        if (pos < 0) return;
+        const target = pos + direction;
+        if (target < 0 || target >= fieldIndices.length) return;
+        const from = fieldIndices[pos];
+        const to = fieldIndices[target];
+        const next = [...blocksArr];
         [next[from], next[to]] = [next[to], next[from]];
         onChange({ ...section, blocks: next });
     };
@@ -145,30 +165,108 @@ export default function SectionCard({
                 </Button>
             </div>
 
-            <SortableContext items={fieldIds} strategy={rectSortingStrategy}>
+            <SortableContext items={blockIds} strategy={rectSortingStrategy}>
                 <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3">
-                    {fieldBlocks.map((field) => (
-                        <SortableField
-                            key={field.id}
-                            field={field}
-                            isSelected={selectedIds.has(field.id)}
-                            onSelect={(additive) => onSelectField(field.id, additive)}
-                            onEdit={() => openEdit(field)}
-                            onDelete={() => removeField(field.id)}
-                            onMove={(dir) => moveField(field.id, dir)}
-                        />
-                    ))}
-
-                    <button
-                        type="button"
-                        onClick={openAdd}
-                        className="flex min-h-[54px] items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 text-xs text-slate-400 transition-colors hover:border-primary/50 hover:text-primary"
-                    >
-                        <Plus className="h-3.5 w-3.5" />
-                        Add field
-                    </button>
+                    {blocks.map((block) => {
+                        const isSelected = selectedIds.has(block.id);
+                        const onSelect = (additive: boolean) => onSelectField(block.id, additive);
+                        switch (block.type) {
+                            case "field":
+                                return (
+                                    <SortableField
+                                        key={block.id}
+                                        field={block}
+                                        isSelected={isSelected}
+                                        onSelect={onSelect}
+                                        onEdit={() => openEdit(block)}
+                                        onDelete={() => removeBlock(block.id)}
+                                        onMove={(dir) => moveField(block.id, dir)}
+                                    />
+                                );
+                            case "paragraph":
+                                return (
+                                    <ParagraphBlockCard
+                                        key={block.id}
+                                        block={block}
+                                        isSelected={isSelected}
+                                        onSelect={onSelect}
+                                        onDelete={() => removeBlock(block.id)}
+                                        onChange={(patch) => updateBlock(block.id, patch)}
+                                    />
+                                );
+                            case "table":
+                                return (
+                                    <TableBlockCard
+                                        key={block.id}
+                                        block={block}
+                                        isSelected={isSelected}
+                                        onSelect={onSelect}
+                                        onDelete={() => removeBlock(block.id)}
+                                        onChange={(patch) => updateBlock(block.id, patch)}
+                                    />
+                                );
+                            case "signature":
+                                return (
+                                    <SignatureBlockCard
+                                        key={block.id}
+                                        block={block}
+                                        isSelected={isSelected}
+                                        onSelect={onSelect}
+                                        onDelete={() => removeBlock(block.id)}
+                                        onChange={(patch) => updateBlock(block.id, patch)}
+                                    />
+                                );
+                            case "unresolved_field":
+                                return (
+                                    <UnresolvedBlockCard
+                                        key={block.id}
+                                        block={block}
+                                        isSelected={isSelected}
+                                        onSelect={onSelect}
+                                        onDelete={() => removeBlock(block.id)}
+                                    />
+                                );
+                            default:
+                                return null;
+                        }
+                    })}
                 </div>
             </SortableContext>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                    type="button"
+                    onClick={openAdd}
+                    className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                    <Plus className="h-3.5 w-3.5" />
+                    Field
+                </button>
+                <button
+                    type="button"
+                    onClick={addParagraph}
+                    className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                    <Type className="h-3.5 w-3.5" />
+                    Paragraph
+                </button>
+                <button
+                    type="button"
+                    onClick={addTable}
+                    className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                    <Table2 className="h-3.5 w-3.5" />
+                    Table
+                </button>
+                <button
+                    type="button"
+                    onClick={addSignature}
+                    className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                    <PenLine className="h-3.5 w-3.5" />
+                    Signature
+                </button>
+            </div>
 
             <FieldConfigDialog
                 open={dialogOpen}

@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { addSection, applyStyleToBlocks, getSelectedStyle, moveSection, removeSection, replaceSection } from "@/lib/formLayout";
+import { addSection, applyStyleToBlocks, getSelectedStyle, moveSection, removeSection, replaceSection, textStyleToCss } from "@/lib/formLayout";
 import FormFieldPreview from "./FormFieldPreview";
 import SectionCard from "./SectionCard";
 import TypographyToolbar from "./TypographyToolbar";
@@ -92,7 +92,6 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
     const selectedStyle = useMemo(() => getSelectedStyle(doc, selectedIds), [doc, selectedIds]);
 
     const applyStyle = (patch: Partial<TextStyle>) => {
-        console.log("[forms] apply style", { count: selectedIds.size, patch });
         onChange(applyStyleToBlocks(doc, selectedIds, patch));
     };
 
@@ -111,7 +110,6 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
             const overSectionIndex = doc.sections.findIndex((s) => s.id === over.id);
             if (overSectionIndex < 0) return;
             const sections = arrayMove(doc.sections, activeSectionIndex, overSectionIndex);
-            console.log("[forms] reorder section", { from: activeSectionIndex, to: overSectionIndex });
             onChange({ ...doc, sections });
             return;
         }
@@ -125,7 +123,6 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
         const to = blocks.findIndex((b) => b.id === over.id);
         if (from < 0 || to < 0) return;
         const reordered = arrayMove(blocks, from, to);
-        console.log("[forms] reorder field", { sectionId: section.id, from, to });
         onChange(replaceSection(doc, { ...section, blocks: reordered }));
     };
 
@@ -392,7 +389,11 @@ function StaticBlock({ block }: { block: FormBlock }) {
                 </div>
             );
         case "paragraph":
-            return <p className="col-span-2 text-[11px] leading-relaxed text-slate-600">{block.text}</p>;
+            return (
+                <p className="col-span-2 text-[11px] leading-relaxed text-slate-600" style={textStyleToCss(block.style)}>
+                    {block.text}
+                </p>
+            );
         case "table":
             return (
                 <table className="col-span-2 w-full border-collapse text-[11px]">

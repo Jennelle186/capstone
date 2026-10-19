@@ -44,9 +44,7 @@ export default function FormsPage() {
             if (!res.ok) throw new Error(`Failed to load forms (${res.status}).`);
             const list = (await res.json()) as FormRecord[];
             setForms(list);
-            console.log("[forms] list loaded", { count: list.length });
         } catch (error) {
-            console.error("[forms] list load FAILED", error);
             toast.error(error instanceof Error ? error.message : "Failed to load forms.");
         } finally {
             setIsLoading(false);
@@ -67,19 +65,9 @@ export default function FormsPage() {
         setDoc(normalized);
         setIsLegacy(parsed === null);
         setMode("edit");
-        console.log("[forms] select", {
-            id: form.id,
-            name: form.name,
-            creationMode: form.creation_mode,
-            documentTypeId: form.document_type_id,
-            parsed: parsed ? "ok" : "LEGACY_OR_INVALID",
-            sections: normalized?.sections.length ?? 0,
-            blocksPerSection: normalized?.sections.map((s) => s.blocks?.length ?? 0) ?? [],
-        });
     };
 
     const handleCreated = (form: FormRecord) => {
-        console.log("[forms] created", { id: form.id, name: form.name });
         void loadForms();
         handleSelect(form);
     };
@@ -87,15 +75,9 @@ export default function FormsPage() {
     const handleSave = async () => {
         if (!selectedForm || !doc) return;
         if (!isPersistable(doc)) {
-            console.warn("[forms] save BLOCKED — unresolved blocks present", doc);
             toast.error("This form has unresolved AI-generated fields. Map or delete them before saving.");
             return;
         }
-        console.log("[forms] save", {
-            id: selectedForm.id,
-            sections: doc.sections.length,
-            blocks: doc.sections.reduce((n, s) => n + (s.blocks?.length ?? 0), 0),
-        });
         setIsSaving(true);
         try {
             const payload: FormUpdatePayload = {
@@ -111,10 +93,8 @@ export default function FormsPage() {
             const updated = (await res.json()) as FormRecord;
             setSelectedForm(updated);
             setForms((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-            console.log("[forms] save OK", { id: updated.id });
             toast.success("Form saved.");
         } catch (error) {
-            console.error("[forms] save FAILED", error);
             toast.error(error instanceof Error ? error.message : "Failed to save form.");
         } finally {
             setIsSaving(false);
