@@ -1,6 +1,9 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Plus, Settings2, Trash2 } from "lucide-react";
+import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/core";
+import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, GripVertical, Plus, Settings2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +29,10 @@ interface SectionCardProps {
     onChange: (next: FormLayoutSection) => void;
     onRemove: () => void;
     onMove: (direction: -1 | 1) => void;
+    dragHandle?: {
+        attributes: DraggableAttributes;
+        listeners: DraggableSyntheticListeners;
+    } | null;
 }
 
 export default function SectionCard({
@@ -36,11 +43,13 @@ export default function SectionCard({
     onChange,
     onRemove,
     onMove,
+    dragHandle,
 }: SectionCardProps) {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingField, setEditingField] = useState<FieldBlock | null>(null);
 
     const fieldBlocks = (section.blocks ?? []).filter((b): b is FieldBlock => b.type === "field");
+    const fieldIds = fieldBlocks.map((f) => f.id);
 
     const openAdd = () => {
         setEditingField(null);
@@ -80,6 +89,15 @@ export default function SectionCard({
     return (
         <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-3">
             <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    className="h-8 w-6 shrink-0 cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                    title="Drag to reorder section"
+                    {...dragHandle?.attributes}
+                    {...dragHandle?.listeners}
+                >
+                    <GripVertical className="h-4 w-4" />
+                </button>
                 <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-primary/10 text-[11px] font-bold text-primary">
                     {String(index + 1).padStart(2, "0")}
                 </span>
@@ -123,77 +141,28 @@ export default function SectionCard({
                 </Button>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3">
-                {fieldBlocks.map((field) => (
-                    <div
-                        key={field.id}
-                        className="group relative rounded-md border border-dashed border-slate-300 bg-white px-3 py-2"
-                    >
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                                <div className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-700">
-                                    {field.label}
-                                    {field.required && <span className="ml-0.5 text-primary">*</span>}
-                                </div>
-                                <div className="text-[10px] text-slate-400">
-                                    {TYPE_LABELS[field.ui_component] ?? field.ui_component}
-                                </div>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-slate-400"
-                                    title="Move earlier"
-                                    onClick={() => moveField(field.id, -1)}
-                                >
-                                    <ArrowLeft className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-slate-400"
-                                    title="Move later"
-                                    onClick={() => moveField(field.id, 1)}
-                                >
-                                    <ArrowRight className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-slate-400"
-                                    title="Edit field"
-                                    onClick={() => openEdit(field)}
-                                >
-                                    <Settings2 className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-slate-400 hover:text-red-600"
-                                    title="Delete field"
-                                    onClick={() => removeField(field.id)}
-                                >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                ))}
+            <SortableContext items={fieldIds} strategy={rectSortingStrategy}>
+                <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3">
+                    {fieldBlocks.map((field) => (
+                        <SortableField
+                            key={field.id}
+                            field={field}
+                            onEdit={() => openEdit(field)}
+                            onDelete={() => removeField(field.id)}
+                            onMove={(dir) => moveField(field.id, dir)}
+                        />
+                    ))}
 
-                <button
-                    type="button"
-                    onClick={openAdd}
-                    className="flex min-h-[54px] items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 text-xs text-slate-400 transition-colors hover:border-primary/50 hover:text-primary"
-                >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add field
-                </button>
-            </div>
+                    <button
+                        type="button"
+                        onClick={openAdd}
+                        className="flex min-h-[54px] items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 text-xs text-slate-400 transition-colors hover:border-primary/50 hover:text-primary"
+                    >
+                        <Plus className="h-3.5 w-3.5" />
+                        Add field
+                    </button>
+                </div>
+            </SortableContext>
 
             <FieldConfigDialog
                 open={dialogOpen}
@@ -201,6 +170,90 @@ export default function SectionCard({
                 initial={editingField}
                 onSubmit={handleSubmit}
             />
+        </div>
+    );
+}
+
+function SortableField({
+    field,
+    onEdit,
+    onDelete,
+    onMove,
+}: {
+    field: FieldBlock;
+    onEdit: () => void;
+    onDelete: () => void;
+    onMove: (direction: -1 | 1) => void;
+}) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
+    const style = { transform: CSS.Transform.toString(transform), transition };
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={`group relative rounded-md border border-dashed border-slate-300 bg-white px-2 py-2 ${isDragging ? "opacity-50" : ""}`}
+        >
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    className="h-6 w-4 shrink-0 cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                    title="Drag to reorder field"
+                    {...attributes}
+                    {...listeners}
+                >
+                    <GripVertical className="h-3.5 w-3.5" />
+                </button>
+                <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-700">
+                        {field.label}
+                        {field.required && <span className="ml-0.5 text-primary">*</span>}
+                    </div>
+                    <div className="text-[10px] text-slate-400">{TYPE_LABELS[field.ui_component] ?? field.ui_component}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-slate-400"
+                        title="Move earlier"
+                        onClick={() => onMove(-1)}
+                    >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-slate-400"
+                        title="Move later"
+                        onClick={() => onMove(1)}
+                    >
+                        <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-slate-400"
+                        title="Edit field"
+                        onClick={onEdit}
+                    >
+                        <Settings2 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-slate-400 hover:text-red-600"
+                        title="Delete field"
+                        onClick={onDelete}
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            </div>
         </div>
     );
 }

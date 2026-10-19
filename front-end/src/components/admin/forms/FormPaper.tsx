@@ -1,5 +1,22 @@
 "use client";
 
+import {
+    DndContext,
+    KeyboardSensor,
+    PointerSensor,
+    closestCenter,
+    useSensor,
+    useSensors,
+} from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import {
+    SortableContext,
+    arrayMove,
+    sortableKeyboardCoordinates,
+    useSortable,
+    verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Plus } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -32,6 +49,39 @@ interface FormPaperProps {
 
 export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
     const editing = mode === "edit";
+
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    );
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+
+        // Section reorder?
+        const activeSectionIndex = doc.sections.findIndex((s) => s.id === active.id);
+        if (activeSectionIndex >= 0) {
+            const overSectionIndex = doc.sections.findIndex((s) => s.id === over.id);
+            if (overSectionIndex < 0) return;
+            const sections = arrayMove(doc.sections, activeSectionIndex, overSectionIndex);
+            console.log("[forms] reorder section", { from: activeSectionIndex, to: overSectionIndex });
+            onChange({ ...doc, sections });
+            return;
+        }
+
+        // Field reorder within its section.
+        const sectionIndex = doc.sections.findIndex((s) => (s.blocks ?? []).some((b) => b.id === active.id));
+        if (sectionIndex < 0) return;
+        const section = doc.sections[sectionIndex];
+        const blocks = section.blocks ?? [];
+        const from = blocks.findIndex((b) => b.id === active.id);
+        const to = blocks.findIndex((b) => b.id === over.id);
+        if (from < 0 || to < 0) return;
+        const reordered = arrayMove(blocks, from, to);
+        console.log("[forms] reorder field", { sectionId: section.id, from, to });
+        onChange(replaceSection(doc, { ...section, blocks: reordered }));
+    };
 
     return (
         <div className="form-paper mx-auto w-[210mm] min-h-[297mm] bg-white px-[16mm] py-[14mm] text-slate-900 shadow-[0_1px_3px_rgba(15,23,42,0.10),0_18px_50px_-20px_rgba(15,23,42,0.35)]">
@@ -96,21 +146,25 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
             </div>
 
             <div className="mt-6 space-y-7">
-                {doc.sections.map((section, index) =>
-                    editing ? (
-                        <SectionCard
-                            key={section.id}
-                            section={section}
-                            index={index}
-                            canMoveUp={index > 0}
-                            canMoveDown={index < doc.sections.length - 1}
-                            onChange={(next) => onChange(replaceSection(doc, next))}
-                            onRemove={() => onChange(removeSection(doc, section.id))}
-                            onMove={(direction) => onChange(moveSection(doc, section.id, direction))}
-                        />
-                    ) : (
-                        <StaticSection key={section.id} section={section} index={index} />
-                    ),
+                {editing ? (
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                        <SortableContext items={doc.sections.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+                            {doc.sections.map((section, index) => (
+                                <SortableSection
+                                    key={section.id}
+                                    section={section}
+                                    index={index}
+                                    canMoveUp={index > 0}
+                                    canMoveDown={index < doc.sections.length - 1}
+                                    onChange={(next) => onChange(replaceSection(doc, next))}
+                                    onRemove={() => onChange(removeSection(doc, section.id))}
+                                    onMove={(direction) => onChange(moveSection(doc, section.id, direction))}
+                                />
+                            ))}
+                        </SortableContext>
+                    </DndContext>
+                ) : (
+                    doc.sections.map((section, index) => <StaticSection key={section.id} section={section} index={index} />)
                 )}
 
                 {editing && (
@@ -158,6 +212,36 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
                     )
                 )}
             </div>
+        </div>
+    );
+}
+
+interface SortableSectionProps {
+    section: FormLayoutSection;
+    index: number;
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+    onChange: (next: FormLayoutSection) => void;
+    onRemove: () => void;
+    onMove: (direction: -1 | 1) => void;
+}
+
+function SortableSection({ section, index, canMoveUp, canMoveDown, onChange, onRemove, onMove }: SortableSectionProps) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: section.id });
+    const style = { transform: CSS.Transform.toString(transform), transition };
+
+    return (
+        <div ref={setNodeRef} style={style} className={isDragging ? "opacity-60" : undefined}>
+            <SectionCard
+                section={section}
+                index={index}
+                canMoveUp={canMoveUp}
+                canMoveDown={canMoveDown}
+                onChange={onChange}
+                onRemove={onRemove}
+                onMove={onMove}
+                dragHandle={{ attributes, listeners }}
+            />
         </div>
     );
 }
