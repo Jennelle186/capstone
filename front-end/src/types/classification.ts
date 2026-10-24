@@ -32,6 +32,7 @@ export interface ClassificationItem {
   pageCount: number | null;
   status: ClassificationStatus;
   originalStatus?: string;
+  filledOnline?: boolean;
   previewUrl?: string;
   classificationResult?: ClassificationResult | null;
   mimeType?: string | null;

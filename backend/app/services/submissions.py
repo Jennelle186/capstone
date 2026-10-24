@@ -152,6 +152,9 @@ async def get_submission_download_url(
     ):
         return None
 
+    if getattr(submission, "filled_online", False):
+        return None
+
     return gcs_generate_presigned_url(submission.file_key)
 
 

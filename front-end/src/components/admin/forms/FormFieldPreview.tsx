@@ -4,7 +4,16 @@ import { textStyleToCss } from "@/lib/formLayout";
 import type { FormFieldSpec, TextStyle } from "@/types/formLayout";
 
 /** Renders a single field exactly as it should appear on the printed form. */
-export default function FormFieldPreview({ field, style }: { field: FormFieldSpec; style?: TextStyle | null }) {
+export default function FormFieldPreview({
+    field,
+    style,
+    value,
+}: {
+    field: FormFieldSpec;
+    style?: TextStyle | null;
+    /** Filled-in value (Phase 4B export). When provided, renders the answer instead of a blank control. */
+    value?: string | string[] | null;
+}) {
     return (
         <div className="min-w-0">
             <div
@@ -14,7 +23,23 @@ export default function FormFieldPreview({ field, style }: { field: FormFieldSpe
                 {field.label}
                 {field.required && <span className="ml-0.5 text-primary">*</span>}
             </div>
-            <div className="mt-1.5">{renderControl(field)}</div>
+            <div className="mt-1.5">{value !== undefined && value !== null ? renderValue(field, value) : renderControl(field)}</div>
+        </div>
+    );
+}
+
+function renderValue(field: FormFieldSpec, value: string | string[]) {
+    const values = (Array.isArray(value) ? value : [value]).filter(Boolean);
+    if (values.length === 0) return renderControl(field);
+
+    const labels = values.map((v) => {
+        const option = (field.options ?? []).find((o) => o.value === v);
+        return option?.label ?? v;
+    });
+
+    return (
+        <div className="flex min-h-6 items-end border-b border-slate-400 pb-0.5 text-xs text-slate-900">
+            {labels.join(", ")}
         </div>
     );
 }

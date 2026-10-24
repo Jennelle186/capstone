@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import ReviewDocumentDetailModal from "@/components/common/document-detail/ReviewDocumentDetailModal";
+import FilledFormDetailModal from "@/components/student/forms/FilledFormDetailModal";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { SubmissionItem, DownloadUrlResponse } from "@/types/submission";
 import type { ExtractionItemResponse } from "@/types/extraction";
@@ -113,6 +114,21 @@ export default function StudentReviewDocumentDetailModal({
       }),
     [submissions, sectionsBySubmissionId],
   );
+
+  const currentItem = submissions[currentIndex];
+  if (currentItem?.filledOnline) {
+    return (
+      <FilledFormDetailModal
+        submissionId={currentItem.id}
+        open={open}
+        onOpenChange={onOpenChange}
+        getToken={getToken}
+        currentIndex={currentIndex}
+        total={submissions.length}
+        onIndexChange={onIndexChange}
+      />
+    );
+  }
 
   return (
     <ReviewDocumentDetailModal

@@ -183,3 +183,27 @@ export interface FormGenerateResponse {
     form_control_id: string;
     warnings: string[];
 }
+
+/** A single field's typed-in value: text/date/dropdown/radio are strings, checkbox is a string[]. */
+export type FormValue = string | string[];
+
+/** Map of form field_key → typed value for the online fill (4B). */
+export type FormValues = Record<string, FormValue>;
+
+export interface FormSubmissionRecord {
+    id: string;
+    form_id: string | null;
+    document_type_id: string | null;
+    school_year_id: string | null;
+    values: FormValues;
+    status: "draft" | "submitted";
+    created_at: string;
+    updated_at: string;
+}
+
+export interface FormFillResponse {
+    form_id: string | null;
+    form_name: string;
+    document_json: FormDocument;
+    submission: FormSubmissionRecord | null;
+}

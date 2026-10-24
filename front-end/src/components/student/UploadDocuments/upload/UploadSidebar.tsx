@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, ClipboardList, ChevronRight, Download, FileText, Lightbulb } from "lucide-react";
+import { CheckCircle, ClipboardList, ChevronRight, Download, FileText, Lightbulb, Pencil } from "lucide-react";
 import { Link } from "react-router";
 import type { SlotItemStatus, SlotStatusResponse } from "@/types/requirement";
 import { getSlotDisplayName } from "@/types/requirement";
@@ -142,15 +142,25 @@ function BlankFormLinks({ items }: { items: SlotItemStatus[] }) {
     return (
         <ul className="mt-1.5 space-y-1">
             {downloadable.map((item) => (
-                <li key={item.item_id}>
+                <li key={item.item_id} className="space-y-1">
                     <Link
-                        to={`/student/blank-form/${item.item_id}`}
+                        to={`/student/fill-form/${item.item_id}`}
                         className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
                     >
-                        <Download className="h-3.5 w-3.5 shrink-0" />
-                        Download blank form
+                        <Pencil className="h-3.5 w-3.5 shrink-0" />
+                        Fill online
                         {item.document_type_name ? ` · ${item.document_type_name}` : ""}
                     </Link>
+                    <span className="block">
+                        <Link
+                            to={`/student/blank-form/${item.item_id}`}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                        >
+                            <Download className="h-3.5 w-3.5 shrink-0" />
+                            Download blank form
+                            {item.document_type_name ? ` · ${item.document_type_name}` : ""}
+                        </Link>
+                    </span>
                 </li>
             ))}
         </ul>

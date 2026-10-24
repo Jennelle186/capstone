@@ -8,6 +8,7 @@ import DocumentDetailModal, {
   type ExtractionField,
   type ExtractionSection,
 } from "@/components/common/document-detail/DocumentDetailModal";
+import FilledFormDetailModal from "@/components/student/forms/FilledFormDetailModal";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { Submission } from "./types";
 import { statusConfig } from "./types";
@@ -36,6 +37,8 @@ export default function StudentDocumentDetailModal({
     ? submissions[currentIndex]
     : null;
 
+  const isFilledOnline = submission?.filledOnline === true;
+
   React.useEffect(() => {
     getTokenRef.current = getToken;
   }, [getToken]);
@@ -46,7 +49,7 @@ export default function StudentDocumentDetailModal({
   const submissionId = submission?.id;
 
   React.useEffect(() => {
-    if (!open || !submissionId) return;
+    if (!open || !submissionId || isFilledOnline) return;
 
     let cancelled = false;
     setPreviewUrl(undefined);
@@ -102,7 +105,7 @@ export default function StudentDocumentDetailModal({
 
     fetchData();
     return () => { cancelled = true; };
-  }, [open, submissionId]);
+  }, [open, submissionId, isFilledOnline]);
 
   const config = submission ? statusConfig[submission.status] : statusConfig.uploaded;
 
@@ -123,6 +126,20 @@ export default function StudentDocumentDetailModal({
         extractionSections: sections,
       }
     : null;
+
+  if (submission?.filledOnline) {
+    return (
+      <FilledFormDetailModal
+        submissionId={submission.id}
+        open={open}
+        onOpenChange={onOpenChange}
+        getToken={getToken}
+        currentIndex={currentIndex}
+        total={submissions.length}
+        onIndexChange={onIndexChange}
+      />
+    );
+  }
 
   return (
     <DocumentDetailModal

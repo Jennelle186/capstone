@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import FormPrintDocument from "./FormPrintDocument";
 import type { PrintMetrics } from "./FormPrintDocument";
 import type { StructuredFormDocument } from "@/types/formLayout";
+import type { FormValues } from "@/types/form";
 
 /**
  * Mounts the print-only document as a direct child of ``<body>``.
@@ -17,9 +18,11 @@ import type { StructuredFormDocument } from "@/types/formLayout";
 export default function FormPrintRoot({
     doc,
     onMeasured,
+    values,
 }: {
     doc: StructuredFormDocument;
     onMeasured?: (metrics: PrintMetrics) => void;
+    values?: FormValues;
 }) {
     const [container, setContainer] = useState<HTMLElement | null>(null);
 
@@ -35,5 +38,5 @@ export default function FormPrintRoot({
     }, []);
 
     if (!container) return null;
-    return createPortal(<FormPrintDocument doc={doc} onMeasured={onMeasured} />, container);
+    return createPortal(<FormPrintDocument doc={doc} onMeasured={onMeasured} values={values} />, container);
 }

@@ -93,9 +93,10 @@ function toSubmission(detail: SubmissionDetail): Submission {
     documentName: detail.original_filename,
     documentType: detail.document_type_name ?? (detail.is_compiled_parent ? "Compiled document" : "Unclassified"),
     uploadDate: formatDate(detail.created_at),
-    status: detail.status as SubmissionStatusType,
+    status: detail.filled_online ? "filled-online" : (detail.status as SubmissionStatusType),
     fileType: mimeToLabel(detail.mime_type),
     fileSize: formatFileSize(detail.file_size),
+    filledOnline: detail.filled_online,
   };
 }
 

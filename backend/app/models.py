@@ -714,6 +714,10 @@ class DocumentSubmission(Base):
     file_size = Column(String(32), nullable=True)
     mime_type = Column(String(128), nullable=True)
     is_compiled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # True when this "document" was filled in online by the student (Phase 4B)
+    # rather than uploaded and scanned. Such rows have an empty ``file_key`` and
+    # their ``extracted_data`` holds the typed values directly.
+    filled_online = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     status = Column(
         Enum(
             SubmissionStatus,
@@ -806,6 +810,94 @@ class DocumentSubmissionHistory(Base):
 
     submission = relationship("DocumentSubmission", back_populates="history_entries", foreign_keys=[submission_id])
     actor_user = relationship("User")
+
+
+class FormSubmissionStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+
+
+class FormSubmission(Base):
+    """A student's typed-in answers for a printable form (Phase 4B online fill).
+
+    Distinct from :class:`DocumentSubmission`: there is no uploaded file, no
+    classification/extraction, and no adviser verification — the typed values
+    *are* the structured data. Analytics only consumes these after an explicit
+    sync once the form's field keys match the requirement item's extraction
+    schema (Phase 5).
+    """
+
+    __tablename__ = "form_submissions"
+
+    __table_args__ = (
+        Index(
+            "ix_form_submissions_one_draft",
+            "student_id",
+            "form_id",
+            "school_year_id",
+            unique=True,
+            postgresql_where=text("status = 'draft'"),
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    form_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("forms.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    document_type_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_types.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    school_year_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("school_years.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The resulting DocumentSubmission created when this form was submitted for
+    # adviser review (Phase 4B treats online fills like uploaded documents).
+    document_submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    values = Column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    status = Column(
+        Enum(
+            FormSubmissionStatus,
+            name="form_submission_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=FormSubmissionStatus.DRAFT,
+        server_default=FormSubmissionStatus.DRAFT.value,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    student = relationship("Student")
+    form = relationship("Form")
+    document_type = relationship("DocumentType")
+    school_year = relationship("SchoolYear")
+    document_submission = relationship("DocumentSubmission")
 
 
 class Notification(Base):

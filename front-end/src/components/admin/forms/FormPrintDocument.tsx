@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import FormStaticBody from "./FormStaticBody";
 import { getPaperDimensions, normalizePageSettings } from "@/lib/formLayout";
 import type { StructuredFormDocument } from "@/types/formLayout";
+import type { FormValues } from "@/types/form";
 
 /** Do not shrink beyond this — below it the printed text stops being legible. */
 const MIN_FIT_SCALE = 0.5;
@@ -29,6 +30,7 @@ export interface PrintMetrics {
 interface FormPrintDocumentProps {
     doc: StructuredFormDocument;
     onMeasured?: (metrics: PrintMetrics) => void;
+    values?: FormValues;
 }
 
 /**
@@ -41,7 +43,7 @@ interface FormPrintDocumentProps {
  * Print margins are handled by ``@page`` rather than by padding on the sheet,
  * which gives pages 2+ the same top/bottom margins as page 1.
  */
-export default function FormPrintDocument({ doc, onMeasured }: FormPrintDocumentProps) {
+export default function FormPrintDocument({ doc, onMeasured, values }: FormPrintDocumentProps) {
     const page = normalizePageSettings(doc.page);
     const margins = page.margins!;
     const { width, height } = getPaperDimensions(page);
@@ -139,7 +141,7 @@ export default function FormPrintDocument({ doc, onMeasured }: FormPrintDocument
                 className="form-print-sheet bg-white text-slate-900"
                 style={{ width: `${contentWidth}mm` }}
             >
-                <FormStaticBody doc={doc} suppressPageBreaks={page.fitToPage} />
+                <FormStaticBody doc={doc} suppressPageBreaks={page.fitToPage} values={values} />
             </div>
         </>
     );

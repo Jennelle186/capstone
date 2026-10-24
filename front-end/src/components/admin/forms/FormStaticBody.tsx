@@ -4,6 +4,7 @@ import FormFieldPreview from "./FormFieldPreview";
 import { usePublicBranding } from "@/hooks/usePublicBranding";
 import { textStyleToCss } from "@/lib/formLayout";
 import type { FormBlock, FormLayoutSection, StructuredFormDocument } from "@/types/formLayout";
+import type { FormValues } from "@/types/form";
 
 /**
  * Read-only form body shared by preview mode and the print document.
@@ -15,10 +16,13 @@ import type { FormBlock, FormLayoutSection, StructuredFormDocument } from "@/typ
 export default function FormStaticBody({
     doc,
     suppressPageBreaks = false,
+    values,
 }: {
     doc: StructuredFormDocument;
     /** Used by the fit-to-one-page print path: explicit breaks would defeat the fit. */
     suppressPageBreaks?: boolean;
+    /** Filled-in answers (Phase 4B); when provided, fields render their value instead of a blank control. */
+    values?: FormValues;
 }) {
     const { branding } = usePublicBranding();
 
@@ -79,6 +83,7 @@ export default function FormStaticBody({
                         section={section}
                         index={index}
                         suppressPageBreaks={suppressPageBreaks}
+                        values={values}
                     />
                 ))}
             </div>
@@ -107,10 +112,12 @@ function StaticSection({
     section,
     index,
     suppressPageBreaks,
+    values,
 }: {
     section: FormLayoutSection;
     index: number;
     suppressPageBreaks: boolean;
+    values?: FormValues;
 }) {
     const blocks = section.blocks;
     const useBlocks = !!blocks && blocks.length > 0;
@@ -141,12 +148,12 @@ function StaticSection({
                                   className={`${fullWidth ? "col-span-2 " : ""}${keepTogether ? "form-block" : ""}`}
                                   style={pageBreakBefore ? { breakBefore: "page" } : undefined}
                               >
-                                  <StaticBlock block={block} />
+                                  <StaticBlock block={block} values={values} />
                               </div>
                           );
                       })
                     : section.fields.map((field) => (
-                          <FormFieldPreview key={field.id} field={field} />
+                          <FormFieldPreview key={field.id} field={field} value={values?.[field.field_key]} />
                       ))}
             </div>
             {fieldCount === 0 && <p className="text-[11px] italic text-slate-300">No fields in this section.</p>}
@@ -154,10 +161,10 @@ function StaticSection({
     );
 }
 
-function StaticBlock({ block }: { block: FormBlock }) {
+function StaticBlock({ block, values }: { block: FormBlock; values?: FormValues }) {
     switch (block.type) {
         case "field":
-            return <FormFieldPreview field={block} style={block.style} />;
+            return <FormFieldPreview field={block} style={block.style} value={values?.[block.field_key]} />;
         case "unresolved_field":
             return (
                 <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
