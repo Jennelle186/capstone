@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .extraction_schemas import ExtractionSchemaField
 from .form_layout import create_empty_document
@@ -49,11 +49,38 @@ class FormResponse(BaseModel):
 
 
 class FormGenerateRequest(BaseModel):
-    description: str = Field(min_length=1, max_length=4000)
+    description: str = Field(
+        default="",
+        max_length=4000,
+        description=(
+            "Optional layout instructions when grounding on a field catalog. "
+            "Required when no catalog is provided."
+        ),
+    )
     fields: list[ExtractionSchemaField] | None = Field(
         default=None,
-        description="Optional field catalog to ground the layout on; when omitted, Gemini invents fields from the description.",
+        description=(
+            "Optional field catalog to ground the layout on; when omitted, "
+            "Gemini invents fields from the description."
+        ),
     )
+
+    @field_validator("description")
+    @classmethod
+    def _strip_description(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _validate_generation_input(self) -> FormGenerateRequest:
+        if self.fields is not None and not self.fields:
+            raise ValueError(
+                "Provide at least one field when grounding on an extraction schema."
+            )
+        if self.fields is None and not self.description:
+            raise ValueError(
+                "Describe the form when no extraction schema is provided."
+            )
+        return self
 
 
 class FormGenerateResponse(BaseModel):

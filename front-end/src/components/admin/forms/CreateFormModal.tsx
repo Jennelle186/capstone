@@ -26,6 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { createEmptyStructuredDocument } from "@/lib/formLayout";
+import { getSchemaFields } from "@/lib/schema-utils";
 import type { DocumentTypeApiRecord } from "@/types/documentType";
 import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
 import type { FormDocument, FormGenerateResponse, FormRecord } from "@/types/form";
@@ -74,6 +75,12 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
     }, [open, request]);
 
     const selectedSchema = schemas.find((schema) => schema.id === schemaId) ?? null;
+    const selectedSchemaFields = selectedSchema
+        ? getSchemaFields(selectedSchema.schema_json ?? {}, selectedSchema.fields_json ?? []).filter(
+              (field) => field.key.trim().length > 0,
+          )
+        : [];
+    const hasGroundedFields = selectedSchemaFields.length > 0;
 
     const reset = () => {
         setName("");
@@ -99,14 +106,17 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
         try {
             let document: FormDocument = createEmptyStructuredDocument();
             if (mode === "ai") {
-                if (!description.trim()) {
+                if (selectedSchema && !hasGroundedFields) {
+                    throw new Error("The selected schema has no fields. Choose another schema or set it to No schema.");
+                }
+                if (!selectedSchema && !description.trim()) {
                     throw new Error("Please describe the form before generating.");
                 }
                 const genRes = await request("/api/admin/forms/generate", {
                     method: "POST",
                     body: JSON.stringify({
                         description,
-                        fields: selectedSchema?.fields_json ?? null,
+                        fields: selectedSchema ? selectedSchemaFields : null,
                     }),
                 });
                 if (!genRes.ok) {
@@ -164,7 +174,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                             value={documentTypeId ?? "__none__"}
                             onValueChange={(value) => setDocumentTypeId(value === "__none__" ? null : value)}
                         >
-                            <SelectTrigger>
+                            <SelectTrigger aria-label="Document type">
                                 <SelectValue placeholder="Select a document type" />
                             </SelectTrigger>
                             <SelectContent>
@@ -191,7 +201,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                             <div className="space-y-1.5">
                                 <Label>Ground on extraction schema (optional)</Label>
                                 <Select value={schemaId ?? "__none__"} onValueChange={handleSchemaChange}>
-                                    <SelectTrigger>
+                                    <SelectTrigger aria-label="Ground on extraction schema">
                                         <SelectValue placeholder="No schema" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -206,18 +216,28 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                                 </Select>
                                 <p className="text-[11px] text-slate-400">
                                     {selectedSchema
-                                        ? `The AI may only use the ${selectedSchema.fields_json.length} field(s) in this schema. Unknown keys are flagged for review.`
-                                        : "Without a schema the AI proposes its own fields."}
+                                        ? hasGroundedFields
+                                            ? `Grounded on ${selectedSchema.name} · ${selectedSchemaFields.length} field(s). Description is optional; unknown keys are flagged for review.`
+                                            : "This schema has no fields. Choose another schema or set it to No schema."
+                                        : "Without a schema the AI proposes its own fields; a description is required."}
                                 </p>
                             </div>
 
                             <div className="space-y-1.5">
-                                <Label htmlFor="create-form-description">Describe the form and its fields</Label>
+                                <Label htmlFor="create-form-description">
+                                    {selectedSchema && hasGroundedFields
+                                        ? "Layout instructions (optional)"
+                                        : "Describe the form and its fields"}
+                                </Label>
                                 <Textarea
                                     id="create-form-description"
                                     value={description}
                                     onChange={(e) => setDescription(e.target.value)}
-                                    placeholder="Create a form with these fields: student name, LRN, date of birth, sex, grade level, SHS track"
+                                    placeholder={
+                                        selectedSchema && hasGroundedFields
+                                            ? "Optional: group the schema fields into sections, add headings, or request a compact layout."
+                                            : "Create a form with these fields: student name, LRN, date of birth, sex, grade level, SHS track"
+                                    }
                                     className="min-h-24"
                                 />
                             </div>

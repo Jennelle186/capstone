@@ -131,7 +131,7 @@ async def generate_form(
 
     try:
         async with BLUEPRINT_SEMAPHORE:
-            if payload.fields:
+            if payload.fields is not None:
                 raw_fields = [f.model_dump() for f in payload.fields]
                 blueprint = await asyncio.to_thread(generate_form_layout, raw_fields, payload.description)
             else:
@@ -147,7 +147,7 @@ async def generate_form(
 
     document_json = blueprint_to_document(blueprint)
     warnings: list[str] = []
-    if payload.fields:
+    if payload.fields is not None:
         valid_keys = {normalize_field_key(f.key) for f in payload.fields}
         document_json, warnings = ground_field_keys(document_json, valid_keys)
         fields_json = payload.fields
