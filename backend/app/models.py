@@ -497,6 +497,14 @@ class RequirementSlotItem(Base):
         nullable=True,
         index=True,
     )
+    # Optional printable blank form bound to this requirement item. The form's
+    # document type must match this item's document type (enforced on save).
+    form_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("forms.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     is_primary = Column(Boolean, nullable=False, default=False)
     display_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -505,6 +513,7 @@ class RequirementSlotItem(Base):
     slot = relationship("RequirementSlot", back_populates="items")
     document_type = relationship("DocumentType")
     extraction_schema = relationship("ExtractionSchema")
+    form = relationship("Form")
 
 
 class ExtractionSchema(Base):

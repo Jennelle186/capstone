@@ -725,6 +725,7 @@ async def rollover_school_year(
                         requirement_slot_id=new_slot.id,
                         document_type_id=source_item.document_type_id,
                         extraction_schema_id=source_item.extraction_schema_id,
+                        form_id=source_item.form_id,
                         is_primary=source_item.is_primary,
                         display_order=source_item.display_order,
                     )

@@ -15,6 +15,8 @@ class SlotItemResponse(BaseModel):
     document_type_code: str
     extraction_schema_id: UUID | None = None
     extraction_schema_name: str | None = None
+    form_id: UUID | None = None
+    form_name: str | None = None
     is_primary: bool
     display_order: int
 
@@ -43,6 +45,8 @@ class SlotItemStatus(BaseModel):
     document_type_id: UUID
     document_type_name: str
     document_type_code: str
+    form_id: UUID | None = None
+    form_name: str | None = None
     is_primary: bool
 
 
@@ -84,6 +88,7 @@ class SlotItemAssignment(BaseModel):
     id: UUID | None = None  # None for new items, UUID for existing
     document_type_id: UUID
     extraction_schema_id: UUID | None = None
+    form_id: UUID | None = None
     is_primary: bool = False
     display_order: int = 0
 
