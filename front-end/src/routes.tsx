@@ -8,6 +8,7 @@ import TermsPage from "./pages/TermsPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import StudentDashboard from "./pages/students/StudentDashboard";
 import UploadDocuments from "./pages/students/UploadDocuments";
+import StudentBlankFormPage from "./pages/students/StudentBlankFormPage";
 import ProfileSettings from "./pages/students/ProfileSettings";
 import ExtractionDetailPage from "./pages/students/ExtractionDetailPage";
 import ResolveFlaggedPage from "./pages/students/ResolveFlaggedPage";
@@ -79,6 +80,7 @@ const AppRoutes = createBrowserRouter([
                   { path: "dashboard", Component: StudentDashboard },
                   { path: "notifications", Component: NotificationsPage },
                   { path: "upload", Component: UploadDocuments },
+                  { path: "blank-form/:itemId", Component: StudentBlankFormPage },
                   { path: "extraction/:submissionId", Component: ExtractionDetailPage },
                   { path: "resolve-flagged/:documentId", Component: ResolveFlaggedPage },
                   // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).

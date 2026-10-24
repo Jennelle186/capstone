@@ -42,6 +42,7 @@ class SlotResponse(BaseModel):
 
 class SlotItemStatus(BaseModel):
     """Document type entry within a slot, shown to students."""
+    item_id: UUID
     document_type_id: UUID
     document_type_name: str
     document_type_code: str
@@ -78,6 +79,13 @@ class RequiredSlotsResponse(BaseModel):
     classification: str | None
     classification_set_by_user: bool = False
     slots: list[SlotStatusResponse] = Field(default_factory=list)
+
+
+class BlankFormResponse(BaseModel):
+    """A printable blank form bound to a student's requirement item."""
+    form_id: UUID
+    form_name: str
+    document_json: dict[str, Any]
 
 
 # ── Admin slot assignment ───────────────────────────────────────────────

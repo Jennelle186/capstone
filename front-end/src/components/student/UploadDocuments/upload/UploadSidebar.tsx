@@ -1,7 +1,8 @@
 "use client";
 
-import { CheckCircle, ClipboardList, ChevronRight, FileText, Lightbulb } from "lucide-react";
-import type { SlotStatusResponse } from "@/types/requirement";
+import { CheckCircle, ClipboardList, ChevronRight, Download, FileText, Lightbulb } from "lucide-react";
+import { Link } from "react-router";
+import type { SlotItemStatus, SlotStatusResponse } from "@/types/requirement";
 import { getSlotDisplayName } from "@/types/requirement";
 
 interface UploadSidebarProps {
@@ -43,39 +44,40 @@ export default function UploadSidebar({ slots, legacyDocuments }: UploadSidebarP
                                                         {slot.matched_count}/{slot.min_required} required
                                                     </span>
                                                 )}
-                                        {slot.is_complete && (
-                                            <span className="ml-auto text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5 whitespace-nowrap">
-                                                Complete
-                                            </span>
-                                        )}
-                                    </div>
-                                    {slot.is_complete && (
-                                        <p className="mt-1 text-[11px] text-emerald-600 bg-emerald-50/50 rounded-md px-2 py-0.5">
-                                            Requirement fulfilled: new uploads add alternate copies.
-                                        </p>
-                                    )}
-                                    {!slot.is_complete && (
-                                        <p className="mt-1 text-xs text-slate-400">
-                                            Submit any {slot.min_required} of:{" "}
-                                            {slot.items.map((i) => i.document_type_name).join(", ")}
-                                        </p>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-2">
-                                    {slot.is_complete ? (
-                                        <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
+                                                {slot.is_complete && (
+                                                    <span className="ml-auto text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5 whitespace-nowrap">
+                                                        Complete
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {slot.is_complete && (
+                                                <p className="mt-1 text-[11px] text-emerald-600 bg-emerald-50/50 rounded-md px-2 py-0.5">
+                                                    Requirement fulfilled: new uploads add alternate copies.
+                                                </p>
+                                            )}
+                                            {!slot.is_complete && (
+                                                <p className="mt-1 text-xs text-slate-400">
+                                                    Submit any {slot.min_required} of:{" "}
+                                                    {slot.items.map((i) => i.document_type_name).join(", ")}
+                                                </p>
+                                            )}
+                                        </div>
                                     ) : (
-                                        <span className="text-red-500 font-bold text-base leading-none shrink-0">
-                                            *
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            {slot.is_complete ? (
+                                                <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
+                                            ) : (
+                                                <span className="text-red-500 font-bold text-base leading-none shrink-0">
+                                                    *
+                                                </span>
+                                            )}
+                                            <span>{getSlotDisplayName(slot)}</span>
+                                            {slot.is_complete && (
+                                                <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0 ml-auto" />
+                                            )}
+                                        </div>
                                     )}
-                                    <span>{getSlotDisplayName(slot)}</span>
-                                    {slot.is_complete && (
-                                        <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0 ml-auto" />
-                                    )}
-                                </div>
-                                    )}
+                                    <BlankFormLinks items={slot.items} />
                                 </li>
                             ))}
                         {showLegacy &&
@@ -130,5 +132,27 @@ export default function UploadSidebar({ slots, legacyDocuments }: UploadSidebarP
                 </div>
             </div>
         </div>
+    );
+}
+
+function BlankFormLinks({ items }: { items: SlotItemStatus[] }) {
+    const downloadable = items.filter((item) => item.form_id && item.item_id);
+    if (downloadable.length === 0) return null;
+
+    return (
+        <ul className="mt-1.5 space-y-1">
+            {downloadable.map((item) => (
+                <li key={item.item_id}>
+                    <Link
+                        to={`/student/blank-form/${item.item_id}`}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                    >
+                        <Download className="h-3.5 w-3.5 shrink-0" />
+                        Download blank form
+                        {item.document_type_name ? ` · ${item.document_type_name}` : ""}
+                    </Link>
+                </li>
+            ))}
+        </ul>
     );
 }

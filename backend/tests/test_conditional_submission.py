@@ -21,7 +21,7 @@ def _make_slot_status(*, is_complete: bool, group_name: str | None = None, descr
         description=description,
         min_required=min_required,
         display_order=0,
-        items=[SlotItemStatus(document_type_id=str(uuid4()), document_type_name="Test Doc", document_type_code="TD", is_primary=True)],
+        items=[SlotItemStatus(item_id=str(uuid4()), document_type_id=str(uuid4()), document_type_name="Test Doc", document_type_code="TD", is_primary=True)],
         is_complete=is_complete,
         matched_submission_ids=[],
         matched_count=matched_count,

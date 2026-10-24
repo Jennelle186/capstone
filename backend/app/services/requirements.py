@@ -118,6 +118,35 @@ def _bound_form(item: RequirementSlotItem) -> Form | None:
     return form
 
 
+async def get_blank_form_for_item(
+    db: SessionDep,
+    student: Student,
+    item_id: UUID,
+) -> Form | None:
+    """Return the printable blank form bound to a requirement item in the
+    student's own school year, or None when nothing should be served.
+
+    Guards against cross-year access and stale bindings: the item must belong
+    to a slot in the student's school year, and the bound form must still be a
+    structured form whose document type matches the item's (see ``_bound_form``).
+    """
+    if student.school_year_id is None:
+        return None
+
+    stmt = (
+        select(RequirementSlotItem)
+        .where(RequirementSlotItem.id == item_id)
+        .options(
+            selectinload(RequirementSlotItem.slot),
+            selectinload(RequirementSlotItem.form),
+        )
+    )
+    item = (await db.execute(stmt)).scalar_one_or_none()
+    if item is None or item.slot.school_year_id != student.school_year_id:
+        return None
+    return _bound_form(item)
+
+
 # ── Dual-read: resolve requirement slots for a student ──────────────────
 
 
@@ -304,6 +333,7 @@ async def get_student_slot_statuses(
             form = _bound_form(item)
             slot_item_dtos.append(
                 SlotItemStatus(
+                    item_id=item.id,
                     document_type_id=item.document_type_id,
                     document_type_name=dt.name if dt else "Unknown",
                     document_type_code=dt.code if dt else "",
@@ -322,10 +352,9 @@ async def get_student_slot_statuses(
                 matched_doc_names.append(dt.name if dt else "Unknown")
                 seen_ids: set[UUID] = set()
                 for sub in submissions:
-                    if str(sub.document_type_id) == str(item.document_type_id):
-                        if sub.id not in seen_ids:
-                            seen_ids.add(sub.id)
-                            matched_sub_ids.append(sub.id)
+                    if str(sub.document_type_id) == str(item.document_type_id) and sub.id not in seen_ids:
+                        seen_ids.add(sub.id)
+                        matched_sub_ids.append(sub.id)
             verified_for_type = [
                 status for status in inventory.get(item.document_type_id, [])
                 if status == "verified"
@@ -537,6 +566,7 @@ async def get_bulk_student_slot_statuses(
                 form = _bound_form(item)
                 slot_item_dtos.append(
                     SlotItemStatus(
+                        item_id=item.id,
                         document_type_id=item.document_type_id,
                         document_type_name=dt.name if dt else "Unknown",
                         document_type_code=dt.code if dt else "",
@@ -554,10 +584,9 @@ async def get_bulk_student_slot_statuses(
                     matched_count += 1
                     seen_ids: set[UUID] = set()
                     for sub in student_subs:
-                        if str(sub.document_type_id) == str(item.document_type_id):
-                            if sub.id not in seen_ids:
-                                seen_ids.add(sub.id)
-                                matched_sub_ids.append(sub.id)
+                        if str(sub.document_type_id) == str(item.document_type_id) and sub.id not in seen_ids:
+                            seen_ids.add(sub.id)
+                            matched_sub_ids.append(sub.id)
                 verified_for_type = [
                     status
                     for status in inventory.get(item.document_type_id, [])

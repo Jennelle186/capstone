@@ -23,6 +23,7 @@ export interface RequirementSlot {
 }
 
 export interface SlotItemStatus {
+    item_id: string;
     document_type_id: string;
     document_type_name: string;
     document_type_code: string;
