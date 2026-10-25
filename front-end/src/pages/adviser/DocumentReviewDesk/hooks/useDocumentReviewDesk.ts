@@ -46,6 +46,10 @@ export function useDocumentReviewDesk() {
     Record<string, ExtractionSection[]>
   >({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [filledFormData, setFilledFormData] = useState<{
+    document_json: unknown;
+    values: Record<string, unknown>;
+  } | null>(null);
   const [flagReasons, setFlagReasons] = useState<Record<string, string>>({});
   const [classificationResults, setClassificationResults] = useState<
     Record<string, Record<string, unknown> | null>
@@ -367,10 +371,34 @@ export function useDocumentReviewDesk() {
     [getTokenRef],
   );
 
+  const fetchFilledForm = useCallback(
+    async (subId: string) => {
+      const token = await getTokenRef.current();
+      if (!token) return;
+      try {
+        const res = await fetchWithClerkAuth(
+          `/api/adviser/submissions/${subId}/filled-form`,
+          token,
+        );
+        if (!res.ok) { setFilledFormData(null); return; }
+        const d = await res.json();
+        setFilledFormData(d as { document_json: unknown; values: Record<string, unknown> });
+      } catch {
+        setFilledFormData(null);
+      }
+    },
+    [getTokenRef],
+  );
+
   useEffect(() => {
     if (!currentSubmission) return;
-    void fetchPreviewUrl(currentSubmission.id);
-  }, [currentSubmission?.id, fetchPreviewUrl]);
+    setFilledFormData(null);
+    if (currentSubmission.filled_online) {
+      void fetchFilledForm(currentSubmission.id);
+    } else {
+      void fetchPreviewUrl(currentSubmission.id);
+    }
+  }, [currentSubmission, fetchPreviewUrl, fetchFilledForm]);
 
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
@@ -648,6 +676,7 @@ export function useDocumentReviewDesk() {
     activeSectionId,
     setActiveSectionId,
     previewUrl,
+    filledFormData,
     currentExtractions,
     classificationResults,
     stats,

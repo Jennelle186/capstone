@@ -30,6 +30,7 @@ export default function RecentSubmissionsTable({
       status: s.status,
       submitted_at: s.submittedAt,
       extraction_fields: {},
+      filled_online: s.filled_online,
     }));
     navigate(
       `/adviser/students/${encodeURIComponent(submission.studentId)}/review/${submission.id}`,

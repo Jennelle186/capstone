@@ -132,5 +132,5 @@ async def get_filled_form(
         form_id=form.id,
         form_name=form.name,
         document_json=form.document_json,
-        values=submission.extracted_data or {},
+        values=fs.values or {},
     )

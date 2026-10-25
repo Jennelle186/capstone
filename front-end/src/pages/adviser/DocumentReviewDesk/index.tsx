@@ -22,6 +22,7 @@ export default function DocumentReviewDesk() {
     currentExtractions,
     classificationResults,
     previewUrl,
+    filledFormData,
     stats,
     flagReasons,
     submittedFlags,
@@ -95,6 +96,7 @@ export default function DocumentReviewDesk() {
       activeSectionId={activeSectionId}
       currentExtractions={currentExtractions}
       previewUrl={previewUrl}
+      filledFormData={filledFormData}
       stats={stats}
       actioning={actioning}
       flagReason={flagReason}

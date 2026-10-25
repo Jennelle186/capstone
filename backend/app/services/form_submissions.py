@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 from ..database import SessionDep
 from ..models import (
     DocumentSubmission,
+    ExtractionSchema,
     Form,
     FormSubmission,
     FormSubmissionStatus,
@@ -58,6 +59,34 @@ def _missing_required_keys(document_json: dict[str, Any], values: dict[str, Any]
     return sorted(
         key for key in _required_field_keys(document_json) if _is_blank(values.get(key))
     )
+
+
+def _map_values_to_schema(values: dict[str, Any], fields_json: list[Any]) -> dict[str, Any]:
+    """Map typed form values (field_key → value) into the schema-shaped
+    ``extracted_data`` (field_id → {value, confidence, needs_review,
+    source_key, canonical_key}), mirroring the extraction pipeline."""
+    result: dict[str, Any] = {}
+    for field_def in fields_json:
+        if not isinstance(field_def, dict):
+            continue
+        field_id = field_def.get("id")
+        field_key = field_def.get("key", "")
+        if not field_id or not field_key:
+            continue
+        raw = values.get(field_key)
+        if isinstance(raw, list):
+            raw = ", ".join(str(v) for v in raw)
+        value = str(raw).strip() if raw is not None else ""
+        required = bool(field_def.get("required", False))
+        result[field_id] = {
+            "value": value,
+            "extracted_value": value,
+            "confidence": 1.0 if value else 0.0,
+            "needs_review": required and not value,
+            "source_key": field_key,
+            "canonical_key": field_def.get("canonical_key"),
+        }
+    return result
 
 
 async def get_fillable_item(
@@ -199,6 +228,13 @@ async def submit_form(
             detail=f"Required fields missing: {', '.join(missing)}",
         )
 
+    extracted_data: dict[str, Any] = values
+    schema_id = getattr(item, "extraction_schema_id", None)
+    if schema_id is not None:
+        schema = await db.get(ExtractionSchema, schema_id)
+        if schema is not None and schema.fields_json:
+            extracted_data = _map_values_to_schema(values, schema.fields_json)
+
     draft = await get_draft(db, student.id, form.id, student.school_year_id)
 
     if draft is not None:
@@ -211,7 +247,7 @@ async def submit_form(
                 original_filename=form.name,
                 is_compiled=False,
                 status=SubmissionStatus.SUBMITTED,
-                extracted_data=values,
+                extracted_data=extracted_data,
                 document_type_id=item.document_type_id,
                 filled_online=True,
             )
@@ -228,7 +264,7 @@ async def submit_form(
         original_filename=form.name,
         is_compiled=False,
         status=SubmissionStatus.SUBMITTED,
-        extracted_data=values,
+        extracted_data=extracted_data,
         document_type_id=item.document_type_id,
         filled_online=True,
     )

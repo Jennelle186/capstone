@@ -67,6 +67,7 @@ export interface AdviserStudentSubmission {
     status: string;
     submitted_at: string;
     extraction_fields: Record<string, unknown>;
+    filled_online?: boolean;
     classification_result?: Record<string, unknown> | null;
     page_range?: string | null;
     parent_submission_id?: string | null;

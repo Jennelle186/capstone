@@ -14,6 +14,7 @@ interface AdviserSubmissionRaw {
   document_type_name: string | null;
   status: string;
   created_at: string;
+  filled_online: boolean;
 }
 
 const AVATAR_COLORS = [
@@ -59,6 +60,7 @@ export function useAdviserSubmissions(departmentId?: string | null, propData?: R
         submittedAt: item.created_at,
         avatarColor: getAvatarColor(item.student_name),
         status: item.status as AdviserSubmissionStatus,
+        filled_online: item.filled_online,
       })));
     } catch {
       setData([]);
