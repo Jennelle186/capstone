@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/clerk-react";
-import { Eye, Loader2, Pencil, Printer, Save, TriangleAlert } from "lucide-react";
+import { Eye, FilePlus, Loader2, Pencil, Printer, RefreshCw, Save, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -157,6 +157,47 @@ export default function FormsPage() {
         }
     };
 
+    const handleDraftSchema = async () => {
+        if (!selectedForm) return;
+        try {
+            const res = await request(`/api/admin/forms/${selectedForm.id}/draft-schema`, { method: "POST" });
+            if (!res.ok) {
+                const detail = (await res.json().catch(() => null)) as { detail?: string } | null;
+                throw new Error(detail?.detail ?? `Draft schema failed (${res.status}).`);
+            }
+            toast.success("Draft extraction schema created from this form.");
+            const fres = await request(`/api/admin/forms/${selectedForm.id}`);
+            if (fres.ok) {
+                const updated = (await fres.json()) as FormRecord;
+                setForms((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+                handleSelect(updated);
+            }
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to create draft schema.");
+        }
+    };
+
+    const handleSyncSchema = async () => {
+        if (!selectedForm) return;
+        try {
+            const res = await request(`/api/admin/forms/${selectedForm.id}/sync-schema`, { method: "POST" });
+            if (!res.ok) {
+                const detail = (await res.json().catch(() => null)) as { detail?: string } | null;
+                throw new Error(detail?.detail ?? `Sync failed (${res.status}).`);
+            }
+            const result = (await res.json()) as { added: string[]; updated: string[]; removed: string[]; blocked_removals: string[] };
+            const parts = [
+                result.added.length ? `${result.added.length} added` : null,
+                result.updated.length ? `${result.updated.length} updated` : null,
+                result.removed.length ? `${result.removed.length} removed` : null,
+                result.blocked_removals.length ? `${result.blocked_removals.length} kept (referenced)` : null,
+            ].filter(Boolean);
+            toast.success(parts.length ? `Schema synced: ${parts.join(", ")}.` : "Schema already in sync.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to sync schema.");
+        }
+    };
+
     return (
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -241,6 +282,25 @@ export default function FormsPage() {
                                         label="Preview"
                                     />
                                 </div>
+                                {selectedForm.extraction_schema_name && (
+                                    <span
+                                        title="Linked extraction schema"
+                                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[10px] font-medium text-slate-500"
+                                    >
+                                        {selectedForm.extraction_schema_name}
+                                    </span>
+                                )}
+                                {selectedForm.extraction_schema_id ? (
+                                    <Button variant="outline" size="sm" onClick={handleSyncSchema} className="gap-1.5">
+                                        <RefreshCw className="h-3.5 w-3.5" />
+                                        Sync fields
+                                    </Button>
+                                ) : (
+                                    <Button variant="outline" size="sm" onClick={handleDraftSchema} className="gap-1.5">
+                                        <FilePlus className="h-3.5 w-3.5" />
+                                        Draft schema
+                                    </Button>
+                                )}
                                 <Button onClick={handleSave} disabled={isSaving} className="gap-1.5">
                                     {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                     {isSaving ? "Saving…" : "Save"}

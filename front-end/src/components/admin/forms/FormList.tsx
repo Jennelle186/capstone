@@ -63,7 +63,7 @@ export default function FormList({ forms, selectedId, onSelect, onDelete, onCrea
                                 </div>
                                 {form.extraction_schema_id && (
                                     <Badge variant="secondary" className="shrink-0">
-                                        schema
+                                        {form.extraction_schema_name || "schema"}
                                     </Badge>
                                 )}
                                 <Button

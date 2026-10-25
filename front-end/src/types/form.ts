@@ -158,6 +158,7 @@ export interface FormRecord {
     document_json: FormDocument;
     pdf_file_key: string | null;
     extraction_schema_id: string | null;
+    extraction_schema_name?: string | null;
     created_at: string;
     updated_at: string;
 }

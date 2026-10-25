@@ -15,6 +15,7 @@ class FormBase(BaseModel):
     description: str | None = None
     creation_mode: Literal["structured"] = Field(default="structured", max_length=32)
     document_type_id: UUID | None = None
+    extraction_schema_id: UUID | None = None
     document_json: dict[str, Any] = Field(
         default_factory=create_empty_document,
         description="Editable form document: a versioned, structured document.",
@@ -30,6 +31,7 @@ class FormUpdate(BaseModel):
     description: str | None = None
     creation_mode: Literal["structured"] | None = Field(default=None, max_length=32)
     document_type_id: UUID | None = None
+    extraction_schema_id: UUID | None = None
     document_json: dict[str, Any] | None = None
 
 
@@ -41,11 +43,27 @@ class FormResponse(BaseModel):
     description: str | None
     creation_mode: str
     document_type_id: UUID | None
+    extraction_schema_id: UUID | None
+    extraction_schema_name: str | None = None
     document_json: dict[str, Any]
     pdf_file_key: str | None
-    extraction_schema_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class DraftSchemaResponse(BaseModel):
+    """Result of creating a draft extraction schema from a saved form."""
+    schema_id: UUID
+    form_id: UUID
+    schema_name: str
+
+
+class SyncSchemaResponse(BaseModel):
+    """Result of syncing a form's field keys into its linked extraction schema."""
+    added: list[str] = Field(default_factory=list)
+    updated: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    blocked_removals: list[str] = Field(default_factory=list)
 
 
 class FormGenerateRequest(BaseModel):

@@ -135,6 +135,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                     name: name.trim(),
                     description: description.trim() || null,
                     document_type_id: documentTypeId,
+                    extraction_schema_id: schemaId,
                     document_json: document,
                 }),
             });

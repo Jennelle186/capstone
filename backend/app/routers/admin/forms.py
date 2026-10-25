@@ -8,22 +8,38 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy import desc, select
+from sqlalchemy.orm import selectinload
 
 from ...database import SessionDep
-from ...models import Form, User
+from ...models import ExtractionSchema, ExtractionSchemaStatus, Form, User
 from ...rbac import require_admin
 from ...schemas.extraction_schemas import ExtractionSchemaField
+from ...schemas.form_layout import validate_persistable
 from ...schemas.forms import (
+    DraftSchemaResponse,
     FormCreate,
     FormGenerateRequest,
     FormGenerateResponse,
     FormResponse,
     FormUpdate,
+    SyncSchemaResponse,
 )
 from ...services.concurrency import BLUEPRINT_SEMAPHORE
-from ...services.form_document import blueprint_to_document, document_to_fields, ground_field_keys, normalize_field_key
-from ...services.gcp_pipeline import GcpPipelineError, generate_form_blueprint, generate_form_layout
-from ...schemas.form_layout import validate_persistable
+from ...services.form_document import (
+    blueprint_to_document,
+    document_to_fields,
+    ground_field_keys,
+    normalize_field_key,
+)
+from ...services.form_schema_lifecycle import (
+    create_draft_schema_from_form,
+    diff_and_merge_schema_fields,
+)
+from ...services.gcp_pipeline import (
+    GcpPipelineError,
+    generate_form_blueprint,
+    generate_form_layout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +68,40 @@ def serialize_form(form: Form) -> FormResponse:
         description=form.description,
         creation_mode=form.creation_mode,
         document_type_id=form.document_type_id,
+        extraction_schema_id=form.extraction_schema_id,
+        extraction_schema_name=form.extraction_schema.name if form.extraction_schema else None,
         document_json=form.document_json or {},
         pdf_file_key=form.pdf_file_key,
-        extraction_schema_id=form.extraction_schema_id,
         created_at=form.created_at,
         updated_at=form.updated_at,
     )
+
+
+async def _resolve_schema_for_form(
+    db: SessionDep,
+    schema_id: UUID,
+    document_type_id: UUID | None,
+) -> ExtractionSchema:
+    """Validate a form→schema provenance link: the schema must exist, be
+    non-archived, and its document type must be null or match the form's."""
+    schema = await db.get(ExtractionSchema, schema_id)
+    if schema is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Extraction schema not found.",
+        )
+    if schema.status == ExtractionSchemaStatus.ARCHIVED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Archived extraction schemas cannot be linked to a form.",
+        )
+    if schema.document_type_id is not None and document_type_id is not None:
+        if schema.document_type_id != document_type_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The extraction schema's document type does not match the form's document type.",
+            )
+    return schema
 
 
 async def resolve_creator_id(db: SessionDep, current_user: dict) -> UUID | None:
@@ -75,7 +119,11 @@ async def list_forms(
 ):
     del current_user
 
-    stmt = select(Form).order_by(desc(Form.updated_at), desc(Form.created_at))
+    stmt = (
+        select(Form)
+        .options(selectinload(Form.extraction_schema))
+        .order_by(desc(Form.updated_at), desc(Form.created_at))
+    )
     forms = (await db.execute(stmt)).scalars().all()
     return [serialize_form(f) for f in forms]
 
@@ -88,7 +136,13 @@ async def get_form(
 ):
     del current_user
 
-    form = await db.get(Form, form_id)
+    form = (
+        await db.execute(
+            select(Form)
+            .options(selectinload(Form.extraction_schema))
+            .where(Form.id == form_id)
+        )
+    ).scalar_one_or_none()
     if form is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
     return serialize_form(form)
@@ -106,17 +160,28 @@ async def create_form(
 ):
     creator_id = await resolve_creator_id(db, current_user)
     document_json = _validate_document(payload.document_json)
+
+    if payload.extraction_schema_id is not None:
+        await _resolve_schema_for_form(db, payload.extraction_schema_id, payload.document_type_id)
+
     form = Form(
         name=payload.name,
         description=payload.description,
         creation_mode=payload.creation_mode,
         document_type_id=payload.document_type_id,
+        extraction_schema_id=payload.extraction_schema_id,
         document_json=document_json,
         created_by=creator_id,
     )
     db.add(form)
     await db.commit()
-    await db.refresh(form)
+    form = (
+        await db.execute(
+            select(Form)
+            .options(selectinload(Form.extraction_schema))
+            .where(Form.id == form.id)
+        )
+    ).scalar_one()
     return serialize_form(form)
 
 
@@ -172,7 +237,13 @@ async def update_form(
 ):
     del current_user
 
-    form = await db.get(Form, form_id)
+    form = (
+        await db.execute(
+            select(Form)
+            .options(selectinload(Form.extraction_schema))
+            .where(Form.id == form_id)
+        )
+    ).scalar_one_or_none()
     if form is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
 
@@ -187,9 +258,87 @@ async def update_form(
     if "document_json" in payload.model_fields_set:
         form.document_json = _validate_document(payload.document_json)
 
+    if "extraction_schema_id" in payload.model_fields_set:
+        form.extraction_schema_id = payload.extraction_schema_id
+
+    # Re-validate the final provenance link against the final document type,
+    # covering both "schema changed" and "document type changed" paths.
+    if form.extraction_schema_id is not None:
+        await _resolve_schema_for_form(db, form.extraction_schema_id, form.document_type_id)
+
     await db.commit()
-    await db.refresh(form)
+    form = (
+        await db.execute(
+            select(Form)
+            .options(selectinload(Form.extraction_schema))
+            .where(Form.id == form.id)
+        )
+    ).scalar_one()
     return serialize_form(form)
+
+
+@router.post("/forms/{form_id}/draft-schema", response_model=DraftSchemaResponse)
+async def draft_schema_from_form(
+    form_id: UUID,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    """Create a draft extraction schema from the form's field blocks and link
+    it back to the form (provenance)."""
+    del current_user
+
+    form = await db.get(Form, form_id)
+    if form is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
+
+    if form.extraction_schema_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This form already has a linked extraction schema. Sync it instead.",
+        )
+
+    schema = await create_draft_schema_from_form(db, form)
+    return DraftSchemaResponse(schema_id=schema.id, form_id=form.id, schema_name=schema.name)
+
+
+@router.post("/forms/{form_id}/sync-schema", response_model=SyncSchemaResponse)
+async def sync_form_schema(
+    form_id: UUID,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    """Sync the form's field keys into its linked extraction schema, preserving
+    analytics metadata and blocking dependency-referenced removals."""
+    del current_user
+
+    form = (
+        await db.execute(
+            select(Form)
+            .options(selectinload(Form.extraction_schema))
+            .where(Form.id == form_id)
+        )
+    ).scalar_one_or_none()
+    if form is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
+
+    schema = form.extraction_schema
+    if schema is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This form has no linked extraction schema. Create a draft schema first.",
+        )
+
+    form_fields = document_to_fields(form.document_json or {})
+    result = diff_and_merge_schema_fields(form_fields, schema.fields_json or [])
+    schema.fields_json = result["fields"]
+    await db.commit()
+
+    return SyncSchemaResponse(
+        added=result["added"],
+        updated=result["updated"],
+        removed=result["removed"],
+        blocked_removals=result["blocked_removals"],
+    )
 
 
 @router.delete("/forms/{form_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -206,4 +355,3 @@ async def delete_form(
 
     await db.delete(form)
     await db.commit()
-    return None
