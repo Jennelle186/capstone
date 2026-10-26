@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/clerk-react";
-import { Eye, FilePlus, Loader2, Pencil, Printer, RefreshCw, Save, TriangleAlert } from "lucide-react";
+import { Download, Eye, FilePlus, Loader2, Pencil, Printer, RefreshCw, Save, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -198,6 +198,26 @@ export default function FormsPage() {
         }
     };
 
+    const handleExportDocx = async () => {
+        if (!selectedForm) return;
+        try {
+            const res = await request(`/api/admin/forms/${selectedForm.id}/export.docx`);
+            if (!res.ok) throw new Error(`Export failed (${res.status}).`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${selectedForm.name || "form"}.docx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            toast.success("Form exported as .docx.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to export form.");
+        }
+    };
+
     return (
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -301,6 +321,10 @@ export default function FormsPage() {
                                         Draft schema
                                     </Button>
                                 )}
+                                <Button variant="outline" size="sm" onClick={handleExportDocx} className="gap-1.5">
+                                    <Download className="h-3.5 w-3.5" />
+                                    Export .docx
+                                </Button>
                                 <Button onClick={handleSave} disabled={isSaving} className="gap-1.5">
                                     {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                     {isSaving ? "Saving…" : "Save"}

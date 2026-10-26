@@ -655,6 +655,7 @@ async def set_school_year_inactive(db: SessionDep, school_year_id: UUID, current
     await db.refresh(school_year)
     return await serialize_school_year(db, school_year)
 
+
 # Helper function to create a new school year by copying the details of an existing school year, with options to copy adviser assignments and document requirements, and to set the new school year as active immediately if requested
 async def rollover_school_year(
     db: SessionDep,
@@ -693,9 +694,12 @@ async def rollover_school_year(
             )
 
     if payload.copy_requirements:
-        # Deep-copy the slot-based requirement system (RequirementSlot +
+        # Copy the slot-based requirement system (RequirementSlot +
         # RequirementSlotItem), which is what the Requirements page reads via
-        # GET /api/admin/requirement-slots. The legacy school_year_requirements
+        # GET /api/admin/requirement-slots. Forms and extraction schemas are
+        # global assets (no school_year_id) and are re-used by reference — the
+        # new items point at the same form_id / extraction_schema_id, so a
+        # rollover never duplicates them. The legacy school_year_requirements
         # table was superseded by slots, so it is intentionally not copied.
         source_slots = (
             await db.execute(

@@ -472,6 +472,16 @@ export default function RequirementsPage() {
                                                 !s.document_type_id ||
                                                 s.document_type_id === item.document_type_id,
                                         );
+                                        const boundForm = item.form_id
+                                            ? forms.find((f) => f.id === item.form_id) ?? null
+                                            : null;
+                                        const boundFormSchemaId = boundForm?.extraction_schema_id ?? null;
+                                        const boundFormSchemaName = boundForm?.extraction_schema_name ?? null;
+                                        const schemaMismatch =
+                                            !!boundFormSchemaId &&
+                                            !!item.extraction_schema_id &&
+                                            boundFormSchemaId !== item.extraction_schema_id;
+                                        const schemaSuggestion = !!boundFormSchemaId && !item.extraction_schema_id;
                                         return (
                                             <div
                                                 key={item.document_type_id}
@@ -568,6 +578,36 @@ export default function RequirementsPage() {
                                                 >
                                                     <X className="h-3.5 w-3.5" />
                                                 </Button>
+                                                {schemaSuggestion && boundFormSchemaName && (
+                                                    <div className="w-full flex items-center justify-between gap-2 rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5">
+                                                        <span className="text-[11px] text-amber-800">
+                                                            This form is grounded on schema “{boundFormSchemaName}”.
+                                                        </span>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-6 text-[11px]"
+                                                            disabled={isClosed}
+                                                            onClick={() =>
+                                                                updateItemSchema(
+                                                                    slotIndex,
+                                                                    item.document_type_id,
+                                                                    boundFormSchemaId,
+                                                                )
+                                                            }
+                                                        >
+                                                            Use it
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                                {schemaMismatch && boundFormSchemaName && (
+                                                    <div className="w-full rounded-md bg-rose-50 border border-rose-200 px-2.5 py-1.5">
+                                                        <span className="text-[11px] text-rose-800">
+                                                            This form is grounded on schema “{boundFormSchemaName}”, but this
+                                                            item uses a different schema.
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}

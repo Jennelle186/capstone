@@ -5,13 +5,19 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import ValidationError
 from sqlalchemy import desc, select
 from sqlalchemy.orm import selectinload
 
 from ...database import SessionDep
-from ...models import ExtractionSchema, ExtractionSchemaStatus, Form, User
+from ...models import (
+    BrandingSettings,
+    ExtractionSchema,
+    ExtractionSchemaStatus,
+    Form,
+    User,
+)
 from ...rbac import require_admin
 from ...schemas.extraction_schemas import ExtractionSchemaField
 from ...schemas.form_layout import validate_persistable
@@ -31,6 +37,7 @@ from ...services.form_document import (
     ground_field_keys,
     normalize_field_key,
 )
+from ...services.form_docx import render_form_docx, sanitize_filename
 from ...services.form_schema_lifecycle import (
     create_draft_schema_from_form,
     diff_and_merge_schema_fields,
@@ -40,6 +47,7 @@ from ...services.gcp_pipeline import (
     generate_form_blueprint,
     generate_form_layout,
 )
+from ...services.gcp_storage import download_file_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -355,3 +363,44 @@ async def delete_form(
 
     await db.delete(form)
     await db.commit()
+
+
+@router.get("/forms/{form_id}/export.docx")
+async def export_form_docx(
+    form_id: UUID,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    """Download a form as a blank Word ``.docx`` (fields as write-on lines)."""
+    del current_user
+
+    form = await db.get(Form, form_id)
+    if form is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
+
+    branding_data: dict | None = None
+    logo_bytes: bytes | None = None
+    branding = await db.get(BrandingSettings, 1)
+    if branding is not None:
+        branding_data = {
+            "institution_name": branding.institution_name,
+            "address_lines": branding.address_lines or [],
+            "contact_line": branding.contact_line,
+        }
+        if branding.logo_file_key:
+            try:
+                logo_bytes = await asyncio.to_thread(download_file_bytes, branding.logo_file_key)
+            except Exception:
+                logger.warning("Failed to download branding logo for .docx export; exporting without logo")
+
+    docx_bytes = render_form_docx(
+        form.document_json or {},
+        logo_bytes=logo_bytes,
+        branding=branding_data,
+    )
+    filename = sanitize_filename(form.name)
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}.docx"'},
+    )

@@ -1,21 +1,22 @@
 from fastapi import APIRouter
 
 from .access_control import router as access_control_router
-from .extractions import router as extractions_router
-from .extraction_schemas import router as extraction_schemas_router
-from .forms import router as forms_router
 from .adviser_invitations import router as adviser_invitation_router
 from .adviser_management import router as adviser_management_router
+from .analytics import router as analytics_router
+from .analytics_dimensions import router as analytics_dimensions_router
+from .branding import router as branding_router
 from .departments import router as departments_router
 from .document_management import router as document_management_router
+from .extraction_schemas import router as extraction_schemas_router
+from .extractions import router as extractions_router
+from .forms import router as forms_router
+from .gcs_cleanup import router as gcs_cleanup_router
 from .reports import router as reports_router
 from .requirements import router as requirements_router
 from .school_years import router as school_years_router
 from .student_management import router as student_management_router
 from .users import router as users_router
-from .analytics import router as analytics_router
-from .analytics_dimensions import router as analytics_dimensions_router
-from .branding import router as branding_router
 
 # Root admin router. All admin sub-domains are mounted here under `/api/admin`.
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -52,3 +53,5 @@ router.include_router(analytics_router)
 router.include_router(analytics_dimensions_router)
 # Global branding settings (institution name, address, contact, logo).
 router.include_router(branding_router)
+# GCS orphan cleanup.
+router.include_router(gcs_cleanup_router)
