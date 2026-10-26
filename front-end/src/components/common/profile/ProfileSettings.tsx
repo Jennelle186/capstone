@@ -148,10 +148,12 @@ export default function ProfileSettings({
     }
   };
 
-  const resolvedReadOnlyFields = useMemo(
-    () => (typeof readOnlyFields === "function" && profileData ? readOnlyFields(profileData) : readOnlyFields as readonly ReadOnlyField[]),
-    [readOnlyFields, profileData],
-  );
+  const resolvedReadOnlyFields = useMemo(() => {
+    if (typeof readOnlyFields === "function") {
+      return profileData ? readOnlyFields(profileData) : [];
+    }
+    return readOnlyFields as readonly ReadOnlyField[];
+  }, [readOnlyFields, profileData]);
 
   if (!isLoaded || !isSignedIn || !isUserLoaded || loading) {
     return (
