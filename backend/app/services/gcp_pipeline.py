@@ -772,6 +772,142 @@ def generate_schema_blueprint(file_key: str | None = None, description: str | No
     return result
 
 
+def generate_form_blueprint(description: str) -> dict[str, Any]:
+    """Generate an AdminSchemaBlueprint for a *new* form from a free-text description.
+
+    Thin wrapper over :func:`generate_schema_blueprint` (description-only mode).
+    Kept as a named seam so the "create form" prompt can diverge from the
+    document-deconstruction prompt without touching callers.
+    """
+    return generate_schema_blueprint(description=description)
+
+
+# ── Grounded Form Layout Generation ───────────────────────────────────────
+
+
+GROUNDED_LAYOUT_SYSTEM_INSTRUCTION = """You are a Document Layout Architect for an academic institution's enrollment forms.
+
+TASK:
+Arrange the provided field catalog into a printable admission form layout.
+
+HARD CONSTRAINTS:
+- Reference ONLY the field keys in the provided catalog. The `field_id` you emit MUST be one of the exact keys listed.
+- Never invent, rename, or add fields. If a field is not in the catalog, do not include it.
+- Preserve each field's `required` flag and `ui_component` exactly as given.
+- Preserve choice options exactly as given.
+- Group fields into logical sections; keep the layout flow-based (a 2-column grid), never absolute positioning.
+
+OUTPUT FORMAT:
+Return a clean JSON payload matching the AdminSchemaBlueprint definition."""
+
+
+def _build_grounded_layout_prompt(
+    fields: list[dict[str, Any]], description: str | None = None
+) -> str:
+    """Build the "arrange, don't invent" prompt from a field catalog."""
+    lines = [
+        "Arrange the following field catalog into a form layout.",
+        "",
+        "FIELD CATALOG (use exactly these field keys):",
+    ]
+    for f in fields:
+        key = str(f.get("key", "") or "").strip()
+        label = str(f.get("description") or f.get("label") or key).strip() or key
+        ui = str(f.get("ui_component") or "text_input")
+        req = "required" if f.get("required") else "optional"
+        opts = ""
+        raw_options = f.get("options")
+        if isinstance(raw_options, list) and raw_options:
+            labels = [
+                str(o.get("label", o.get("value", "")))
+                for o in raw_options
+                if isinstance(o, dict)
+            ]
+            opts = f" options: {', '.join(labels)}"
+        lines.append(f"  - key={key} | label={label} | component={ui} | {req}{opts}")
+
+    if description:
+        lines.extend(["", "ADMIN'S LAYOUT INSTRUCTIONS:", description])
+
+    lines.extend(["", "Return a complete AdminSchemaBlueprint JSON using only these field keys."])
+    return "\n".join(lines)
+
+
+def generate_form_layout(fields: list[dict[str, Any]], description: str) -> dict[str, Any]:
+    """Generate an AdminSchemaBlueprint arranged from the *given* field catalog.
+
+    Unlike :func:`generate_form_blueprint` (which invents fields from a free-text
+    description), this arranges the provided fields and is instructed never to
+    invent field keys. Key grounding (unknown-key detection) happens after the
+    caller converts the blueprint to a document via ``ground_field_keys``.
+    """
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    model_name = os.getenv("VERTEX_AI_MODEL")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    client = genai.Client(vertexai=True, project=project, location=location)
+
+    prompt = _build_grounded_layout_prompt(fields, description)
+    schema = _build_blueprint_schema()
+
+    logger.info("Generating grounded form layout (model=%s, fields=%d)", model_name, len(fields))
+
+    last_error: Exception | None = None
+    retry_count = 0
+    for attempt in range(_MAX_RETRY_ATTEMPTS + 1):
+        attempt_start = time.perf_counter()
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[types.Part.from_text(text=prompt)],
+                config=types.GenerateContentConfig(
+                    system_instruction=GROUNDED_LAYOUT_SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    temperature=0.0,
+                    http_options=types.HttpOptions(timeout=240_000),
+                ),
+            )
+            log_llm_call(
+                stage="form_layout",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status="success",
+                **_usage_from_response(response),
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            log_llm_call(
+                stage="form_layout",
+                model=model_name or "unknown",
+                latency_seconds=round(time.perf_counter() - attempt_start, 4),
+                retry_count=retry_count,
+                status=_status_for_error(exc),
+            )
+            if _retry_on_gemini_error(exc, "form-layout", attempt, "form layout generation"):
+                retry_count += 1
+                continue
+            raise GcpPipelineError(f"Gemini form layout generation failed: {exc}") from exc
+
+    if last_error is not None:
+        raise GcpPipelineError(f"Gemini form layout generation failed after retries: {last_error}") from last_error
+
+    if not response.text or not response.text.strip():
+        logger.error("Gemini returned empty form layout response")
+        raise GcpPipelineError("Gemini returned empty form layout response")
+
+    try:
+        result = json.loads(response.text.strip())
+    except (json.JSONDecodeError, AttributeError) as exc:
+        logger.error("Gemini returned invalid JSON for form layout: %s", response.text[:500])
+        raise GcpPipelineError(f"Gemini returned invalid JSON: {response.text[:500]}") from exc
+
+    return result
+
+
 # ── Student Field Extraction ────────────────────────────────────────────────
 
 

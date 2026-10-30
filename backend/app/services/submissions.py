@@ -15,6 +15,8 @@ from ..models import (
     DocumentType,
     ExtractionSchema,
     ExtractionSchemaStatus,
+    Form,
+    FormSubmission,
     Notification,
     RequirementSlot,
     RequirementSlotItem,
@@ -82,6 +84,7 @@ async def list_submissions(
             DocumentSubmission.created_at,
             DocumentSubmission.status,
             DocumentSubmission.extracted_data,
+            DocumentSubmission.filled_online,
             User.first_name,
             User.last_name,
             Student.id.label("student_id"),
@@ -110,6 +113,7 @@ async def list_submissions(
             "initials": compute_initials(row.first_name, row.last_name),
             "document_type_name": row.document_type_name,
             "status": row.status.value if hasattr(row.status, "value") else str(row.status),
+            "filled_online": bool(row.filled_online),
             "created_at": relative_time(row.created_at),
             "extraction_fields": row.extracted_data or {},
         }
@@ -152,7 +156,53 @@ async def get_submission_download_url(
     ):
         return None
 
+    if getattr(submission, "filled_online", False):
+        return None
+
     return gcs_generate_presigned_url(submission.file_key)
+
+
+async def get_filled_form_for_adviser(
+    db: SessionDep,
+    adviser: Adviser,
+    submission_id_str: str,
+) -> dict | None:
+    """Return the form layout + typed values for a filled-online submission."""
+    try:
+        sub_uuid = uuid.UUID(submission_id_str)
+    except ValueError:
+        return None
+
+    submission = await db.get(DocumentSubmission, sub_uuid)
+    if submission is None or not getattr(submission, "filled_online", False):
+        return None
+
+    student = await db.get(Student, submission.student_id)
+    if student is None or student.school_year_id is None:
+        return None
+
+    dept_ids = await get_department_ids_for_adviser(db, adviser, student.school_year_id)
+    if student.program_id not in dept_ids:
+        return None
+
+    fs = (
+        await db.execute(
+            select(FormSubmission).where(FormSubmission.document_submission_id == submission.id)
+        )
+    ).scalar_one_or_none()
+    if fs is None or fs.form_id is None:
+        return None
+
+    form = await db.get(Form, fs.form_id)
+    if form is None:
+        return None
+
+    return {
+        "form_id": str(form.id),
+        "form_name": form.name,
+        "document_json": form.document_json,
+        "values": fs.values or {},
+    }
 
 
 async def get_submission_extractions(
@@ -219,7 +269,15 @@ async def get_submission_extractions(
     fields: list[dict] = []
     for field_def in (schema.fields_json or []):
         field_id = field_def.get("id", "")
-        existing = extracted.get(field_id, {})
+        field_key = field_def.get("key", "")
+        existing = extracted.get(field_id)
+        # Filled-online rows store values keyed by field_key (flat); scanned rows
+        # store them keyed by field_id (nested). Fall back to field_key so both
+        # populate the extraction editor identically.
+        if existing is None and field_key:
+            existing = extracted.get(field_key)
+        if existing is None:
+            continue
         if isinstance(existing, str):
             value = existing
             needs_review = False

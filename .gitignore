@@ -2,7 +2,9 @@
 bug_report.md
 SESSION_SUMMARY.md
 deploy/deployment_bugs.md
+form_generation_plan.md
 docs/
+documentation/
 *.docx
 report.docx
 
@@ -42,6 +44,8 @@ front-end/src/pages/admin/README.md
 /test/
 backend/llm_calls.log
 backend/eval_report.json
+backend/metrics-report.json
+backend/metrics-report.md
 backend/eval_classify.py
 backend/dump_document_types.py
 

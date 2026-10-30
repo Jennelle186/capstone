@@ -18,6 +18,7 @@ export interface RecentSubmission {
   submittedAt: string;
   avatarColor: string;
   status: AdviserSubmissionStatus;
+  filled_online?: boolean;
 }
 
 export const adviserStatusConfig: Record<AdviserSubmissionStatus, { label: string; badge: string; dot: string }> = {

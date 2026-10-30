@@ -76,6 +76,7 @@ function DocumentIcon({ item }: { item: SubmissionItem }) {
 
 export default function SubmissionCard({ item, onViewDetails, statusLabel }: SubmissionCardProps) {
   const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(item.fileName);
+  const isFilledOnline = item.filledOnline === true;
   const isSubmitted = statusLabel === "SUBMITTED" || item.status === "submitted";
   const needsReview = item.status === "needs-review";
 
@@ -83,14 +84,14 @@ export default function SubmissionCard({ item, onViewDetails, statusLabel }: Sub
     <div
       className={cn(
         "flex items-center gap-4 rounded-2xl border bg-white p-4 shadow-sm transition-all hover:bg-slate-50",
-        isSubmitted ? "border-slate-300" : needsReview ? "border-red-300" : "border-slate-200",
+        isFilledOnline ? "border-indigo-300" : isSubmitted ? "border-slate-300" : needsReview ? "border-red-300" : "border-slate-200",
       )}
     >
       {/* Thumbnail / Icon */}
       <div
         className={cn(
           "relative flex h-20 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border",
-          isSubmitted ? "border-slate-300 bg-slate-100" : needsReview ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-100",
+          isFilledOnline ? "border-indigo-300 bg-indigo-50" : isSubmitted ? "border-slate-300 bg-slate-100" : needsReview ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-100",
         )}
       >
         {isImage ? (
@@ -115,7 +116,12 @@ export default function SubmissionCard({ item, onViewDetails, statusLabel }: Sub
 
       {/* Status + action */}
       <div className="flex flex-shrink-0 flex-col items-end gap-2">
-        {isSubmitted ? (
+        {isFilledOnline ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-3 py-1 text-[10px] font-bold uppercase text-indigo-700">
+            <FileText className="h-3 w-3" />
+            Filled online
+          </span>
+        ) : isSubmitted ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase text-slate-600">
             SUBMITTED
           </span>
@@ -134,11 +140,11 @@ export default function SubmissionCard({ item, onViewDetails, statusLabel }: Sub
           type="button"
           className={cn(
             "text-[11px] font-semibold uppercase tracking-wider hover:underline",
-            isSubmitted ? "text-slate-500" : needsReview ? "text-red-600" : "text-sky-600",
+            isFilledOnline ? "text-indigo-600" : isSubmitted ? "text-slate-500" : needsReview ? "text-red-600" : "text-sky-600",
           )}
           onClick={onViewDetails}
         >
-          {isSubmitted ? "View Submission" : needsReview ? "Fix Issues" : "View Details"}
+          {isFilledOnline ? "View Form" : isSubmitted ? "View Submission" : needsReview ? "Fix Issues" : "View Details"}
         </button>
       </div>
     </div>

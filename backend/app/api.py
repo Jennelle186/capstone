@@ -24,7 +24,9 @@ from .routers.adviser_extraction_analytics import router as adviser_extraction_a
 from .routers.notifications import router as notifications_router
 from .routers.jobs import router as jobs_router
 from .routers.students.requirements import router as student_requirements_router
+from .routers.students.form_submissions import router as student_form_submissions_router
 from .routers.public.privacy_info import router as public_privacy_info_router
+from .routers.public.branding import router as public_branding_router
 from .routers import admin
 from .services.user_sync import ensure_user_row
 from .services.clerk import update_user_personal_names, update_user_public_metadata
@@ -93,7 +95,9 @@ app.include_router(notifications_router)
 app.include_router(debug_router)
 app.include_router(jobs_router)
 app.include_router(student_requirements_router)
+app.include_router(student_form_submissions_router)
 app.include_router(public_privacy_info_router)
+app.include_router(public_branding_router)
 app.include_router(admin.router)
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]

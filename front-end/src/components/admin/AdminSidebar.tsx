@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Building2, BarChart3, CalendarDays, ClipboardCheck, FileText, FileJson, LogOut, GraduationCap, TrendingUp } from "lucide-react";
+import { LayoutDashboard, Users, Building2, BarChart3, CalendarDays, ClipboardCheck, FileText, FileJson, Image, LogOut, GraduationCap, TrendingUp, ClipboardList } from "lucide-react";
 import CommonAppSidebar from "@/components/common/AppSidebar";
 import LogoutConfirmDialog from "@/components/common/LogoutConfirmDialog";
 import type { SidebarGroupConfig } from "@/components/common/AppSidebar";
@@ -54,6 +54,7 @@ export function AdminSidebar() {
                         ],
                     },
                     { title: "Requirements", icon: ClipboardCheck, url: "/admin/requirements" },
+                    { title: "Forms", icon: ClipboardList, url: "/admin/forms" },
                     { title: "Analytics", icon: TrendingUp, url: "/admin/analytics" },
                     { title: "Reports", icon: BarChart3, url: "/admin/reports" },
                 ],
@@ -62,6 +63,7 @@ export function AdminSidebar() {
                 label: "Settings",
                 items: [
                     { title: "School Year", icon: CalendarDays, url: "/admin/settings/school-year" },
+                    { title: "Branding", icon: Image, url: "/admin/settings/branding" },
                     {
                         title: "Logout",
                         icon: LogOut,

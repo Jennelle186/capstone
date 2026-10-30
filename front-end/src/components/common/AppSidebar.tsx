@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router'
 import { motion } from 'framer-motion'
 import { ChevronDown } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { usePublicBranding } from '@/hooks/usePublicBranding'
 
 import {
     Sidebar,
@@ -149,12 +150,14 @@ export default function AppSidebar({
     groups,
     userName,
     userEmail,
-    userAvatarSrc = '/ccs-logo.jpg',
+    userAvatarSrc,
     userFallback,
     collapsible = 'icon',
     className,
 }: AppSidebarProps) {
     const { state } = useSidebar()
+    const { branding } = usePublicBranding()
+    const avatarSrc = userAvatarSrc ?? branding.logo_url ?? '/ccs-logo.jpg'
     const containerVariants = React.useMemo(
         () => ({
             hidden: { opacity: 0 },
@@ -188,7 +191,7 @@ export default function AppSidebar({
                     <div className="relative">
                         <div className="absolute -inset-1 rounded-xl bg-linear-to-br from-emerald-400/30 via-cyan-400/30 to-blue-500/30 blur" />
                         <img
-                            src="/ccs-logo.jpg"
+                            src={branding.logo_url ?? '/ccs-logo.jpg'}
                             alt="CCS logo"
                             className="relative size-9 rounded-xl border border-white/60 object-cover shadow-sm"
                         />
@@ -242,7 +245,7 @@ export default function AppSidebar({
                                     className="flex w-full items-center gap-2"
                                 >
                                     <Avatar className="size-7 rounded-lg border border-white/70">
-                                        <AvatarImage src={userAvatarSrc} />
+                                        <AvatarImage src={avatarSrc} />
                                         <AvatarFallback>{userFallback}</AvatarFallback>
                                     </Avatar>
                                     <div className="grid flex-1 text-left text-sm leading-tight">

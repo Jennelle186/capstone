@@ -96,6 +96,7 @@ function toSubmission(detail: SubmissionDetail): Submission {
     status: detail.status as SubmissionStatusType,
     fileType: mimeToLabel(detail.mime_type),
     fileSize: formatFileSize(detail.file_size),
+    filledOnline: detail.filled_online,
   };
 }
 

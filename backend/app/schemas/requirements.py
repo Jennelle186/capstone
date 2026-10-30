@@ -15,6 +15,8 @@ class SlotItemResponse(BaseModel):
     document_type_code: str
     extraction_schema_id: UUID | None = None
     extraction_schema_name: str | None = None
+    form_id: UUID | None = None
+    form_name: str | None = None
     is_primary: bool
     display_order: int
 
@@ -40,9 +42,12 @@ class SlotResponse(BaseModel):
 
 class SlotItemStatus(BaseModel):
     """Document type entry within a slot, shown to students."""
+    item_id: UUID
     document_type_id: UUID
     document_type_name: str
     document_type_code: str
+    form_id: UUID | None = None
+    form_name: str | None = None
     is_primary: bool
 
 
@@ -76,6 +81,13 @@ class RequiredSlotsResponse(BaseModel):
     slots: list[SlotStatusResponse] = Field(default_factory=list)
 
 
+class BlankFormResponse(BaseModel):
+    """A printable blank form bound to a student's requirement item."""
+    form_id: UUID
+    form_name: str
+    document_json: dict[str, Any]
+
+
 # ── Admin slot assignment ───────────────────────────────────────────────
 
 
@@ -84,6 +96,7 @@ class SlotItemAssignment(BaseModel):
     id: UUID | None = None  # None for new items, UUID for existing
     document_type_id: UUID
     extraction_schema_id: UUID | None = None
+    form_id: UUID | None = None
     is_primary: bool = False
     display_order: int = 0
 

@@ -391,6 +391,7 @@ async def get_student_detail(
             "id": str(sub.id),
             "document_type": sub.document_type.name if sub.document_type else None,
             "status": sub.status.value if hasattr(sub.status, "value") else str(sub.status),
+            "filled_online": bool(sub.filled_online),
             "submitted_at": sub.created_at.isoformat() if sub.created_at else "",
             "extraction_fields": sub.extracted_data or {},
             "classification_result": sub.classification_result,

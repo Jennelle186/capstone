@@ -5,6 +5,8 @@ export interface RequirementSlotItem {
     document_type_code: string;
     extraction_schema_id: string | null;
     extraction_schema_name: string | null;
+    form_id: string | null;
+    form_name: string | null;
     is_primary: boolean;
     display_order: number;
 }
@@ -21,9 +23,12 @@ export interface RequirementSlot {
 }
 
 export interface SlotItemStatus {
+    item_id: string;
     document_type_id: string;
     document_type_name: string;
     document_type_code: string;
+    form_id: string | null;
+    form_name: string | null;
     is_primary: boolean;
 }
 
@@ -57,6 +62,7 @@ export interface SlotItemAssignment {
     id?: string | null;
     document_type_id: string;
     extraction_schema_id?: string | null;
+    form_id?: string | null;
     is_primary?: boolean;
     display_order?: number;
 }

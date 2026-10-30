@@ -8,6 +8,7 @@ from google.genai import errors as genai_errors
 
 from app.services.gcp_pipeline import (
     _build_classification_schema,
+    _build_grounded_layout_prompt,
     _extract_status_code,
     _normalize_text,
     _retry_on_gemini_error,
@@ -233,3 +234,26 @@ def test_status_for_error_mapping() -> None:
     assert _status_for_error(_api_error(500)) == "failed_other"
     assert _status_for_error(_api_error(403)) == "failed_other"
     assert _status_for_error(Exception("The read operation timed out")) == "timeout"
+
+
+# ── Grounded form layout prompt ────────────────────────────────────────────
+
+
+def test_build_grounded_layout_prompt_includes_catalog_and_guardrails() -> None:
+    fields = [
+        {"key": "full_name", "description": "Full Name", "ui_component": "text_input", "required": True, "options": None},
+        {"key": "gender", "description": "Sex", "ui_component": "radio_group", "required": False, "options": [{"value": "male", "label": "Male"}]},
+    ]
+    prompt = _build_grounded_layout_prompt(fields, "Arrange in two columns")
+    assert "key=full_name" in prompt
+    assert "key=gender" in prompt
+    assert "required" in prompt
+    assert "Male" in prompt
+    assert "Arrange in two columns" in prompt
+    assert "only these field keys" in prompt
+
+
+def test_build_grounded_layout_prompt_omits_description_when_absent() -> None:
+    prompt = _build_grounded_layout_prompt([{"key": "a", "description": "A", "ui_component": "text_input", "required": False}])
+    assert "key=a" in prompt
+    assert "ADMIN'S LAYOUT INSTRUCTIONS" not in prompt

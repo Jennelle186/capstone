@@ -1,7 +1,7 @@
 import uuid
 import enum
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -497,6 +497,14 @@ class RequirementSlotItem(Base):
         nullable=True,
         index=True,
     )
+    # Optional printable blank form bound to this requirement item. The form's
+    # document type must match this item's document type (enforced on save).
+    form_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("forms.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     is_primary = Column(Boolean, nullable=False, default=False)
     display_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -505,6 +513,7 @@ class RequirementSlotItem(Base):
     slot = relationship("RequirementSlot", back_populates="items")
     document_type = relationship("DocumentType")
     extraction_schema = relationship("ExtractionSchema")
+    form = relationship("Form")
 
 
 class ExtractionSchema(Base):
@@ -538,6 +547,48 @@ class ExtractionSchema(Base):
     generation_prompt = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class Form(Base):
+    __tablename__ = "forms"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    name = Column(String(120), nullable=False)
+    description = Column(Text, nullable=True)
+
+    document_json = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    pdf_file_key = Column(String(512), nullable=True)
+    creation_mode = Column(
+        String(32),
+        nullable=False,
+        default="structured",
+        server_default="structured",
+    )
+
+    extraction_schema_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("extraction_schemas.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    document_type_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_types.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    extraction_schema = relationship("ExtractionSchema", foreign_keys=[extraction_schema_id])
+    document_type = relationship("DocumentType", foreign_keys=[document_type_id])
+    creator = relationship("User", foreign_keys=[created_by])
 
 
 class AnalyticsDimension(Base):
@@ -663,6 +714,10 @@ class DocumentSubmission(Base):
     file_size = Column(String(32), nullable=True)
     mime_type = Column(String(128), nullable=True)
     is_compiled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # True when this "document" was filled in online by the student (Phase 4B)
+    # rather than uploaded and scanned. Such rows have an empty ``file_key`` and
+    # their ``extracted_data`` holds the typed values directly.
+    filled_online = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     status = Column(
         Enum(
             SubmissionStatus,
@@ -755,6 +810,94 @@ class DocumentSubmissionHistory(Base):
 
     submission = relationship("DocumentSubmission", back_populates="history_entries", foreign_keys=[submission_id])
     actor_user = relationship("User")
+
+
+class FormSubmissionStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+
+
+class FormSubmission(Base):
+    """A student's typed-in answers for a printable form (Phase 4B online fill).
+
+    Distinct from :class:`DocumentSubmission`: there is no uploaded file, no
+    classification/extraction, and no adviser verification — the typed values
+    *are* the structured data. Analytics only consumes these after an explicit
+    sync once the form's field keys match the requirement item's extraction
+    schema (Phase 5).
+    """
+
+    __tablename__ = "form_submissions"
+
+    __table_args__ = (
+        Index(
+            "ix_form_submissions_one_draft",
+            "student_id",
+            "form_id",
+            "school_year_id",
+            unique=True,
+            postgresql_where=text("status = 'draft'"),
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    form_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("forms.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    document_type_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_types.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    school_year_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("school_years.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The resulting DocumentSubmission created when this form was submitted for
+    # adviser review (Phase 4B treats online fills like uploaded documents).
+    document_submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    values = Column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    status = Column(
+        Enum(
+            FormSubmissionStatus,
+            name="form_submission_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=FormSubmissionStatus.DRAFT,
+        server_default=FormSubmissionStatus.DRAFT.value,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    student = relationship("Student")
+    form = relationship("Form")
+    document_type = relationship("DocumentType")
+    school_year = relationship("SchoolYear")
+    document_submission = relationship("DocumentSubmission")
 
 
 class Notification(Base):
@@ -892,3 +1035,27 @@ class JobSubmission(Base):
 
     job = relationship("Job", back_populates="submissions")
     submission = relationship("DocumentSubmission")
+
+
+class BrandingSettings(Base):
+    """Singleton row (id = 1) holding global institution branding.
+
+    The logo is stored as a stable GCS object key, never a signed URL; the
+    backend mints short-lived read URLs on demand.
+    """
+
+    __tablename__ = "branding_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_branding_settings_singleton"),)
+
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=False, default=1)
+    institution_name = Column(String(200), nullable=True)
+    address_lines = Column(JSON, nullable=True)
+    contact_line = Column(String(200), nullable=True)
+    logo_file_key = Column(String(512), nullable=True)
+    logo_content_type = Column(String(100), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

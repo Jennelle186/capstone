@@ -15,6 +15,7 @@ from ..models import (
     DocumentTypeStatus,
     ExtractionSchema,
     ExtractionSchemaStatus,
+    Form,
     RequirementSlot,
     RequirementSlotItem,
     SchoolYear,
@@ -100,6 +101,52 @@ async def ensure_slots_mutable(db: SessionDep, school_year_id: UUID) -> SchoolYe
     return school_year
 
 
+def _bound_form(item: RequirementSlotItem) -> Form | None:
+    """Return the item's form only when it is still valid for this assignment.
+
+    A form can become stale if its document type changes after it was bound, or
+    if it is a legacy PDF-overlay form. Treat those as "no form" so students are
+    never offered a document that cannot be rendered as a blank structured form.
+    """
+    form = getattr(item, "form", None)
+    if form is None:
+        return None
+    if form.creation_mode != "structured":
+        return None
+    if form.document_type_id != item.document_type_id:
+        return None
+    return form
+
+
+async def get_blank_form_for_item(
+    db: SessionDep,
+    student: Student,
+    item_id: UUID,
+) -> Form | None:
+    """Return the printable blank form bound to a requirement item in the
+    student's own school year, or None when nothing should be served.
+
+    Guards against cross-year access and stale bindings: the item must belong
+    to a slot in the student's school year, and the bound form must still be a
+    structured form whose document type matches the item's (see ``_bound_form``).
+    """
+    if student.school_year_id is None:
+        return None
+
+    stmt = (
+        select(RequirementSlotItem)
+        .where(RequirementSlotItem.id == item_id)
+        .options(
+            selectinload(RequirementSlotItem.slot),
+            selectinload(RequirementSlotItem.form),
+        )
+    )
+    item = (await db.execute(stmt)).scalar_one_or_none()
+    if item is None or item.slot.school_year_id != student.school_year_id:
+        return None
+    return _bound_form(item)
+
+
 # ── Dual-read: resolve requirement slots for a student ──────────────────
 
 
@@ -130,6 +177,7 @@ async def get_requirement_slots_for_student(
         .options(
             selectinload(RequirementSlot.items).selectinload(RequirementSlotItem.document_type),
             selectinload(RequirementSlot.items).selectinload(RequirementSlotItem.extraction_schema),
+            selectinload(RequirementSlot.items).selectinload(RequirementSlotItem.form),
         )
     )
     slots = list((await db.execute(stmt)).scalars().all())
@@ -282,11 +330,15 @@ async def get_student_slot_statuses(
 
         for item in slot.items:
             dt = item.document_type
+            form = _bound_form(item)
             slot_item_dtos.append(
                 SlotItemStatus(
+                    item_id=item.id,
                     document_type_id=item.document_type_id,
                     document_type_name=dt.name if dt else "Unknown",
                     document_type_code=dt.code if dt else "",
+                    form_id=form.id if form else None,
+                    form_name=form.name if form else None,
                     is_primary=item.is_primary,
                 )
             )
@@ -300,10 +352,9 @@ async def get_student_slot_statuses(
                 matched_doc_names.append(dt.name if dt else "Unknown")
                 seen_ids: set[UUID] = set()
                 for sub in submissions:
-                    if str(sub.document_type_id) == str(item.document_type_id):
-                        if sub.id not in seen_ids:
-                            seen_ids.add(sub.id)
-                            matched_sub_ids.append(sub.id)
+                    if str(sub.document_type_id) == str(item.document_type_id) and sub.id not in seen_ids:
+                        seen_ids.add(sub.id)
+                        matched_sub_ids.append(sub.id)
             verified_for_type = [
                 status for status in inventory.get(item.document_type_id, [])
                 if status == "verified"
@@ -415,6 +466,8 @@ async def get_bulk_student_slot_statuses(
                     RequirementSlotItem.document_type),
                 selectinload(RequirementSlot.items).selectinload(
                     RequirementSlotItem.extraction_schema),
+                selectinload(RequirementSlot.items).selectinload(
+                    RequirementSlotItem.form),
             )
         )
         slots = list((await db.execute(stmt)).scalars().all())
@@ -510,11 +563,15 @@ async def get_bulk_student_slot_statuses(
 
             for item in slot.items:
                 dt = item.document_type
+                form = _bound_form(item)
                 slot_item_dtos.append(
                     SlotItemStatus(
+                        item_id=item.id,
                         document_type_id=item.document_type_id,
                         document_type_name=dt.name if dt else "Unknown",
                         document_type_code=dt.code if dt else "",
+                        form_id=form.id if form else None,
+                        form_name=form.name if form else None,
                         is_primary=item.is_primary,
                     )
                 )
@@ -527,10 +584,9 @@ async def get_bulk_student_slot_statuses(
                     matched_count += 1
                     seen_ids: set[UUID] = set()
                     for sub in student_subs:
-                        if str(sub.document_type_id) == str(item.document_type_id):
-                            if sub.id not in seen_ids:
-                                seen_ids.add(sub.id)
-                                matched_sub_ids.append(sub.id)
+                        if str(sub.document_type_id) == str(item.document_type_id) and sub.id not in seen_ids:
+                            seen_ids.add(sub.id)
+                            matched_sub_ids.append(sub.id)
                 verified_for_type = [
                     status
                     for status in inventory.get(item.document_type_id, [])
@@ -624,6 +680,41 @@ async def replace_requirement_slots(
                 detail="One or more extraction schemas are missing or archived.",
             )
 
+    # ── Validate form bindings ──────────────────────────────────────
+    all_form_ids: set[UUID] = set()
+    for slot_data in slots_data:
+        for item_data in slot_data.get("items", []):
+            fid = item_data.get("form_id")
+            if fid:
+                all_form_ids.add(fid)
+
+    if all_form_ids:
+        form_stmt = select(
+            Form.id,
+            Form.document_type_id,
+            Form.creation_mode,
+        ).where(Form.id.in_(all_form_ids))
+        form_rows = (await db.execute(form_stmt)).all()
+        forms_by_id = {row.id: row for row in form_rows}
+        for slot_data in slots_data:
+            for item_data in slot_data.get("items", []):
+                fid = item_data.get("form_id")
+                if not fid:
+                    continue
+                form_row = forms_by_id.get(fid)
+                if (
+                    form_row is None
+                    or form_row.creation_mode != "structured"
+                    or form_row.document_type_id != item_data["document_type_id"]
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            "One or more forms are missing, not structured, or "
+                            "do not match the document type."
+                        ),
+                    )
+
     # ── Delete existing slots for this school year ───────────────────
     await db.execute(
         delete(RequirementSlot).where(RequirementSlot.school_year_id == school_year_id)
@@ -681,6 +772,7 @@ async def replace_requirement_slots(
                 requirement_slot_id=slot.id,
                 document_type_id=item_data["document_type_id"],
                 extraction_schema_id=sid,
+                form_id=item_data.get("form_id"),
                 is_primary=item_data.get("is_primary", False),
                 display_order=item_data.get("display_order", 0),
             )
@@ -719,6 +811,7 @@ async def list_requirement_slots(
         .options(
             selectinload(RequirementSlot.items).selectinload(RequirementSlotItem.document_type),
             selectinload(RequirementSlot.items).selectinload(RequirementSlotItem.extraction_schema),
+            selectinload(RequirementSlot.items).selectinload(RequirementSlotItem.form),
         )
     )
     slots = list((await db.execute(stmt)).scalars().all())
@@ -735,18 +828,22 @@ def _slot_to_response(slot: RequirementSlot) -> SlotResponse:
         description=slot.description,
         min_required=slot.min_required,
         display_order=slot.display_order,
-        items=[
-            SlotItemResponse(
-                id=item.id,
-                requirement_slot_id=slot.id,
-                document_type_id=item.document_type_id,
-                document_type_name=item.document_type.name if item.document_type else "Unknown",
-                document_type_code=item.document_type.code if item.document_type else "",
-                extraction_schema_id=item.extraction_schema_id,
-                extraction_schema_name=item.extraction_schema.name if item.extraction_schema else None,
-                is_primary=item.is_primary,
-                display_order=item.display_order,
-            )
-            for item in (slot.items or [])
-        ],
+        items=[_slot_item_to_response(item, slot.id) for item in (slot.items or [])],
+    )
+
+
+def _slot_item_to_response(item: RequirementSlotItem, slot_id: UUID) -> SlotItemResponse:
+    form = _bound_form(item)
+    return SlotItemResponse(
+        id=item.id,
+        requirement_slot_id=slot_id,
+        document_type_id=item.document_type_id,
+        document_type_name=item.document_type.name if item.document_type else "Unknown",
+        document_type_code=item.document_type.code if item.document_type else "",
+        extraction_schema_id=item.extraction_schema_id,
+        extraction_schema_name=item.extraction_schema.name if item.extraction_schema else None,
+        form_id=form.id if form else None,
+        form_name=form.name if form else None,
+        is_primary=item.is_primary,
+        display_order=item.display_order,
     )

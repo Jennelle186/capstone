@@ -8,12 +8,14 @@ import PageHeader from "@/components/admin/document-management/PageHeader";
 import { staggerContainer } from "@/components/admin/motion-variants";
 import { parseDocumentManagementApiError, toDocumentTypeItem } from "@/lib/document-management-utils";
 import { fetchWithClerkAuth } from "@/lib/api";
+import { parseStructuredDocument } from "@/lib/formLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
+import type { FormRecord } from "@/types/form";
 import type { DocumentTypeApiRecord, DocumentTypeItem } from "@/types/documentType";
 import type {
     RequirementSlot,
@@ -27,9 +29,9 @@ export default function RequirementsPage() {
     const { getToken, isLoaded, isSignedIn } = useAuth();
     const [documentTypes, setDocumentTypes] = useState<DocumentTypeItem[]>([]);
     const [extractionSchemas, setExtractionSchemas] = useState<ExtractionSchemaRecord[]>([]);
+    const [forms, setForms] = useState<FormRecord[]>([]);
     const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
     const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>("");
-    const [_slots, setSlots] = useState<RequirementSlot[]>([]);
     const [draftSlots, setDraftSlots] = useState<SlotAssignment[]>([]);
     const [isPageLoading, setIsPageLoading] = useState(true);
     const [isSlotsLoading, setIsSlotsLoading] = useState(false);
@@ -58,15 +60,23 @@ export default function RequirementsPage() {
     const loadPageData = useCallback(async () => {
         setIsPageLoading(true);
         try {
-            const [docTypePayload, syPayload, schemaPayload] = await Promise.all([
+            const [docTypePayload, syPayload, schemaPayload, formPayload] = await Promise.all([
                 requestWithAdminAuth("/api/admin/document-types?status=all"),
                 requestWithAdminAuth("/api/admin/school-years"),
                 requestWithAdminAuth("/api/admin/extraction-schemas?status=all"),
+                requestWithAdminAuth("/api/admin/forms"),
             ]);
             setDocumentTypes((docTypePayload as DocumentTypeApiRecord[]).map(toDocumentTypeItem));
             setSchoolYears(syPayload as SchoolYearRecord[]);
             setExtractionSchemas(
                 ((schemaPayload as ExtractionSchemaRecord[]) || []).filter((s) => s.status !== "archived"),
+            );
+            setForms(
+                ((formPayload as FormRecord[]) || []).filter(
+                    (form) =>
+                        form.creation_mode === "structured" &&
+                        parseStructuredDocument(form.document_json) !== null,
+                ),
             );
             const defaultSyId =
                 (syPayload as SchoolYearRecord[]).find((sy) => sy.is_active)?.id ??
@@ -87,7 +97,6 @@ export default function RequirementsPage() {
                 const data = (await requestWithAdminAuth(
                     `/api/admin/requirement-slots?school_year_id=${schoolYearId}`,
                 )) as RequirementSlot[];
-                setSlots(data);
                 setDraftSlots(
                     data.map((slot) => ({
                         id: slot.id,
@@ -100,6 +109,7 @@ export default function RequirementsPage() {
                             id: item.id,
                             document_type_id: item.document_type_id,
                             extraction_schema_id: item.extraction_schema_id,
+                            form_id: item.form_id ?? null,
                             is_primary: item.is_primary,
                             display_order: item.display_order,
                         })),
@@ -125,7 +135,6 @@ export default function RequirementsPage() {
 
     useEffect(() => {
         if (!selectedSchoolYearId) {
-            setSlots([]);
             setDraftSlots([]);
             return;
         }
@@ -142,6 +151,9 @@ export default function RequirementsPage() {
         () => documentTypes.filter((d) => !d.isArchived),
         [documentTypes],
     );
+
+    const formsForDocumentType = (documentTypeId: string) =>
+        forms.filter((form) => form.document_type_id === documentTypeId);
 
     const addSoloSlot = () => {
         if (isClosed) return;
@@ -197,6 +209,7 @@ export default function RequirementsPage() {
                         {
                             document_type_id: documentTypeId,
                             extraction_schema_id: null,
+                            form_id: null,
                             is_primary: slot.items.length === 0,
                             display_order: slot.items.length,
                         },
@@ -239,6 +252,23 @@ export default function RequirementsPage() {
         );
     };
 
+    const updateItemForm = (slotIndex: number, docTypeId: string, formId: string | null) => {
+        if (isClosed) return;
+        setDraftSlots((prev) =>
+            prev.map((slot, i) => {
+                if (i !== slotIndex) return slot;
+                return {
+                    ...slot,
+                    items: slot.items.map((item) =>
+                        item.document_type_id === docTypeId
+                            ? { ...item, form_id: formId }
+                            : item,
+                    ),
+                };
+            }),
+        );
+    };
+
     const handleSave = async () => {
         if (!selectedSchoolYearId || isSaving) return;
         if (isClosed) {
@@ -252,16 +282,16 @@ export default function RequirementsPage() {
             const payload: SlotAssignmentPayload = {
                 school_year_id: selectedSchoolYearId,
                 slots: draftSlots.map((slot, idx) => {
-                    const { id: _id, ...slotRest } = slot;
+                    const { id: slotId, ...slotRest } = slot;
                     return {
                         ...slotRest,
-                        ...(slot.id && !isTempId(slot.id) ? { id: slot.id } : {}),
+                        ...(slotId && !isTempId(slotId) ? { id: slotId } : {}),
                         display_order: idx,
                         items: slot.items.map((item, itemIdx) => {
-                            const { id: _itemId, ...itemRest } = item;
+                            const { id: itemId, ...itemRest } = item;
                             return {
                                 ...itemRest,
-                                ...(item.id && !isTempId(item.id) ? { id: item.id } : {}),
+                                ...(itemId && !isTempId(itemId) ? { id: itemId } : {}),
                                 display_order: itemIdx,
                             };
                         }),
@@ -274,7 +304,6 @@ export default function RequirementsPage() {
                 body: JSON.stringify(payload),
             })) as { school_year_id: string; slots: RequirementSlot[] };
 
-            setSlots(response.slots);
             setDraftSlots(
                 response.slots.map((slot) => ({
                     id: slot.id,
@@ -287,6 +316,7 @@ export default function RequirementsPage() {
                         id: item.id,
                         document_type_id: item.document_type_id,
                         extraction_schema_id: item.extraction_schema_id,
+                        form_id: item.form_id ?? null,
                         is_primary: item.is_primary,
                         display_order: item.display_order,
                     })),
@@ -442,10 +472,20 @@ export default function RequirementsPage() {
                                                 !s.document_type_id ||
                                                 s.document_type_id === item.document_type_id,
                                         );
+                                        const boundForm = item.form_id
+                                            ? forms.find((f) => f.id === item.form_id) ?? null
+                                            : null;
+                                        const boundFormSchemaId = boundForm?.extraction_schema_id ?? null;
+                                        const boundFormSchemaName = boundForm?.extraction_schema_name ?? null;
+                                        const schemaMismatch =
+                                            !!boundFormSchemaId &&
+                                            !!item.extraction_schema_id &&
+                                            boundFormSchemaId !== item.extraction_schema_id;
+                                        const schemaSuggestion = !!boundFormSchemaId && !item.extraction_schema_id;
                                         return (
                                             <div
                                                 key={item.document_type_id}
-                                                className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3"
+                                                className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 p-3"
                                             >
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-sm font-medium text-slate-900 truncate">
@@ -503,6 +543,32 @@ export default function RequirementsPage() {
                                                         </Select>
                                                     </div>
                                                 )}
+                                                <Select
+                                                    value={item.form_id ?? "__none__"}
+                                                    onValueChange={(val) =>
+                                                        updateItemForm(
+                                                            slotIndex,
+                                                            item.document_type_id,
+                                                            val === "__none__" ? null : val,
+                                                        )
+                                                    }
+                                                    disabled={isClosed}
+                                                >
+                                                    <SelectTrigger
+                                                        className="w-52 text-xs"
+                                                        aria-label={`Blank form for ${docType?.name ?? "document type"}`}
+                                                    >
+                                                        <SelectValue placeholder="No form" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="__none__">No form</SelectItem>
+                                                        {formsForDocumentType(item.document_type_id).map((form) => (
+                                                            <SelectItem key={form.id} value={form.id}>
+                                                                {form.name}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
@@ -512,6 +578,36 @@ export default function RequirementsPage() {
                                                 >
                                                     <X className="h-3.5 w-3.5" />
                                                 </Button>
+                                                {schemaSuggestion && boundFormSchemaName && (
+                                                    <div className="w-full flex items-center justify-between gap-2 rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5">
+                                                        <span className="text-[11px] text-amber-800">
+                                                            This form is grounded on schema “{boundFormSchemaName}”.
+                                                        </span>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-6 text-[11px]"
+                                                            disabled={isClosed}
+                                                            onClick={() =>
+                                                                updateItemSchema(
+                                                                    slotIndex,
+                                                                    item.document_type_id,
+                                                                    boundFormSchemaId,
+                                                                )
+                                                            }
+                                                        >
+                                                            Use it
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                                {schemaMismatch && boundFormSchemaName && (
+                                                    <div className="w-full rounded-md bg-rose-50 border border-rose-200 px-2.5 py-1.5">
+                                                        <span className="text-[11px] text-rose-800">
+                                                            This form is grounded on schema “{boundFormSchemaName}”, but this
+                                                            item uses a different schema.
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}

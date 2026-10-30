@@ -1,4 +1,4 @@
-export type SubmissionStatusType = "pending" | "uploaded" | "processing" | "classified" | "extracting" | "in-review" | "verified" | "flagged" | "submitted";
+export type SubmissionStatusType = "pending" | "uploaded" | "processing" | "classified" | "extracting" | "in-review" | "verified" | "flagged" | "submitted" | "filled-online";
 
 export type Submission = {
   id: string;
@@ -8,6 +8,7 @@ export type Submission = {
   status: SubmissionStatusType;
   fileType: string;
   fileSize: string;
+  filledOnline?: boolean;
 };
 
 export type SubmissionStatus = SubmissionStatusType;
@@ -132,5 +133,10 @@ export const statusConfig: Record<SubmissionStatus, { label: string; badge: stri
     label: "Submitted",
     badge: "bg-slate-100 text-slate-700",
     dot: "bg-slate-500",
+  },
+  "filled-online": {
+    label: "Filled online",
+    badge: "bg-indigo-100 text-indigo-700",
+    dot: "bg-indigo-500",
   },
 };

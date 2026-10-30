@@ -8,6 +8,8 @@ import TermsPage from "./pages/TermsPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import StudentDashboard from "./pages/students/StudentDashboard";
 import UploadDocuments from "./pages/students/UploadDocuments";
+import StudentBlankFormPage from "./pages/students/StudentBlankFormPage";
+import StudentFillFormPage from "./pages/students/StudentFillFormPage";
 import ProfileSettings from "./pages/students/ProfileSettings";
 import ExtractionDetailPage from "./pages/students/ExtractionDetailPage";
 import ResolveFlaggedPage from "./pages/students/ResolveFlaggedPage";
@@ -34,6 +36,8 @@ import DocumentTypesPage from "./pages/admin/document-types/DocumentTypesPage";
 import RequirementsPage from "./pages/admin/requirements/RequirementsPage";
 import ExtractionSchemasPage from "./pages/admin/extraction-schemas/ExtractionSchemasPage";
 import SchemaRegistryPage from "./pages/admin/extraction-schemas/SchemaRegistryPage";
+import FormsPage from "./pages/admin/forms/FormsPage";
+import BrandingSettingsPage from "./pages/admin/branding/BrandingSettingsPage";
 import AdminAnalyticsPage from "./pages/admin/analytics/AnalyticsPage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
@@ -77,6 +81,8 @@ const AppRoutes = createBrowserRouter([
                   { path: "dashboard", Component: StudentDashboard },
                   { path: "notifications", Component: NotificationsPage },
                   { path: "upload", Component: UploadDocuments },
+                  { path: "blank-form/:itemId", Component: StudentBlankFormPage },
+                  { path: "fill-form/:itemId", Component: StudentFillFormPage },
                   { path: "extraction/:submissionId", Component: ExtractionDetailPage },
                   { path: "resolve-flagged/:documentId", Component: ResolveFlaggedPage },
                   // Allow nested Clerk UserProfile routes (e.g., /student/profile/security).
@@ -131,9 +137,11 @@ const AppRoutes = createBrowserRouter([
                         ],
                     },
                     { path: "requirements", Component: RequirementsPage },
+                    { path: "forms", Component: FormsPage },
                     { path: "analytics", Component: AdminAnalyticsPage },
                     { path: "reports", Component: ReportsPage },
                     { path: "settings/school-year", Component: SchoolYearsPage },
+                    { path: "settings/branding", Component: BrandingSettingsPage },
                 ],
             },
         ],

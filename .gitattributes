@@ -1,0 +1,3 @@
+# Force LF line endings for shell scripts so Docker entrypoints/scripts never
+# get Windows CRLF (which breaks the `#!/bin/sh` shebang with "no such file").
+*.sh text eol=lf

@@ -10,7 +10,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import HTTPException, status
 from google.cloud import storage
-from google.cloud.storage.retry import DEFAULT_RETRY
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(ENV_PATH)
@@ -207,3 +206,35 @@ def move_to_production_batch(keys: list[str]) -> list[str]:
         for fut in as_completed(fut_map):
             results.append(fut.result())
     return results
+
+
+def list_blobs(prefix: str | None = None) -> list[str]:
+    """Return every object key in the bucket, optionally scoped to a prefix.
+
+    Used by the GCS orphan cleanup to diff the bucket against DB-referenced keys.
+    """
+    bucket = _bucket()
+    try:
+        blobs = bucket.list_blobs(prefix=prefix)
+        return [blob.name for blob in blobs]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to list GCS objects: {e}",
+        ) from e
+
+
+def delete_file_batch(keys: list[str]) -> list[str]:
+    """Delete multiple GCS objects, returning the keys that failed to delete."""
+    bucket = _bucket()
+    failed: list[str] = []
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        fut_map = {ex.submit(bucket.blob(k).delete): k for k in keys}
+        for fut in as_completed(fut_map):
+            key = fut_map[fut]
+            try:
+                fut.result()
+            except Exception:
+                logger.exception("Failed to delete GCS file in batch: %s", key)
+                failed.append(key)
+    return failed

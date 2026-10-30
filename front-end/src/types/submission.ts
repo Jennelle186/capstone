@@ -9,6 +9,7 @@ export interface SubmissionItem {
   status: SubmissionCardStatus;
   confidence?: number;
   issues?: string;
+  filledOnline?: boolean;
 }
 
 export interface InitiateUploadResponse {
@@ -34,6 +35,7 @@ export interface SubmissionDetail {
   file_size: string | null;
   mime_type: string | null;
   is_compiled: boolean;
+  filled_online?: boolean;
   document_type_id: string | null;
   document_type_name: string | null;
   document_type_code: string | null;

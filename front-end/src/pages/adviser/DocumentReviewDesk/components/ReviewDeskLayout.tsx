@@ -6,6 +6,8 @@ import DocumentCanvas from "./DocumentCanvas";
 import ExtractionFieldEditor from "./ExtractionFieldEditor";
 import ReviewActionFooter from "./ReviewActionFooter";
 import SubmissionHistoryTimeline from "@/components/common/document-detail/SubmissionHistoryTimeline";
+import FilledFormPreview from "@/components/student/forms/FilledFormPreview";
+import type { FormValues } from "@/types/form";
 import {
   Select,
   SelectContent,
@@ -46,6 +48,7 @@ interface Props {
   activeSectionId: string;
   currentExtractions: ExtractionSection[];
   previewUrl: string | null;
+  filledFormData: { document_json: unknown; values: Record<string, unknown> } | null;
   stats: ReviewDeskStats;
   actioning: boolean;
   flagReason: string;
@@ -82,6 +85,7 @@ export default function ReviewDeskLayout({
   activeSectionId,
   currentExtractions,
   previewUrl,
+  filledFormData,
   stats,
   actioning,
   flagReason,
@@ -179,23 +183,45 @@ export default function ReviewDeskLayout({
         />
 
         <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 overflow-hidden h-full">
-          <DocumentCanvas
-            previewUrl={previewUrl}
-            studentName={currentSubmission?.document_type ?? "Document"}
-            studentNumber={student?.student_number ?? null}
-            scale={scale}
-            rotated={rotated}
-            onZoomIn={() => onSetScale(Math.min(scale + 0.15, 1.5))}
-            onZoomOut={() => onSetScale(Math.max(scale - 0.15, 0.7))}
-            onRotate={() => onSetRotated((rotated + 90) % 360)}
-            onReset={() => {
-              onSetScale(1.0);
-              onSetRotated(0);
-            }}
-            documentType={currentSubmission?.document_type ?? ""}
-          />
+          {currentSubmission?.filled_online ? (
+            <section className="xl:col-span-7 h-full flex flex-col bg-slate-100 overflow-y-auto p-4">
+              {filledFormData ? (
+                <FilledFormPreview
+                  document_json={filledFormData.document_json}
+                  values={filledFormData.values as FormValues}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                  Loading filled form…
+                </div>
+              )}
+            </section>
+          ) : (
+            <DocumentCanvas
+              previewUrl={previewUrl}
+              studentName={currentSubmission?.document_type ?? "Document"}
+              studentNumber={student?.student_number ?? null}
+              scale={scale}
+              rotated={rotated}
+              onZoomIn={() => onSetScale(Math.min(scale + 0.15, 1.5))}
+              onZoomOut={() => onSetScale(Math.max(scale - 0.15, 0.7))}
+              onRotate={() => onSetRotated((rotated + 90) % 360)}
+              onReset={() => {
+                onSetScale(1.0);
+                onSetRotated(0);
+              }}
+              documentType={currentSubmission?.document_type ?? ""}
+            />
+          )}
 
           <div className="xl:col-span-5 h-full flex flex-col bg-white overflow-hidden">
+            {currentSubmission?.filled_online && (
+              <div className="px-4 pt-3 shrink-0">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase text-indigo-700 bg-indigo-100">
+                  Filled online
+                </span>
+              </div>
+            )}
             <ExtractionFieldEditor
               currentSubmission={currentSubmission}
               currentExtractions={currentExtractions}

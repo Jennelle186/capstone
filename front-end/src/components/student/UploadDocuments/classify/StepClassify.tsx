@@ -13,6 +13,7 @@ import { isClassificationComplete } from "@/lib/constants";
 import ClassificationCard from "@/components/student/UploadDocuments/classify/ClassificationCard";
 import SubmissionChecklist from "@/components/student/UploadDocuments/classify/SubmissionChecklist";
 import JobProgress from "@/components/student/UploadDocuments/JobProgress";
+import FilledFormDetailModal from "@/components/student/forms/FilledFormDetailModal";
 import type { ClassificationItem, ClassificationStatus } from "@/types/classification";
 import type { RequiredDocument } from "@/types/student";
 import { allSlotsVerified, getSlotDisplayName, type SlotStatusResponse } from "@/types/requirement";
@@ -69,6 +70,7 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     pageCount: s.page_count,
     status,
     originalStatus: s.status,
+    filledOnline: s.filled_online === true,
     classificationResult: result as ClassificationItem["classificationResult"],
     mimeType: s.mime_type,
     createdAt: s.created_at,
@@ -547,12 +549,18 @@ export default function StepClassify({
   const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
+  const [filledFormId, setFilledFormId] = React.useState<string | null>(null);
   const previewItem = previewIndex !== null ? previewableItems[previewIndex] ?? null : null;
 
   const handlePreview = React.useCallback((id: string) => {
+    const item = items.find((i) => i.id === id);
+    if (item?.filledOnline) {
+      setFilledFormId(id);
+      return;
+    }
     const idx = previewableItems.findIndex((i) => i.id === id);
     if (idx !== -1) setPreviewIndex(idx);
-  }, [previewableItems]);
+  }, [previewableItems, items]);
 
   const handlePrev = React.useCallback(() => {
     setPreviewIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev));
@@ -577,13 +585,16 @@ export default function StepClassify({
     const fetchUrl = async () => {
       setPreviewLoading(true);
       setPreviewUrl(null);
-      const token = await getTokenRef.current();
-      if (!token || cancelled) return;
-      const res = await fetchWithClerkAuth(`/api/me/documents/${item.id}/download-url`, token);
-      if (!res.ok || cancelled) return;
-      const data = (await res.json()) as { url: string };
-      if (!cancelled) setPreviewUrl(data.url);
-      if (!cancelled) setPreviewLoading(false);
+      try {
+        const token = await getTokenRef.current();
+        if (!token || cancelled) return;
+        const res = await fetchWithClerkAuth(`/api/me/documents/${item.id}/download-url`, token);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { url: string };
+        if (!cancelled) setPreviewUrl(data.url);
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
     };
     fetchUrl();
     return () => { cancelled = true; };
@@ -1181,6 +1192,15 @@ export default function StepClassify({
 
         </DialogContent>
       </Dialog>
+
+      <FilledFormDetailModal
+        submissionId={filledFormId ?? ""}
+        open={filledFormId !== null}
+        onOpenChange={(open) => {
+          if (!open) setFilledFormId(null);
+        }}
+        getToken={getToken}
+      />
     </div>
   );
 }

@@ -17,6 +17,7 @@ class SubmissionDetailResponse(BaseModel):
     file_size: str | None = None
     mime_type: str | None = None
     is_compiled: bool
+    filled_online: bool = False
     document_type_id: str | None = None
     document_type_name: str | None = None
     document_type_code: str | None = None

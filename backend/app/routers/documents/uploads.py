@@ -360,6 +360,7 @@ def _serialize_submission(
         file_size=s.file_size,
         mime_type=s.mime_type,
         is_compiled=s.is_compiled,
+        filled_online=bool(getattr(s, "filled_online", False)),
         document_type_id=str(s.document_type_id) if s.document_type_id else None,
         document_type_name=s.document_type.name if s.document_type else None,
         classification_result=s.classification_result,
@@ -833,6 +834,9 @@ async def get_download_url(
 
     if submission.student_id != student.id:
         raise HTTPException(status_code=403, detail="You do not have permission to view this document.")
+
+    if getattr(submission, "filled_online", False):
+        raise HTTPException(status_code=404, detail="This form was filled online and has no file to preview.")
 
     if submission.status not in (
         SubmissionStatus.UPLOADED,

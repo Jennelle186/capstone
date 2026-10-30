@@ -92,6 +92,7 @@ export default function StepSubmit({ requiredSlots, submissions, getToken, onSub
       status: (s.status === "submitted" ? "submitted" : s.status === "flagged" ? "needs-review" : "ready") as SubmissionCardStatus,
       confidence: (s.classification_result?.confidence as number) ?? undefined,
       issues: (s.classification_result?.flag as string) ?? undefined,
+      filledOnline: s.filled_online,
     }));
 
   const classificationAccuracy = items.length > 0

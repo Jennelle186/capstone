@@ -4,6 +4,7 @@ import { motion, useSpring, useTransform } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 const navItems = ["features", "how-it-works", "roles"] as const;
 
@@ -13,6 +14,7 @@ export default function Header() {
   const isSmallScreen = useMediaQuery("(max-width: 767px)");
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const { branding } = usePublicBranding();
 
   const springConfig = { stiffness: 100, damping: 30, restDelta: 0.001 };
   const navbarBg = useSpring(
@@ -73,7 +75,7 @@ export default function Header() {
             <Link to="/" className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg bg-white border border-border flex items-center justify-center p-1">
                 <img
-                  src="/ccs-logo.jpg"
+                  src={branding.logo_url ?? "/ccs-logo.jpg"}
                   alt="CCS logo"
                   className="h-full w-full object-contain"
                 />
