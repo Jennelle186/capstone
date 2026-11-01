@@ -12,7 +12,7 @@ import type { PublicBranding } from "@/types/branding";
  * sidebar/auth instances share one request.
  */
 export const FALLBACK_BRANDING: PublicBranding = {
-    institution_name: "College of Computer Studies",
+    institution_name: "College of Computing Studies",
     address_lines: [],
     contact_line: null,
     logo_url: "/ccs-logo.jpg",

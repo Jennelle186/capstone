@@ -38,7 +38,7 @@ _SERIF = "Cambria"
 _SANS = "Calibri"
 _MONO = "Courier New"
 
-_DEFAULT_INSTITUTION = "College of Computer Studies"
+_DEFAULT_INSTITUTION = "College of Computing Studies"
 _DEFAULT_ADDRESS = ["Campus Address, City, Province"]
 _DEFAULT_CONTACT = "registrar@example.edu \u00b7 (000) 000-0000"
 _DEFAULT_FORM_NUMBER = "ADS-01"

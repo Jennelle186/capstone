@@ -55,7 +55,7 @@ export default function FormPaper({ doc, mode, onChange }: FormPaperProps) {
     const { branding } = usePublicBranding();
 
     const letterhead = doc.letterhead;
-    const institutionName = letterhead?.institutionName ?? branding.institution_name ?? "College of Computer Studies";
+    const institutionName = letterhead?.institutionName ?? branding.institution_name ?? "College of Computing Studies";
     const addressLines =
         letterhead?.addressLines && letterhead.addressLines.length > 0
             ? letterhead.addressLines
