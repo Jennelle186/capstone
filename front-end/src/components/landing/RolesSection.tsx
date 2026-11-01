@@ -4,44 +4,47 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, ClipboardList, Settings, Users } from "lucide-react";
 import AnimatedSection from "./AnimatedSection";
 import { fadeInUp, staggerContainer } from "./motion";
-
-const roles = [
-  {
-    icon: Users,
-    badge: "You",
-    title: "Student",
-    items: [
-      "Upload required enrollment documents",
-      "Track your submission status",
-      "Receive review and correction feedback",
-      "Complete your CCS enrollment requirements",
-    ],
-  },
-  {
-    icon: ClipboardList,
-    badge: "CCS",
-    title: "Advisers & Staff",
-    items: [
-      "Review submitted documents",
-      "Verify requirements and authenticity",
-      "Request corrections when needed",
-      "Approve eligible submissions",
-    ],
-  },
-  {
-    icon: Settings,
-    badge: "Admin",
-    title: "CCS Administration",
-    items: [
-      "Oversee enrollment processing",
-      "Manage accounts and permissions",
-      "Generate enrollment reports",
-      "Ensure system security and compliance",
-    ],
-  },
-];
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 export default function RolesSection() {
+  const { branding } = usePublicBranding();
+
+  const roles = [
+    {
+      icon: Users,
+      badge: "You",
+      title: "Student",
+      items: [
+        "Upload required enrollment documents",
+        "Track your submission status",
+        "Receive review and correction feedback",
+        `Complete your ${branding.institution_name} enrollment requirements`,
+      ],
+    },
+    {
+      icon: ClipboardList,
+      badge: branding.institution_name,
+      title: "Advisers & Staff",
+      items: [
+        "Review submitted documents",
+        "Verify requirements and authenticity",
+        "Request corrections when needed",
+        "Approve eligible submissions",
+      ],
+    },
+    {
+      icon: Settings,
+      badge: "Admin",
+      title: `${branding.institution_name} Administration`,
+      items: [
+        "Oversee enrollment processing",
+        "Manage accounts and permissions",
+        "Generate enrollment reports",
+        "Ensure system security and compliance",
+      ],
+    },
+  ];
+
   return (
     <section id="roles" className="scroll-mt-24 py-24 px-4 bg-muted/30">
       <div className="max-w-6xl mx-auto">
@@ -58,7 +61,7 @@ export default function RolesSection() {
             Your Support Team
           </motion.h2>
           <motion.p variants={fadeInUp} className="text-muted-foreground max-w-2xl mx-auto text-lg">
-            Meet the people who will guide you through CCS enrollment verification
+            Meet the people who will guide you through {branding.institution_name} enrollment verification
           </motion.p>
         </AnimatedSection>
 

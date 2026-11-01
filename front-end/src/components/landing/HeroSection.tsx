@@ -13,10 +13,12 @@ import {
   Upload,
 } from "lucide-react";
 import { fadeInUp, staggerContainer } from "./motion";
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 export default function HeroSection() {
   const heroRef = useRef<HTMLElement | null>(null);
   const [schoolYear, setSchoolYear] = useState<string | null>(null);
+  const { branding } = usePublicBranding();
 
   useEffect(() => {
     let cancelled = false;
@@ -76,7 +78,7 @@ export default function HeroSection() {
               >
                 <GraduationCap className="w-4 h-4 text-primary" />
                 <span className="text-sm text-primary font-medium">
-                  {schoolYear ? `${schoolYear} Enrollment` : "CCS Students • WMSU"}
+                  {schoolYear ? `${schoolYear} Enrollment` : `${branding.institution_name} Students • WMSU`}
                 </span>
               </motion.div>
             </motion.div>
@@ -89,7 +91,7 @@ export default function HeroSection() {
             </motion.h1>
 
             <motion.p variants={fadeInUp} className="text-lg text-muted-foreground mb-8 max-w-lg">
-              Welcome to the College of Computing Studies (CCS) enrollment document portal of
+              Welcome to the {branding.institution_name} enrollment document portal of
               Western Mindanao State University. Upload requirements, track status, and stay
               informed every step of the way.
             </motion.p>
@@ -148,7 +150,7 @@ export default function HeroSection() {
                     </motion.div>
                     <div>
                       <CardTitle className="text-base">Your Documents</CardTitle>
-                      <p className="text-xs text-muted-foreground">CCS Enrollment</p>
+                      <p className="text-xs text-muted-foreground">{branding.institution_name} Enrollment</p>
                     </div>
                   </div>
                 </CardHeader>

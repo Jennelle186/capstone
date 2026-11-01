@@ -77,7 +77,7 @@ export default function UploadSidebar({ slots, legacyDocuments }: UploadSidebarP
                                             )}
                                         </div>
                                     )}
-                                    <BlankFormLinks items={slot.items} />
+                                    <BlankFormLinks items={slot.items} isComplete={slot.is_complete} />
                                 </li>
                             ))}
                         {showLegacy &&
@@ -135,7 +135,7 @@ export default function UploadSidebar({ slots, legacyDocuments }: UploadSidebarP
     );
 }
 
-function BlankFormLinks({ items }: { items: SlotItemStatus[] }) {
+function BlankFormLinks({ items, isComplete }: { items: SlotItemStatus[]; isComplete: boolean }) {
     const downloadable = items.filter((item) => item.form_id && item.item_id);
     if (downloadable.length === 0) return null;
 
@@ -143,14 +143,16 @@ function BlankFormLinks({ items }: { items: SlotItemStatus[] }) {
         <ul className="mt-1.5 space-y-1">
             {downloadable.map((item) => (
                 <li key={item.item_id} className="space-y-1">
-                    <Link
-                        to={`/student/fill-form/${item.item_id}`}
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
-                    >
-                        <Pencil className="h-3.5 w-3.5 shrink-0" />
-                        Fill online
-                        {item.document_type_name ? ` · ${item.document_type_name}` : ""}
-                    </Link>
+                    {!isComplete && (
+                        <Link
+                            to={`/student/fill-form/${item.item_id}`}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                        >
+                            <Pencil className="h-3.5 w-3.5 shrink-0" />
+                            Fill online
+                            {item.document_type_name ? ` · ${item.document_type_name}` : ""}
+                        </Link>
+                    )}
                     <span className="block">
                         <Link
                             to={`/student/blank-form/${item.item_id}`}

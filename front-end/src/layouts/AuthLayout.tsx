@@ -58,26 +58,26 @@ export default function AuthLayout({ children, title, description }: AuthLayoutP
                         <div className="h-12 w-12 rounded-xl bg-white border border-border p-2">
                             <img
                                 src={branding.logo_url ?? "/ccs-logo.jpg"}
-                                alt="CCS logo"
+                                alt={`${branding.institution_name} logo`}
                                 className="h-full w-full object-contain"
                             />
                         </div>
                         <div>
-                            <div className="font-bold text-lg text-foreground">CCS • WMSU</div>
+                            <div className="font-bold text-lg text-foreground">{branding.institution_name} • WMSU</div>
                             <div className="text-sm text-muted-foreground">Enrollment Document Portal</div>
                         </div>
                     </motion.div>
 
                     <motion.div variants={fadeInUp} className="mt-8">
                         <Badge variant="outline" className="mb-4">
-                            College of Computing Studies
+                            {branding.institution_name}
                         </Badge>
                         <h2 className="text-3xl font-bold tracking-tight text-foreground">
                             Secure access for students and staff
                         </h2>
                         <p className="mt-3 text-muted-foreground max-w-md">
                             Sign in to submit enrollment requirements, track verification status, and keep
-                            CCS records organized for Western Mindanao State University.
+                            {branding.institution_name} records organized for Western Mindanao State University.
                         </p>
                     </motion.div>
 

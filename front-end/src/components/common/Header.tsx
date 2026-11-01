@@ -76,13 +76,13 @@ export default function Header() {
               <div className="w-9 h-9 rounded-lg bg-white border border-border flex items-center justify-center p-1">
                 <img
                   src={branding.logo_url ?? "/ccs-logo.jpg"}
-                  alt="CCS logo"
+                  alt={`${branding.institution_name} logo`}
                   className="h-full w-full object-contain"
                 />
               </div>
               <div className="flex flex-col">
                 <span className="font-bold text-sm text-foreground leading-tight">
-                  CCS • WMSU
+                  {branding.institution_name} • WMSU
                 </span>
                 <span className="text-[10px] text-muted-foreground leading-tight">
                   Enrollment Portal

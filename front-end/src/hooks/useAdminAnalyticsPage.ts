@@ -5,7 +5,6 @@ import { toast } from "sonner"
 import { useStableToken } from "@/hooks/useStableToken"
 import { fetchWithClerkAuth } from "@/lib/api"
 import type {
-  AlignmentReport,
   AnalyticsDimensionResponse,
   CanonicalKeyItem,
   CanonicalKeysResponse,
@@ -31,20 +30,17 @@ export function useAdminAnalyticsPage() {
   const [canonicalKeys, setCanonicalKeys] = useState<CanonicalKeyItem[]>([])
   const [enrolment, setEnrolment] = useState<EnrolmentSeriesItem[]>([])
   const [trends, setTrends] = useState<TrendResponse | null>(null)
-  const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
 
   const [isLoadingSnapshot, setIsLoadingSnapshot] = useState(true)
-  const [isLoadingCanonical, setIsLoadingCanonical] = useState(true)
   const [isLoadingEnrolment, setIsLoadingEnrolment] = useState(true)
   const [isLoadingTrends, setIsLoadingTrends] = useState(false)
-  const [isLoadingAlignment, setIsLoadingAlignment] = useState(true)
 
   const [unregisteredKeys, setUnregisteredKeys] = useState<UnregisteredKeyItem[]>([])
   const [isLoadingUnregistered, setIsLoadingUnregistered] = useState(true)
   const [registryEntries, setRegistryEntries] = useState<AnalyticsDimensionResponse[]>([])
   const [isLoadingRegistry, setIsLoadingRegistry] = useState(true)
 
-  const [tab, setTab] = useState<"snapshot" | "trends" | "fields" | "alignment" | "registry">("snapshot")
+  const [tab, setTab] = useState<"snapshot" | "trends" | "registry">("snapshot")
   const [trendFromYear, setTrendFromYear] = useState("2023")
   const [trendToYear, setTrendToYear] = useState("2026")
   const [selectedTrendKeys, setSelectedTrendKeys] = useState<string[]>(["gender"])
@@ -109,7 +105,6 @@ export function useAdminAnalyticsPage() {
   )
 
   const loadCanonicalKeys = useCallback(async () => {
-    setIsLoadingCanonical(true)
     try {
       const payload = (await requestWithAdminAuth(
         "/api/admin/analytics/canonical-keys",
@@ -117,8 +112,6 @@ export function useAdminAnalyticsPage() {
       setCanonicalKeys(payload.keys)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to load canonical keys.")
-    } finally {
-      setIsLoadingCanonical(false)
     }
   }, [requestWithAdminAuth])
 
@@ -156,20 +149,6 @@ export function useAdminAnalyticsPage() {
     },
     [requestWithAdminAuth, deptQuery],
   )
-
-  const loadAlignment = useCallback(async () => {
-    setIsLoadingAlignment(true)
-    try {
-      const payload = (await requestWithAdminAuth(
-        "/api/admin/analytics/alignment",
-      )) as AlignmentReport
-      setAlignment(payload)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load alignment report.")
-    } finally {
-      setIsLoadingAlignment(false)
-    }
-  }, [requestWithAdminAuth])
 
   const loadUnregisteredKeys = useCallback(async () => {
     setIsLoadingUnregistered(true)
@@ -211,9 +190,7 @@ export function useAdminAnalyticsPage() {
       setSchoolYears([])
       setDepartments([])
       setIsLoadingSnapshot(false)
-      setIsLoadingCanonical(false)
       setIsLoadingEnrolment(false)
-      setIsLoadingAlignment(false)
       setIsLoadingUnregistered(false)
       setIsLoadingRegistry(false)
       return
@@ -222,10 +199,9 @@ export function useAdminAnalyticsPage() {
     void loadDepartments()
     void loadCanonicalKeys()
     void loadEnrolment("2023", "2026")
-    void loadAlignment()
     void loadUnregisteredKeys()
     void loadRegistryEntries()
-  }, [isLoaded, isSignedIn, loadSchoolYears, loadDepartments, loadCanonicalKeys, loadEnrolment, loadAlignment, loadUnregisteredKeys, loadRegistryEntries])
+  }, [isLoaded, isSignedIn, loadSchoolYears, loadDepartments, loadCanonicalKeys, loadEnrolment, loadUnregisteredKeys, loadRegistryEntries])
 
   useEffect(() => {
     if (!selectedSyId) return
@@ -289,14 +265,10 @@ export function useAdminAnalyticsPage() {
     snapshot,
     isLoadingSnapshot,
     yearFieldsByGroup: snapshotFieldsByGroup,
-    canonicalKeys,
-    isLoadingCanonical,
     enrolment,
     isLoadingEnrolment,
     trends,
     isLoadingTrends,
-    alignment,
-    isLoadingAlignment,
     tab,
     setTab,
     trendFromYear,

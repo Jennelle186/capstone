@@ -2,6 +2,7 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { PasswordInput } from "../ui/password-input";
 import { toast } from "sonner";
 import { useSignUp } from "@clerk/clerk-react";
 import { useState } from "react";
@@ -218,10 +219,9 @@ export default function SignupForm() {
             render={({ field, fieldState }) => (
               <Field>
                 <FieldLabel htmlFor="form-signup-password">Password</FieldLabel>
-                <Input
+                <PasswordInput
                   {...field}
                   id="form-signup-password"
-                  type="password"
                   placeholder="Create a password"
                   disabled={!isLoaded || isBusy}
                 />
@@ -238,10 +238,9 @@ export default function SignupForm() {
                 <FieldLabel htmlFor="form-signup-password-confirm">
                   Confirm Password
                 </FieldLabel>
-                <Input
+                <PasswordInput
                   {...field}
                   id="form-signup-password-confirm"
-                  type="password"
                   placeholder="Re-enter your password"
                   disabled={!isLoaded || isBusy}
                 />
