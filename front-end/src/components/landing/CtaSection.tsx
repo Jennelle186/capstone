@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { ChevronRight, GraduationCap } from "lucide-react";
 import AnimatedSection from "./AnimatedSection";
 import { fadeInUp } from "./motion";
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 export default function CtaSection() {
+  const { branding } = usePublicBranding();
   return (
     <section className="py-24 px-4 relative overflow-hidden">
       <motion.div
@@ -35,11 +37,11 @@ export default function CtaSection() {
             variants={fadeInUp}
             className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6"
           >
-            Ready for CCS Enrollment?
+            Ready for {branding.institution_name} Enrollment?
           </motion.h2>
           <motion.p variants={fadeInUp} className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
             Start your enrollment submission today. Upload your documents and follow a clear,
-            secure verification flow for the College of Computing Studies at WMSU.
+            secure verification flow for the {branding.institution_name} at WMSU.
           </motion.p>
           <motion.div variants={fadeInUp} className="flex flex-wrap justify-center gap-4">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -52,7 +54,7 @@ export default function CtaSection() {
             </motion.div>
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Button asChild variant="outline" size="lg">
-                <a href="mailto:support@wmsu.edu.ph">Contact CCS Office</a>
+                <a href="mailto:support@wmsu.edu.ph">Contact {branding.institution_name} Office</a>
               </Button>
             </motion.div>
           </motion.div>

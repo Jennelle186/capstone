@@ -24,10 +24,10 @@ export default function LoadingPage() {
         <div className="relative space-y-6">
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 rounded-xl bg-white border border-border p-2 shadow-sm">
-              <img src={branding.logo_url ?? "/ccs-logo.jpg"} alt="CCS logo" className="h-full w-full object-contain" />
+              <img src={branding.logo_url ?? "/ccs-logo.jpg"} alt={`${branding.institution_name} logo`} className="h-full w-full object-contain" />
             </div>
             <div>
-              <div className="font-bold text-lg text-foreground">CCS • WMSU</div>
+              <div className="font-bold text-lg text-foreground">{branding.institution_name} • WMSU</div>
               <div className="text-sm text-muted-foreground">Enrollment Document Portal</div>
             </div>
           </div>

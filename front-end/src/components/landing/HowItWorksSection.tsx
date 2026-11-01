@@ -4,29 +4,29 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Bell, ClipboardList, Upload } from "lucide-react";
 import AnimatedSection from "./AnimatedSection";
 import { fadeInUp, staggerContainer } from "./motion";
-
-const steps = [
-  {
-    icon: Upload,
-    title: "Upload Your Documents",
-    description:
-      "Securely upload your CCS enrollment requirements and supporting files in one place.",
-  },
-  {
-    icon: ClipboardList,
-    title: "CCS Review & Verification",
-    description:
-      "CCS staff and advisers review submissions and request corrections when needed.",
-  },
-  {
-    icon: Bell,
-    title: "Get Notified",
-    description:
-      "Receive updates when your documents are approved, pending, or require changes.",
-  },
-];
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 export default function HowItWorksSection() {
+  const { branding } = usePublicBranding();
+
+  const steps = [
+    {
+      icon: Upload,
+      title: "Upload Your Documents",
+      description: `Securely upload your ${branding.institution_name} enrollment requirements and supporting files in one place.`,
+    },
+    {
+      icon: ClipboardList,
+      title: `${branding.institution_name} Review & Verification`,
+      description: `${branding.institution_name} staff and advisers review submissions and request corrections when needed.`,
+    },
+    {
+      icon: Bell,
+      title: "Get Notified",
+      description: "Receive updates when your documents are approved, pending, or require changes.",
+    },
+  ];
+
   return (
     <section id="how-it-works" className="scroll-mt-24 py-24 px-4 bg-muted/30">
       <div className="max-w-6xl mx-auto">
@@ -46,7 +46,7 @@ export default function HowItWorksSection() {
             variants={fadeInUp}
             className="text-muted-foreground max-w-2xl mx-auto text-lg"
           >
-            Three easy steps to complete your CCS enrollment submission
+            Three easy steps to complete your {branding.institution_name} enrollment submission
           </motion.p>
         </AnimatedSection>
 

@@ -4,12 +4,14 @@ import { Separator } from "@/components/ui/separator";
 import AnimatedSection from "@/components/landing/AnimatedSection";
 import { slideInLeft, slideInRight } from "@/components/landing/motion";
 import { School } from "lucide-react";
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 const navItems = ["features", "how-it-works", "roles"] as const;
 
 export default function Footer() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const { branding } = usePublicBranding();
 
   const scrollToSection = (id: (typeof navItems)[number]) => {
     if (pathname === "/") {
@@ -31,7 +33,7 @@ export default function Footer() {
               </div>
               <div>
                 <span className="font-bold text-xl text-foreground block">
-                  College of Computing Studies
+                  {branding.institution_name}
                 </span>
                 <span className="text-sm text-muted-foreground">
                   Western Mindanao State University
@@ -39,7 +41,7 @@ export default function Footer() {
               </div>
             </motion.div>
             <p className="text-muted-foreground max-w-sm">
-              A secure enrollment document management portal for CCS students, advisers, and
+              A secure enrollment document management portal for {branding.institution_name} students, advisers, and
               administrators.
             </p>
           </motion.div>
@@ -88,7 +90,7 @@ export default function Footer() {
           viewport={{ once: true }}
         >
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} College of Computing Studies, WMSU. All rights reserved.
+            © {new Date().getFullYear()} {branding.institution_name}, WMSU. All rights reserved.
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             Enrollment Document Management System

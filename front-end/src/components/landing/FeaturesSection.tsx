@@ -4,41 +4,44 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Bell, CheckCircle, FileText, Shield, Upload, Users } from "lucide-react";
 import AnimatedSection from "./AnimatedSection";
 import { fadeInUp, scaleIn, staggerContainer } from "./motion";
-
-const features = [
-  {
-    icon: Upload,
-    title: "Easy Document Upload",
-    description: "Upload PDFs and images for your CCS enrollment requirements in a single portal.",
-  },
-  {
-    icon: Shield,
-    title: "Secure & Private",
-    description: "Documents are protected and accessible only to authorized CCS personnel.",
-  },
-  {
-    icon: CheckCircle,
-    title: "Clear Status Updates",
-    description: "Track progress and see what’s approved, under review, or needs changes.",
-  },
-  {
-    icon: FileText,
-    title: "Document Checklist",
-    description: "Know exactly what’s required so you don’t miss any CCS enrollment item.",
-  },
-  {
-    icon: Bell,
-    title: "Notifications",
-    description: "Get alerts when your documents move to the next step of verification.",
-  },
-  {
-    icon: Users,
-    title: "Support Workflow",
-    description: "Students, advisers, and administrators stay aligned through one system.",
-  },
-];
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 
 export default function FeaturesSection() {
+  const { branding } = usePublicBranding();
+
+  const features = [
+    {
+      icon: Upload,
+      title: "Easy Document Upload",
+      description: `Upload PDFs and images for your ${branding.institution_name} enrollment requirements in a single portal.`,
+    },
+    {
+      icon: Shield,
+      title: "Secure & Private",
+      description: `Documents are protected and accessible only to authorized ${branding.institution_name} personnel.`,
+    },
+    {
+      icon: CheckCircle,
+      title: "Clear Status Updates",
+      description: "Track progress and see what’s approved, under review, or needs changes.",
+    },
+    {
+      icon: FileText,
+      title: "Document Checklist",
+      description: `Know exactly what’s required so you don’t miss any ${branding.institution_name} enrollment item.`,
+    },
+    {
+      icon: Bell,
+      title: "Notifications",
+      description: "Get alerts when your documents move to the next step of verification.",
+    },
+    {
+      icon: Users,
+      title: "Support Workflow",
+      description: "Students, advisers, and administrators stay aligned through one system.",
+    },
+  ];
+
   return (
     <section id="features" className="scroll-mt-24 py-24 px-4 relative overflow-hidden">
       <motion.div
@@ -61,7 +64,7 @@ export default function FeaturesSection() {
             Everything You Need
           </motion.h2>
           <motion.p variants={fadeInUp} className="text-muted-foreground max-w-2xl mx-auto text-lg">
-            Tools designed to make your CCS enrollment workflow smooth and transparent
+            Tools designed to make your {branding.institution_name} enrollment workflow smooth and transparent
           </motion.p>
         </AnimatedSection>
 
