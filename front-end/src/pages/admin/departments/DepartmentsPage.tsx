@@ -292,8 +292,19 @@ export default function DepartmentsPage() {
                                                             variant="ghost"
                                                             size="icon"
                                                             className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                                            onClick={() => void handleUnassign(adviser)}
+                                                            onClick={() => openAssignDialog(adviser)}
                                                             disabled={isUpdatingAssignment || isSelectedSchoolYearClosed}
+                                                            title="Edit assignment"
+                                                        >
+                                                            <ArrowRightLeft className="w-4 h-4 text-muted-foreground" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            onClick={() => void handleUnassign(adviser, department.value)}
+                                                            disabled={isUpdatingAssignment || isSelectedSchoolYearClosed}
+                                                            title="Remove from this program"
                                                         >
                                                             <X className="w-4 h-4 text-muted-foreground" />
                                                         </Button>

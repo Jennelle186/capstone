@@ -288,12 +288,14 @@ export function useDepartmentsPage() {
     }, [requestWithAdminAuth, selectedAdviser, selectedDepartments, selectedSchoolYearId]);
 
     const handleUnassign = useCallback(
-        async (adviser: AdviserDepartmentRecord) => {
+        async (adviser: AdviserDepartmentRecord, departmentCode: string) => {
             if (!selectedSchoolYearId) {
                 toast.error("Select a school year before changing assignments.");
                 return;
             }
 
+            // Remove only the clicked program, keeping the adviser's other assignments intact.
+            const remainingCodes = (adviser.departments ?? []).filter((code) => code !== departmentCode);
             setIsUpdatingAssignment(true);
             try {
                 const payload = (await requestWithAdminAuth(
@@ -301,7 +303,7 @@ export function useDepartmentsPage() {
                     {
                         method: "PATCH",
                         body: JSON.stringify({
-                            department_codes: [],
+                            department_codes: remainingCodes,
                             school_year_id: selectedSchoolYearId,
                         }),
                     },
@@ -313,7 +315,7 @@ export function useDepartmentsPage() {
                             ? {
                                 ...item,
                                 department: payload.department,
-                                departments: [],
+                                departments: payload.departments ?? [],
                                 isActive: payload.is_active,
                             }
                             : item,
