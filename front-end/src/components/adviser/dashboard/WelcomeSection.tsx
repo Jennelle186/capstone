@@ -3,6 +3,7 @@ import { Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProgramSelector from "@/components/adviser/dashboard/ProgramSelector";
 import { useAdviserProgramScope } from "@/hooks/useAdviserProgramScope";
+import { usePublicBranding } from "@/hooks/usePublicBranding";
 import type { AdviserProfileResponse } from "@/types/adviser";
 
 interface WelcomeSectionProps {
@@ -25,6 +26,7 @@ function getGreeting(): string {
 
 export default function WelcomeSection({ profile, isLoading }: WelcomeSectionProps) {
   const { hasMultiplePrograms } = useAdviserProgramScope();
+  const { branding } = usePublicBranding();
 
   if (isLoading) {
     return (
@@ -57,7 +59,7 @@ export default function WelcomeSection({ profile, isLoading }: WelcomeSectionPro
           {getGreeting()}, {fullName || "Adviser"}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          College of Computer Studies: Here&apos;s what&rsquo;s happening with your advisees today.
+          {branding.institution_name}: Here&apos;s what&rsquo;s happening with your advisees today.
         </p>
       </div>
       <div className="flex gap-2">

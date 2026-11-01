@@ -347,8 +347,11 @@ export default function FieldEditorRow({
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 shrink-0 px-2"
+                                disabled={!newGroup.trim()}
                                 onClick={() => {
-                                    onUpdate(field.id, { analytics_group: newGroup.trim() || null });
+                                    const trimmed = newGroup.trim();
+                                    if (!trimmed) return;
+                                    onUpdate(field.id, { analytics_group: trimmed });
                                     setIsAddingGroup(false);
                                     setNewGroup("");
                                 }}

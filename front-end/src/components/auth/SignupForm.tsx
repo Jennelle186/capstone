@@ -2,7 +2,7 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { PasswordInput } from "../ui/password-input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { toast } from "sonner";
 import { useSignUp } from "@clerk/clerk-react";
 import { useState } from "react";
