@@ -1,5 +1,5 @@
 import * as React from "react";
-import { X, Bot, CheckCircle, AlertTriangle, ZoomIn, ZoomOut, Download, Printer, ChevronDown, ExternalLink } from "lucide-react";
+import { X, Bot, CheckCircle, AlertTriangle, Download, Printer, ChevronDown, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -223,7 +223,7 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer, 
         </DialogHeader>
 
         {/* Body */}
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
           {/* Mobile collapsible: Preview */}
           <div className="flex flex-col md:hidden border-b border-slate-200">
             <button
@@ -302,13 +302,6 @@ export default function DocumentDetailModal({ item, open, onOpenChange, footer, 
         {/* Bottom toolbar - desktop only */}
         <DialogFooter className="hidden sm:flex shrink-0 items-center justify-between px-6 py-2.5 border-t border-slate-200 bg-white flex-row">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-500 hover:text-primary">
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <span className="text-xs font-medium text-slate-600 min-w-[40px] text-center">100%</span>
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-slate-500 hover:text-primary">
-              <ZoomIn className="h-4 w-4" />
-            </Button>
             {navigation && (
               <>
                 <div className="h-4 w-px bg-slate-200 mx-1" />
