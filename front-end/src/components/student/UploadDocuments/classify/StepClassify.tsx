@@ -37,7 +37,11 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
   const isFlagged = s.status === "flagged" && !acceptedByUser;
 
   let status: ClassificationStatus;
-  if (acceptedByUser) {
+  if (s.status === "verified") {
+    status = "verified";
+  } else if (s.status === "submitted") {
+    status = "submitted";
+  } else if (acceptedByUser) {
     status = "overridden";
   } else if (s.status === "processing") {
     status = "processing";
@@ -45,12 +49,8 @@ function submissionToItem(s: SubmissionDetail): ClassificationItem {
     status = "pending";
   } else if (s.status === "classified" && !isFlagged) {
     status = "classified";
-  } else if (s.status === "submitted") {
-    status = "submitted";
   } else if (s.status === "flagged" || isFlagged) {
     status = "needs-review";
-  } else if (s.status === "verified") {
-    status = "verified";
   } else {
     status = "pending";
   }
