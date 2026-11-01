@@ -10,11 +10,9 @@ import AdminPageHeader from "@/components/admin/AdminPageHeader"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAdminAnalyticsPage } from "@/hooks/useAdminAnalyticsPage"
 import { fetchWithClerkAuth } from "@/lib/api"
-import FieldsTab from "@/components/admin/analytics/FieldsTab"
 import GlobalAISummary from "@/components/admin/analytics/GlobalAISummary"
 import SnapshotTab from "@/components/admin/analytics/SnapshotTab"
 import TrendsTab from "@/components/admin/analytics/TrendsTab"
-import AlignmentTab from "@/components/admin/analytics/AlignmentTab"
 import RegistryTab from "@/components/admin/analytics/RegistryTab"
 
 export default function AnalyticsPage() {
@@ -28,8 +26,6 @@ export default function AnalyticsPage() {
     requestWithAdminAuth,
     snapshot,
     isLoadingSnapshot,
-    canonicalKeys,
-    isLoadingCanonical,
     tab,
     setTab,
     trendFromYear,
@@ -43,8 +39,6 @@ export default function AnalyticsPage() {
     isLoadingEnrolment,
     trends,
     isLoadingTrends,
-    alignment,
-    isLoadingAlignment,
     unregisteredKeys,
     isLoadingUnregistered,
     refreshRegistry,
@@ -112,15 +106,13 @@ export default function AnalyticsPage() {
 
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as "snapshot" | "trends" | "fields" | "alignment" | "registry")}
+        onValueChange={(v) => setTab(v as "snapshot" | "trends" | "registry")}
         className="space-y-6"
       >
         <div className="flex flex-wrap items-center justify-between gap-4">
           <TabsList>
             <TabsTrigger value="snapshot">Snapshot</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
-            <TabsTrigger value="fields">Fields</TabsTrigger>
-            <TabsTrigger value="alignment">Alignment</TabsTrigger>
             <TabsTrigger value="registry">Registry</TabsTrigger>
           </TabsList>
 
@@ -193,14 +185,6 @@ export default function AnalyticsPage() {
               isLoadingTrends={isLoadingTrends}
             />
           )}
-        </TabsContent>
-
-        <TabsContent value="fields">
-          <FieldsTab keys={canonicalKeys} isLoading={isLoadingCanonical} />
-        </TabsContent>
-
-        <TabsContent value="alignment">
-          <AlignmentTab report={alignment} isLoading={isLoadingAlignment} />
         </TabsContent>
 
         <TabsContent value="registry">
