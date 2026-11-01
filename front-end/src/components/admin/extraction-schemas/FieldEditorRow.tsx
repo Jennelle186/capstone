@@ -1,5 +1,5 @@
 import { BarChart3, GripVertical, Loader2, Lock, Plus, Sigma, Trash2, Unlock } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,14 +40,13 @@ export default function FieldEditorRow({
 }: FieldEditorRowProps) {
     const [showAnalytics, setShowAnalytics] = useState(!!field.is_analytics);
     const [showComputed, setShowComputed] = useState(!!field.is_computed);
-    const analyticsGroupDatalistId = useId();
-    const registerGroupDatalistId = useId();
     const [showRegisterForm, setShowRegisterForm] = useState(false);
     const [registerLabel, setRegisterLabel] = useState("");
     const [registerType, setRegisterType] = useState<ExtractionSchemaFieldType>("string");
-    const [registerGroup, setRegisterGroup] = useState("");
     const [registerError, setRegisterError] = useState("");
     const [isRegistering, setIsRegistering] = useState(false);
+    const [isAddingGroup, setIsAddingGroup] = useState(false);
+    const [newGroup, setNewGroup] = useState("");
     const analyticsModeOptions = [
         { value: "__auto__", label: "Auto (inferred from type)" },
         { value: "distribution", label: "Distribution" },
@@ -115,7 +114,6 @@ export default function FieldEditorRow({
     const openRegisterForm = () => {
         setRegisterLabel(field.description || field.key);
         setRegisterType(field.type);
-        setRegisterGroup(field.analytics_group ?? "");
         setRegisterError("");
         setShowRegisterForm(true);
     };
@@ -138,7 +136,7 @@ export default function FieldEditorRow({
                 canonical_key: field.canonical_key,
                 label: registerLabel.trim(),
                 field_type: registerType,
-                analytics_group: registerGroup.trim() || null,
+                analytics_group: field.analytics_group ?? null,
             });
             setShowRegisterForm(false);
         } catch (error) {
@@ -335,22 +333,72 @@ export default function FieldEditorRow({
                 </div>
                 <div className="col-span-3 space-y-1">
                     <p className="text-[11px] font-medium text-muted-foreground">Analytics Group</p>
-                    <Input
-                        value={field.analytics_group ?? ""}
-                        placeholder="e.g. Demographics"
-                        onChange={(e) =>
-                            onUpdate(field.id, { analytics_group: e.target.value || null })
-                        }
-                        disabled={field.readOnly}
-                        list={analyticsGroupDatalistId}
-                        className="h-8 text-sm bg-white"
-                    />
-                    {analyticsGroupSuggestions.length > 0 && (
-                        <datalist id={analyticsGroupDatalistId}>
-                            {analyticsGroupSuggestions.map((group) => (
-                                <option key={group} value={group} />
-                            ))}
-                        </datalist>
+                    {isAddingGroup ? (
+                        <div className="flex items-center gap-1">
+                            <Input
+                                value={newGroup}
+                                onChange={(e) => setNewGroup(e.target.value)}
+                                placeholder="New group name"
+                                autoFocus
+                                className="h-8 text-sm bg-white"
+                            />
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 shrink-0 px-2"
+                                onClick={() => {
+                                    onUpdate(field.id, { analytics_group: newGroup.trim() || null });
+                                    setIsAddingGroup(false);
+                                    setNewGroup("");
+                                }}
+                            >
+                                Save
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 shrink-0 px-2 text-muted-foreground"
+                                onClick={() => {
+                                    setIsAddingGroup(false);
+                                    setNewGroup("");
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                        </div>
+                    ) : (
+                        <Select
+                            value={field.analytics_group ?? "__none__"}
+                            onValueChange={(value) => {
+                                if (value === "__add__") {
+                                    setNewGroup("");
+                                    setIsAddingGroup(true);
+                                    return;
+                                }
+                                onUpdate(field.id, { analytics_group: value === "__none__" ? null : value });
+                            }}
+                            disabled={field.readOnly}
+                        >
+                            <SelectTrigger className="h-8 text-sm bg-white">
+                                <SelectValue placeholder="Select group" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__none__">None</SelectItem>
+                                {analyticsGroupSuggestions.map((group) => (
+                                    <SelectItem key={group} value={group}>
+                                        {group}
+                                    </SelectItem>
+                                ))}
+                                {field.analytics_group && !analyticsGroupSuggestions.includes(field.analytics_group) && (
+                                    <SelectItem key={field.analytics_group} value={field.analytics_group}>
+                                        {field.analytics_group}
+                                    </SelectItem>
+                                )}
+                                <SelectItem value="__add__">Add new group…</SelectItem>
+                            </SelectContent>
+                        </Select>
                     )}
                 </div>
                 <div className="col-span-3 space-y-1">
@@ -405,7 +453,7 @@ export default function FieldEditorRow({
                             Register canonical key
                         </p>
                         <div className="grid grid-cols-12 gap-3">
-                            <div className="col-span-4 space-y-1">
+                            <div className="col-span-5 space-y-1">
                                 <p className="text-[11px] font-medium text-muted-foreground">Label</p>
                                 <Input
                                     value={registerLabel}
@@ -414,7 +462,7 @@ export default function FieldEditorRow({
                                     className="h-8 text-sm bg-white"
                                 />
                             </div>
-                            <div className="col-span-3 space-y-1">
+                            <div className="col-span-5 space-y-1">
                                 <p className="text-[11px] font-medium text-muted-foreground">Type</p>
                                 <Select
                                     value={registerType}
@@ -433,23 +481,6 @@ export default function FieldEditorRow({
                                         ))}
                                     </SelectContent>
                                 </Select>
-                            </div>
-                            <div className="col-span-3 space-y-1">
-                                <p className="text-[11px] font-medium text-muted-foreground">Group</p>
-                                <Input
-                                    value={registerGroup}
-                                    onChange={(e) => setRegisterGroup(e.target.value)}
-                                    placeholder="e.g. Demographics"
-                                    list={registerGroupDatalistId}
-                                    className="h-8 text-sm bg-white"
-                                />
-                                {analyticsGroupSuggestions.length > 0 && (
-                                    <datalist id={registerGroupDatalistId}>
-                                        {analyticsGroupSuggestions.map((group) => (
-                                            <option key={group} value={group} />
-                                        ))}
-                                    </datalist>
-                                )}
                             </div>
                             <div className="col-span-2 flex items-end gap-2">
                                 <Button
