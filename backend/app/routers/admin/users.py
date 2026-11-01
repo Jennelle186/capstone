@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 
 from ...database import SessionDep
 from ...models import User, UserRole
 from ...rbac import require_admin
+from ...services.activity_log import record_activity
+from ...services.clerk import sync_user_role
 
 router = APIRouter(prefix="/users")
 
@@ -80,7 +82,6 @@ async def update_user_role(
     db: SessionDep = None,
 ):
     # Validate and apply a role transition for an existing user.
-    del current_user
 
     try:
         new_role = UserRole(payload.new_role)
@@ -92,8 +93,48 @@ async def update_user_role(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Clerk first: the role is re-read from the Clerk token at sign-in, so a DB-only
+    # change would revert. If Clerk fails, nothing is saved.
+    if not user.clerk_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This user has no Clerk account, so their role cannot be changed.",
+        )
+
+    # Guards that match remove_admin: the change is now persisted, so it must not
+    # lock every administrator out. Checked before anything is written to Clerk.
+    if user.role == UserRole.ADMIN and new_role != UserRole.ADMIN:
+        if user.clerk_user_id == current_user.get("sub"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot remove your own administrator access. Ask another administrator to do it.",
+            )
+        admin_count = (
+            await db.execute(select(func.count()).select_from(User).where(User.role == UserRole.ADMIN))
+        ).scalar_one()
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot remove the last administrator.",
+            )
+
+    try:
+        await sync_user_role(user.clerk_user_id, new_role.value)
+    except RuntimeError as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
     old_role = user.role.value
     user.role = new_role
+    await record_activity(
+        db,
+        current_user,
+        action="update",
+        entity_type="user_role",
+        entity_id=user.id,
+        entity_label=user.email or str(user.id),
+        previous_values={"role": old_role},
+        new_values={"role": new_role.value},
+    )
     await db.commit()
 
     return {

@@ -12,6 +12,16 @@ from sqlalchemy.exc import IntegrityError
 from ...database import SessionDep
 from ...models import AnalyticsDimension, ExtractionSchema, SchoolYear, SchoolYearRequirement
 from ...rbac import require_admin
+from ...services.activity_log import diff_values, plain, record_activity
+
+
+def _dimension_snapshot(dimension: AnalyticsDimension) -> dict:
+    return {
+        "label": dimension.label,
+        "field_type": dimension.field_type,
+        "analytics_group": dimension.analytics_group,
+        "is_active": dimension.is_active,
+    }
 
 router = APIRouter(prefix="/analytics-dimensions")
 
@@ -160,7 +170,6 @@ async def create_analytics_dimension(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
     existing = await _get_dimension_by_key(db, payload.canonical_key)
     if existing is not None:
         raise HTTPException(
@@ -177,6 +186,17 @@ async def create_analytics_dimension(
     )
     db.add(dimension)
     try:
+        # Flush inside the try so a duplicate key still maps to the 409 below.
+        await db.flush()
+        await record_activity(
+            db,
+            current_user,
+            action="create",
+            entity_type="analytics_dimension",
+            entity_id=dimension.id,
+            entity_label=payload.canonical_key,
+            new_values=plain({"canonical_key": payload.canonical_key, **_dimension_snapshot(dimension)}),
+        )
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -195,7 +215,6 @@ async def update_analytics_dimension(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
     if not payload.model_fields_set:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -209,6 +228,8 @@ async def update_analytics_dimension(
             detail="Analytics dimension not found.",
         )
 
+    before_values = plain(_dimension_snapshot(dimension))
+
     if "label" in payload.model_fields_set and payload.label is not None:
         dimension.label = payload.label
     if "field_type" in payload.model_fields_set and payload.field_type is not None:
@@ -217,6 +238,19 @@ async def update_analytics_dimension(
         dimension.analytics_group = payload.analytics_group
     if "is_active" in payload.model_fields_set and payload.is_active is not None:
         dimension.is_active = payload.is_active
+
+    previous_values, new_values = diff_values(before_values, plain(_dimension_snapshot(dimension)))
+    if previous_values:
+        await record_activity(
+            db,
+            current_user,
+            action="update",
+            entity_type="analytics_dimension",
+            entity_id=dimension.id,
+            entity_label=dimension.canonical_key,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
 
     await db.commit()
     await db.refresh(dimension)
@@ -229,7 +263,6 @@ async def deactivate_analytics_dimension(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
     dimension = await db.get(AnalyticsDimension, dimension_id)
     if dimension is None:
         raise HTTPException(
@@ -237,6 +270,17 @@ async def deactivate_analytics_dimension(
             detail="Analytics dimension not found.",
         )
 
+    if dimension.is_active:
+        await record_activity(
+            db,
+            current_user,
+            action="deactivate",
+            entity_type="analytics_dimension",
+            entity_id=dimension.id,
+            entity_label=dimension.canonical_key,
+            previous_values={"is_active": True},
+            new_values={"is_active": False},
+        )
     dimension.is_active = False
     await db.commit()
     await db.refresh(dimension)

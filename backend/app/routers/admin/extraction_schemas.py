@@ -32,6 +32,7 @@ from ...services.analytics_inheritance import (
     inherit_analytics_from_previous,
     validate_analytics_fields,
 )
+from ...services.activity_log import diff_values, plain, record_activity
 from ...services.concurrency import BLUEPRINT_SEMAPHORE
 from ...services.form_document import schema_to_document
 from ...services.gcp_pipeline import (
@@ -68,6 +69,23 @@ def serialize_extraction_schema(schema: ExtractionSchema) -> ExtractionSchemaRes
         created_at=schema.created_at,
         updated_at=schema.updated_at,
     )
+
+
+def _schema_snapshot(schema: ExtractionSchema) -> dict:
+    """Activity-log view of a schema: metadata, schema_json and the full field definitions,
+    so any edit to the schema or its fields produces an audit entry."""
+    return {
+        "name": schema.name,
+        "version_label": schema.version_label,
+        "effective_date": schema.effective_date,
+        "description": schema.description,
+        "document_type_id": schema.document_type_id,
+        "status": schema.status,
+        "source_file_name": schema.source_file_name,
+        "generation_prompt": schema.generation_prompt,
+        "schema_json": schema.schema_json or {},
+        "fields_json": schema.fields_json or [],
+    }
 
 
 @router.get("/extraction-schemas", response_model=list[ExtractionSchemaResponse])
@@ -115,8 +133,6 @@ async def create_extraction_schema(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
-
     if payload.status == ExtractionSchemaStatus.ACTIVE:
         validation_errors = validate_analytics_fields([f.model_dump() for f in payload.fields_json])
         if validation_errors:
@@ -145,6 +161,15 @@ async def create_extraction_schema(
 
     db.add(schema)
     await db.flush()
+    await record_activity(
+        db,
+        current_user,
+        action="create",
+        entity_type="extraction_schema",
+        entity_id=schema.id,
+        entity_label=schema.name,
+        new_values=plain(_schema_snapshot(schema)),
+    )
 
     await db.commit()
     await db.refresh(schema)
@@ -241,11 +266,11 @@ async def update_extraction_schema(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
-
     schema = await db.get(ExtractionSchema, schema_id)
     if schema is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
+
+    before_values = plain(_schema_snapshot(schema))
 
     if "name" in payload.model_fields_set:
         schema.name = payload.name
@@ -280,6 +305,19 @@ async def update_extraction_schema(
                 detail="Analytics validation failed: " + " ".join(validation_errors),
             )
 
+    previous_values, new_values = diff_values(before_values, plain(_schema_snapshot(schema)))
+    if previous_values:
+        await record_activity(
+            db,
+            current_user,
+            action="update",
+            entity_type="extraction_schema",
+            entity_id=schema.id,
+            entity_label=schema.name,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
+
     await db.commit()
     await db.refresh(schema)
     return serialize_extraction_schema(schema)
@@ -291,8 +329,6 @@ async def activate_extraction_schema(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
-
     schema = await db.get(ExtractionSchema, schema_id)
     if schema is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
@@ -304,15 +340,50 @@ async def activate_extraction_schema(
             detail="Analytics validation failed: " + " ".join(validation_errors),
         )
 
+    previous_status = plain(schema.status)
+    # Load the schemas that will be demoted first, so each one gets its own audit entry.
+    currently_active = (
+        await db.execute(
+            select(ExtractionSchema.id, ExtractionSchema.name).where(
+                ExtractionSchema.status == ExtractionSchemaStatus.ACTIVE,
+                ExtractionSchema.document_type_id == schema.document_type_id,
+                ExtractionSchema.id != schema.id,
+            )
+        )
+    ).all()
     await db.execute(
         update(ExtractionSchema)
         .where(
             ExtractionSchema.status == ExtractionSchemaStatus.ACTIVE,
             ExtractionSchema.document_type_id == schema.document_type_id,
+            ExtractionSchema.id != schema.id,
         )
         .values(status=ExtractionSchemaStatus.DRAFT)
     )
     schema.status = ExtractionSchemaStatus.ACTIVE
+    for demoted_id, demoted_name in currently_active:
+        await record_activity(
+            db,
+            current_user,
+            action="deactivate",
+            entity_type="extraction_schema",
+            entity_id=demoted_id,
+            entity_label=demoted_name,
+            previous_values={"status": ExtractionSchemaStatus.ACTIVE.value},
+            new_values={"status": ExtractionSchemaStatus.DRAFT.value},
+            extra_metadata={"replaced_by_schema_id": str(schema.id)},
+        )
+    await record_activity(
+        db,
+        current_user,
+        action="activate",
+        entity_type="extraction_schema",
+        entity_id=schema.id,
+        entity_label=schema.name,
+        previous_values={"status": previous_status},
+        new_values={"status": ExtractionSchemaStatus.ACTIVE.value},
+        extra_metadata={"previous_active_demoted": len(currently_active)},
+    )
     await db.commit()
     await db.refresh(schema)
     return serialize_extraction_schema(schema)
@@ -350,6 +421,21 @@ async def create_form_from_schema(
         created_by=creator_id,
     )
     db.add(form)
+    await db.flush()
+    await record_activity(
+        db,
+        current_user,
+        action="create",
+        entity_type="form",
+        entity_id=form.id,
+        entity_label=form.name,
+        new_values={
+            "name": form.name,
+            "creation_mode": "structured",
+            "extraction_schema_id": str(schema.id),
+            "document_type_id": str(schema.document_type_id) if schema.document_type_id else None,
+        },
+    )
     await db.commit()
     await db.refresh(form)
     return serialize_form(form)

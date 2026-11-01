@@ -35,9 +35,13 @@ async def save_requirement_slots(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
     slots_data = [slot.model_dump() for slot in payload.slots]
-    created = await replace_requirement_slots(db, payload.school_year_id, slots_data)
+    created = await replace_requirement_slots(
+        db,
+        payload.school_year_id,
+        slots_data,
+        current_user=current_user,
+    )
     return SlotAssignmentResponse(
         school_year_id=payload.school_year_id,
         slots=await list_requirement_slots(db, payload.school_year_id),

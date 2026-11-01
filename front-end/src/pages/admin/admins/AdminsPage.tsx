@@ -6,6 +6,7 @@ import { Loader2, Mail, Shield, ShieldCheck, UserPlus, UserMinus } from "lucide-
 import AdminEmptyState from "@/components/admin/AdminEmptyState";
 import AdminPageHeader from "@/components/admin/AdminPageHeader";
 import AdminInviteDialog from "@/components/admin/admins/AdminInviteDialog";
+import AdministratorHistory from "@/components/admin/admins/AdministratorHistory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +20,7 @@ import {
 import { useAdminManagement } from "@/hooks/useAdminManagement";
 import type { AdminInvitationStatus } from "@/types/adminManagement";
 
-type Tab = "admins" | "invitations" | "promote";
+type Tab = "admins" | "invitations" | "promote" | "history";
 
 const INVITATION_STATUS_STYLES: Record<AdminInvitationStatus, string> = {
     pending: "bg-amber-500/10 text-amber-700",
@@ -113,7 +114,17 @@ export default function AdminsPage() {
                 >
                     Promote Adviser
                 </Button>
+                <Button
+                    type="button"
+                    size="sm"
+                    variant={activeTab === "history" ? "default" : "ghost"}
+                    onClick={() => setActiveTab("history")}
+                >
+                    History
+                </Button>
             </div>
+
+            {activeTab === "history" && <AdministratorHistory />}
 
             {activeTab === "admins" && (
                 <div className="rounded-lg border">

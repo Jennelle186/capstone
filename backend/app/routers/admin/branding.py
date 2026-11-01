@@ -24,6 +24,7 @@ from ...schemas.branding import (
     LogoUploadRequest,
     LogoUploadResponse,
 )
+from ...services.activity_log import diff_values, plain, record_activity
 from ...services.gcp_storage import (
     delete_file as gcs_delete_file,
     generate_presigned_post,
@@ -54,6 +55,15 @@ async def _get_settings(db: SessionDep) -> BrandingSettings:
         await db.commit()
         await db.refresh(settings)
     return settings
+
+
+def _branding_snapshot(settings: BrandingSettings) -> dict:
+    """Branding fields tracked in the activity log. The logo is tracked by key, not by URL."""
+    return {
+        "institution_name": settings.institution_name,
+        "address_lines": list(settings.address_lines or []),
+        "contact_line": settings.contact_line,
+    }
 
 
 def _serialize(settings: BrandingSettings) -> BrandingSettingsResponse:
@@ -87,8 +97,8 @@ async def update_branding_settings(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
     settings = await _get_settings(db)
+    before_values = plain(_branding_snapshot(settings))
 
     if "institution_name" in payload.model_fields_set:
         settings.institution_name = payload.institution_name
@@ -96,6 +106,18 @@ async def update_branding_settings(
         settings.address_lines = [line for line in (payload.address_lines or [])]
     if "contact_line" in payload.model_fields_set:
         settings.contact_line = payload.contact_line
+
+    previous_values, new_values = diff_values(before_values, plain(_branding_snapshot(settings)))
+    if previous_values:
+        await record_activity(
+            db,
+            current_user,
+            action="update",
+            entity_type="branding",
+            entity_label=settings.institution_name,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
 
     await db.commit()
     await db.refresh(settings)
@@ -134,7 +156,6 @@ async def confirm_logo_upload(
     db: SessionDep = None,
 ):
     """Verify the uploaded object exists, then point branding at it."""
-    del current_user
 
     if not file_key.startswith(BRANDING_LOGO_PREFIX):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid logo key.")
@@ -156,6 +177,15 @@ async def confirm_logo_upload(
     previous_key = settings.logo_file_key
     settings.logo_file_key = file_key
     settings.logo_content_type = meta.get("content_type") or None
+    await record_activity(
+        db,
+        current_user,
+        action="update",
+        entity_type="branding",
+        entity_label=settings.institution_name,
+        previous_values={"logo_file_key": previous_key},
+        new_values={"logo_file_key": file_key, "logo_content_type": settings.logo_content_type},
+    )
     await db.commit()
     await db.refresh(settings)
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from typing import Any
 from uuid import UUID
@@ -30,6 +32,7 @@ from ...schemas.forms import (
     FormUpdate,
     SyncSchemaResponse,
 )
+from ...services.activity_log import diff_values, plain, record_activity
 from ...services.concurrency import BLUEPRINT_SEMAPHORE
 from ...services.form_document import (
     blueprint_to_document,
@@ -120,6 +123,25 @@ async def resolve_creator_id(db: SessionDep, current_user: dict) -> UUID | None:
     return result.scalar_one_or_none()
 
 
+def _document_digest(document: Any) -> dict:
+    """Fingerprint of a form document. Storing a digest and size instead of the full JSON keeps
+    every save from writing two full copies into the audit table, while still detecting edits."""
+    raw = json.dumps(document or {}, sort_keys=True, default=str).encode("utf-8")
+    return {"document_sha256": hashlib.sha256(raw).hexdigest(), "document_bytes": len(raw)}
+
+
+def _form_snapshot(form: Form) -> dict:
+    """Activity-log view of a form: metadata plus a digest of the document, not the document itself."""
+    return {
+        "name": form.name,
+        "description": form.description,
+        "creation_mode": form.creation_mode,
+        "document_type_id": form.document_type_id,
+        "extraction_schema_id": form.extraction_schema_id,
+        **_document_digest(form.document_json),
+    }
+
+
 @router.get("/forms", response_model=list[FormResponse])
 async def list_forms(
     current_user: dict = Depends(require_admin),
@@ -182,6 +204,23 @@ async def create_form(
         created_by=creator_id,
     )
     db.add(form)
+    await db.flush()
+    await record_activity(
+        db,
+        current_user,
+        action="create",
+        entity_type="form",
+        entity_id=form.id,
+        entity_label=form.name,
+        new_values=plain(
+            {
+                "name": form.name,
+                "creation_mode": form.creation_mode,
+                "document_type_id": form.document_type_id,
+                "extraction_schema_id": form.extraction_schema_id,
+            }
+        ),
+    )
     await db.commit()
     form = (
         await db.execute(
@@ -243,8 +282,6 @@ async def update_form(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
-
     form = (
         await db.execute(
             select(Form)
@@ -254,6 +291,8 @@ async def update_form(
     ).scalar_one_or_none()
     if form is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
+
+    before_values = plain(_form_snapshot(form))
 
     if "name" in payload.model_fields_set:
         form.name = payload.name
@@ -274,6 +313,19 @@ async def update_form(
     if form.extraction_schema_id is not None:
         await _resolve_schema_for_form(db, form.extraction_schema_id, form.document_type_id)
 
+    previous_values, new_values = diff_values(before_values, plain(_form_snapshot(form)))
+    if previous_values:
+        await record_activity(
+            db,
+            current_user,
+            action="update",
+            entity_type="form",
+            entity_id=form.id,
+            entity_label=form.name,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
+
     await db.commit()
     form = (
         await db.execute(
@@ -293,8 +345,6 @@ async def draft_schema_from_form(
 ):
     """Create a draft extraction schema from the form's field blocks and link
     it back to the form (provenance)."""
-    del current_user
-
     form = await db.get(Form, form_id)
     if form is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
@@ -305,7 +355,7 @@ async def draft_schema_from_form(
             detail="This form already has a linked extraction schema. Sync it instead.",
         )
 
-    schema = await create_draft_schema_from_form(db, form)
+    schema = await create_draft_schema_from_form(db, form, current_user)
     return DraftSchemaResponse(schema_id=schema.id, form_id=form.id, schema_name=schema.name)
 
 
@@ -317,8 +367,6 @@ async def sync_form_schema(
 ):
     """Sync the form's field keys into its linked extraction schema, preserving
     analytics metadata and blocking dependency-referenced removals."""
-    del current_user
-
     form = (
         await db.execute(
             select(Form)
@@ -339,6 +387,23 @@ async def sync_form_schema(
     form_fields = document_to_fields(form.document_json or {})
     result = diff_and_merge_schema_fields(form_fields, schema.fields_json or [])
     schema.fields_json = result["fields"]
+    if result["added"] or result["updated"] or result["removed"]:
+        await record_activity(
+            db,
+            current_user,
+            action="sync",
+            entity_type="extraction_schema",
+            entity_id=schema.id,
+            entity_label=schema.name,
+            new_values=plain(
+                {
+                    "form_id": form.id,
+                    "added": result["added"],
+                    "updated": result["updated"],
+                    "removed": result["removed"],
+                }
+            ),
+        )
     await db.commit()
 
     return SyncSchemaResponse(
@@ -355,12 +420,19 @@ async def delete_form(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
-
     form = await db.get(Form, form_id)
     if form is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
 
+    await record_activity(
+        db,
+        current_user,
+        action="delete",
+        entity_type="form",
+        entity_id=form.id,
+        entity_label=form.name,
+        previous_values=plain(_form_snapshot(form)),
+    )
     await db.delete(form)
     await db.commit()
 

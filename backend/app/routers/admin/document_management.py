@@ -27,6 +27,7 @@ from ...services.document_requirements import (
     replace_school_year_requirement_ids,
     replace_school_year_requirements,
 )
+from ...services.activity_log import diff_values, plain, record_activity
 from ...services.gcp_pipeline import GcpPipelineError, generate_classification_settings
 
 router = APIRouter()
@@ -47,6 +48,19 @@ def serialize_document_type(document_type: DocumentType) -> DocumentTypeResponse
         created_at=document_type.created_at,
         updated_at=document_type.updated_at,
     )
+
+
+def _document_type_snapshot(document_type: DocumentType) -> dict:
+    """Fields tracked in the activity log for a document type."""
+    return {
+        "name": document_type.name,
+        "code": document_type.code,
+        "description": document_type.description,
+        "classifier_description": document_type.classifier_description,
+        "keywords": list(document_type.keywords or []),
+        "applicable_classifications": list(document_type.applicable_classifications or []),
+        "status": document_type.status,
+    }
 
 
 async def ensure_unique_document_type_code(
@@ -89,7 +103,6 @@ async def create_document_type(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
     await ensure_unique_document_type_code(db, payload.code)
 
     document_type = DocumentType(
@@ -102,6 +115,16 @@ async def create_document_type(
         status=payload.status,
     )
     db.add(document_type)
+    await db.flush()
+    await record_activity(
+        db,
+        current_user,
+        action="create",
+        entity_type="document_type",
+        entity_id=document_type.id,
+        entity_label=document_type.name,
+        new_values=plain(_document_type_snapshot(document_type)),
+    )
     await db.commit()
     await db.refresh(document_type)
     return serialize_document_type(document_type)
@@ -114,11 +137,11 @@ async def update_document_type(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
-
     document_type = await db.get(DocumentType, document_type_id)
     if document_type is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document type not found.")
+
+    before_values = plain(_document_type_snapshot(document_type))
 
     if payload.code is not None and payload.code != document_type.code:
         await ensure_unique_document_type_code(db, payload.code, exclude_id=document_type.id)
@@ -136,6 +159,22 @@ async def update_document_type(
         document_type.applicable_classifications = payload.applicable_classifications
     if payload.status is not None:
         document_type.status = payload.status
+
+    previous_values, new_values = diff_values(
+        before_values,
+        plain(_document_type_snapshot(document_type)),
+    )
+    if previous_values:
+        await record_activity(
+            db,
+            current_user,
+            action="update",
+            entity_type="document_type",
+            entity_id=document_type.id,
+            entity_label=document_type.name,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
 
     await db.commit()
     await db.refresh(document_type)
@@ -198,7 +237,6 @@ async def save_school_year_requirements(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
     if payload.requirements is not None:
         requirements = await replace_school_year_requirements(
             db,
@@ -207,6 +245,7 @@ async def save_school_year_requirements(
                 (requirement.document_type_id, requirement.extraction_schema_id)
                 for requirement in payload.requirements
             ],
+            current_user=current_user,
         )
         document_type_ids = [document_type_id for document_type_id, _ in requirements]
     else:
@@ -214,6 +253,7 @@ async def save_school_year_requirements(
             db,
             payload.school_year_id,
             payload.document_type_ids,
+            current_user=current_user,
         )
         requirements = [(document_type_id, None) for document_type_id in document_type_ids]
 

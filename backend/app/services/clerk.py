@@ -111,6 +111,26 @@ async def update_user_public_metadata(clerk_user_id: str, public_metadata: dict[
     return updated if isinstance(updated, dict) else None
 
 
+async def sync_user_role(clerk_user_id: str, role: str) -> None:
+    """
+    Write the role to Clerk publicMetadata so it survives sign-in.
+    The DB role is re-synced from this token claim, so a DB-only change would revert.
+    Raises RuntimeError on failure; callers must not save the DB change when it raises.
+    """
+    client = _get_clerk_client()
+    if client is None:
+        raise RuntimeError("Missing CLERK_SECRET_KEY; cannot update the user's role in Clerk.")
+
+    try:
+        await client.users.update_metadata_async(
+            user_id=clerk_user_id,
+            public_metadata={"role": role},
+        )
+    except Exception as error:
+        logger.exception("Failed to update Clerk role for %s", clerk_user_id)
+        raise RuntimeError("Failed to update the user's role in Clerk.") from error
+
+
 async def update_user_personal_names(
     clerk_user_id: str,
     *,

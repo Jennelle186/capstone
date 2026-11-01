@@ -484,7 +484,7 @@ async def test_draft_schema_from_form_succeeds_when_unlinked(monkeypatch) -> Non
     db = AsyncMock()
     db.get = AsyncMock(return_value=form)
 
-    async def fake_create(db_, form_):
+    async def fake_create(db_, form_, current_user=None):
         return schema
 
     monkeypatch.setattr(forms_router, "create_draft_schema_from_form", fake_create)
@@ -562,7 +562,8 @@ async def test_create_form_persists_schema_link(monkeypatch) -> None:
 async def test_sync_form_schema_returns_diff_summary() -> None:
     from app.routers.admin import forms as forms_router
 
-    schema = SimpleNamespace(id=uuid4(), fields_json=[_schema_field("a", "f1")])
+    # `name` mirrors the real ExtractionSchema, which always has one (used by the activity log).
+    schema = SimpleNamespace(id=uuid4(), name="Test schema", fields_json=[_schema_field("a", "f1")])
     form = SimpleNamespace(id=uuid4(), document_json=DOC, extraction_schema=schema)
 
     fetch = MagicMock()
@@ -570,6 +571,7 @@ async def test_sync_form_schema_returns_diff_summary() -> None:
     db = AsyncMock()
     db.execute = AsyncMock(return_value=fetch)
     db.commit = AsyncMock()
+    db.add = MagicMock()
 
     resp = await forms_router.sync_form_schema(form.id, {}, db)
 

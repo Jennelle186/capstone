@@ -278,6 +278,23 @@ class AdminAuditLog(Base):
     actor_user = relationship("User")
 
 
+class ActivityLogSettings(Base):
+    """Single-row retention policy for admin_audit_logs. Missing row means the default applies.
+
+    ``retention_days`` NULL means keep logs forever.
+    """
+    __tablename__ = "activity_log_settings"
+
+    id = Column(Integer, primary_key=True)
+    retention_days = Column(Integer, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
 class ProgramAdviserAssignment(Base):
     __tablename__ = "program_adviser_assignments"
     __table_args__ = (

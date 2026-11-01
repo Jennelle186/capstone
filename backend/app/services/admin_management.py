@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
 
 from ..database import SessionDep
+from .activity_log import record_activity
 from ..models import (
     AdminAuditLog,
     AdminInvitation,
@@ -59,20 +60,17 @@ async def _log_action(
     current_user: dict | None,
     previous_values: dict | None = None,
     new_values: dict | None = None,
+    entity_label: str | None = None,
 ) -> None:
-    actor_clerk_user_id = current_user.get("sub") if current_user else None
-    if not isinstance(actor_clerk_user_id, str):
-        actor_clerk_user_id = None
-    db.add(
-        AdminAuditLog(
-            action=action,
-            entity_type="admin",
-            entity_id=entity_id,
-            actor_user_id=await _actor_user_id(db, current_user or {}),
-            actor_clerk_user_id=actor_clerk_user_id,
-            previous_values=previous_values,
-            new_values=new_values,
-        )
+    await record_activity(
+        db,
+        current_user,
+        action=action,
+        entity_type="admin",
+        entity_id=entity_id,
+        entity_label=entity_label,
+        previous_values=previous_values,
+        new_values=new_values,
     )
 
 
@@ -189,13 +187,24 @@ async def invite_admin(
     await db.commit()
     await db.refresh(invitation)
 
-    await _log_action(db, "admin_invite", invitation.id, current_user, new_values={"email": email})
+    await _log_action(
+        db,
+        "admin_invite",
+        invitation.id,
+        current_user,
+        new_values={"email": email},
+        entity_label=email,
+    )
     await db.commit()
 
     return _to_invitation_response(invitation)
 
 
-async def revoke_invitation(db: SessionDep, invitation_id: UUID) -> AdminInvitationResponse:
+async def revoke_invitation(
+    db: SessionDep,
+    invitation_id: UUID,
+    current_user: dict | None = None,
+) -> AdminInvitationResponse:
     invitation = await db.get(AdminInvitation, invitation_id)
     if invitation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found.")
@@ -212,6 +221,16 @@ async def revoke_invitation(db: SessionDep, invitation_id: UUID) -> AdminInvitat
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
     invitation.status = AdviserInvitationStatus.REVOKED
+    await record_activity(
+        db,
+        current_user,
+        action="revoke",
+        entity_type="admin",
+        entity_id=invitation.id,
+        entity_label=invitation.email,
+        previous_values={"status": AdviserInvitationStatus.PENDING.value},
+        new_values={"status": AdviserInvitationStatus.REVOKED.value},
+    )
     await db.commit()
     await db.refresh(invitation)
     return _to_invitation_response(invitation)
@@ -269,6 +288,7 @@ async def promote_adviser(
         current_user,
         previous_values={"role": previous_role},
         new_values={"role": UserRole.ADMIN.value},
+        entity_label=_full_name(user),
     )
     await db.commit()
 
@@ -328,7 +348,8 @@ async def remove_admin(db: SessionDep, admin_id: UUID, current_user: dict) -> No
             user.id,
             current_user,
             previous_values={"role": UserRole.ADMIN.value},
-            new_values={"role": UserRole.ADVISER.value},
+            new_values={"role": UserRole.ADVISER.value, "email": user.email},
+            entity_label=_full_name(user),
         )
         await db.commit()
         return
@@ -341,7 +362,9 @@ async def remove_admin(db: SessionDep, admin_id: UUID, current_user: dict) -> No
         user.id,
         current_user,
         previous_values={"role": UserRole.ADMIN.value},
-        new_values={"removed_from_system": True},
+        # The email is stored because the account is deleted; the history needs it to find this person later.
+        new_values={"removed_from_system": True, "email": user.email},
+        entity_label=_full_name(user),
     )
     await db.delete(user)
     await db.commit()

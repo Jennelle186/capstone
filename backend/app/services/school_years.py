@@ -11,6 +11,7 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import selectinload
 
 from ..database import SessionDep
+from .activity_log import record_activity
 from ..models import (
     AdminAuditLog,
     Adviser,
@@ -125,20 +126,16 @@ async def log_school_year_action(
     previous_values: dict | None = None,
     new_values: dict | None = None,
 ) -> None:
-    actor_clerk_user_id = current_user.get("sub") if current_user else None
-    if not isinstance(actor_clerk_user_id, str):
-        actor_clerk_user_id = None
-
-    db.add(
-        AdminAuditLog(
-            school_year_id=school_year.id,
-            action=action,
-            entity_type="school_year",
-            actor_user_id=await _actor_user_id(db, current_user or {}),
-            actor_clerk_user_id=actor_clerk_user_id,
-            previous_values=previous_values,
-            new_values=new_values,
-        )
+    await record_activity(
+        db,
+        current_user,
+        action=action,
+        entity_type="school_year",
+        entity_id=school_year.id,
+        entity_label=school_year.name,
+        school_year_id=school_year.id,
+        previous_values=previous_values,
+        new_values=new_values,
     )
 
 # Helper function to compile a summary of a school year's key metrics and readiness for activation
@@ -442,14 +439,22 @@ async def get_activation_preview(db: SessionDep, school_year_id: UUID) -> School
         missing_department_assignments=selected_response.missing_department_assignments,
     )
 
-# Helper function to retrieve a list of audit log entries for a given school year, including details about the actor and the changes made in each action    
+# Entity types the activity log writes with school_year_id that are not school-year changes.
+# They stay on the Activity Logs page; the school-year panel shows only school-year rows.
+SCHOOL_YEAR_PANEL_EXCLUDED_ENTITY_TYPES = ("adviser", "adviser_invitation", "requirement", "requirement_slot")
+
+
+# Helper function to retrieve a list of audit log entries for a given school year, including details about the actor and the changes made in each action
 async def list_school_year_audit_logs(db: SessionDep, school_year_id: UUID) -> list[AdminAuditLogResponse]:
     await get_school_year_or_404(db, school_year_id)
 
     stmt = (
         select(AdminAuditLog, User)
         .outerjoin(User, AdminAuditLog.actor_user_id == User.id)
-        .where(AdminAuditLog.school_year_id == school_year_id)
+        .where(
+            AdminAuditLog.school_year_id == school_year_id,
+            AdminAuditLog.entity_type.not_in(SCHOOL_YEAR_PANEL_EXCLUDED_ENTITY_TYPES),
+        )
         .order_by(desc(AdminAuditLog.created_at))
     )
     try:
