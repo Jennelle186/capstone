@@ -320,8 +320,18 @@ async def update_adviser(
             detail="Closed school years cannot be used for adviser assignments.",
         )
 
-    # Validate that every requested department code exists and is active before
-    # touching any assignments, so a bad code never partially mutates the data.
+    # Programs the adviser already holds for this school year. Deactivating a
+    # program does not clear its assignments, and callers send the complete
+    # remaining list, so these codes can legitimately be inactive.
+    held_program_ids_stmt = select(ProgramAdviserAssignment.program_id).where(
+        ProgramAdviserAssignment.adviser_id == adviser.id,
+        ProgramAdviserAssignment.school_year_id == school_year.id,
+    )
+    held_program_ids = set((await db.execute(held_program_ids_stmt)).scalars().all())
+
+    # Validate every requested department code before touching any assignments,
+    # so a bad code never partially mutates the data. An inactive program is only
+    # rejected when it would be a new assignment.
     for code in payload.department_codes:
         department_stmt = select(Department).where(
             func.lower(Department.code) == code.lower()
@@ -332,7 +342,7 @@ async def update_adviser(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f'Department code "{code}" does not exist.',
             )
-        if not _department.is_active:
+        if not _department.is_active and program_uuid_for_department_code(code) not in held_program_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f'Department code "{code}" is inactive.',
