@@ -39,6 +39,7 @@ import SchemaRegistryPage from "./pages/admin/extraction-schemas/SchemaRegistryP
 import FormsPage from "./pages/admin/forms/FormsPage";
 import BrandingSettingsPage from "./pages/admin/branding/BrandingSettingsPage";
 import AdminAnalyticsPage from "./pages/admin/analytics/AnalyticsPage";
+import AdminsPage from "./pages/admin/admins/AdminsPage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
 import { RequireStudent, RequireAdviser, RequireAdmin } from "./components/auth/RequireRole";
@@ -126,6 +127,7 @@ const AppRoutes = createBrowserRouter([
                     { index: true, element: <Navigate to="dashboard" replace /> },
                     { path: "dashboard", Component: AdminDashboardPage },
                     { path: "advisers", Component: AdvisersPage },
+                    { path: "admins", Component: AdminsPage },
                     { path: "departments", Component: DepartmentsPage },
                     { path: "students", Component: StudentsPage },
                     { path: "document-types", Component: DocumentTypesPage },

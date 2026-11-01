@@ -244,6 +244,23 @@ async def unlock_user_account(clerk_user_id: str) -> bool:
     return False
 
 
+async def delete_user(clerk_user_id: str) -> bool:
+    """
+    Delete a Clerk user account. Returns True on success, False on failure or
+    when Clerk is not configured (best-effort, mirrors ``update_user_public_metadata``).
+    """
+    client = _get_clerk_client()
+    if client is None:
+        return False
+
+    try:
+        await client.users.delete_async(user_id=clerk_user_id)
+    except Exception:
+        logger.exception("Failed to delete Clerk user %s", clerk_user_id)
+        return False
+    return True
+
+
 def _normalize_clerk_enum_value(value: Any, default: str) -> str:
     """
     Normalize values that might arrive as enum objects from the Clerk SDK.

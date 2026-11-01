@@ -11,6 +11,7 @@ export default function AdminLayout() {
     const routeMetaByPath: Record<string, { section: string; page: string }> = {
         "/admin": { section: "Management", page: "Admin Dashboard" },
         "/admin/advisers": { section: "Management", page: "Advisers" },
+        "/admin/admins": { section: "Settings", page: "Administrators" },
         "/admin/departments": { section: "Management", page: "Departments" },
         "/admin/document-types": { section: "Management", page: "Document Types" },
         "/admin/extraction-schemas": { section: "Management", page: "Extraction Schemas" },

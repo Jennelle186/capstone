@@ -183,7 +183,7 @@ export default function SignupForm() {
           {isInvitationFlow && (
             <Field>
               <FieldDescription>
-                You are completing an adviser invitation. Set your password to finish account setup.
+                You are completing an invitation. Set your password to finish account setup.
               </FieldDescription>
             </Field>
           )}

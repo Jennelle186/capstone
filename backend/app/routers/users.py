@@ -27,7 +27,7 @@ class PublicMetadataUpdate(BaseModel):
 
 # Strict student-only endpoint: admins should not be able to modify student profile fields.
 StudentClaims = Annotated[dict, Depends(require_student)]
-AdviserClaims = Annotated[dict, Depends(require_roles(UserRole.ADVISER, allow_admin=False))]
+AdviserClaims = Annotated[dict, Depends(require_roles(UserRole.ADVISER))]
 
 
 class AdviserProfileResponse(BaseModel):
@@ -64,7 +64,7 @@ class AdviserProfileUpdateRequest(BaseModel):
 
 async def _ensure_adviser_profile_row(db: SessionDep, current_user: dict) -> tuple[User, Adviser]:
     user = await ensure_user_row(db, current_user)
-    if user.role != UserRole.ADVISER:
+    if user.role not in (UserRole.ADVISER, UserRole.ADMIN):
         raise HTTPException(status_code=403, detail="Only advisers can access this endpoint.")
 
     result = await db.execute(select(Adviser).where(Adviser.user_id == user.id))

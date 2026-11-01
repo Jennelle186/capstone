@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 
 from ...database import SessionDep
 from ...models import (
@@ -15,6 +15,7 @@ from ...models import (
     ProgramAdviserAssignment,
     SchoolYear,
     SchoolYearStatus,
+    Student,
     User,
     UserRole,
 )
@@ -25,6 +26,7 @@ from ...services.clerk import (
     lock_user_account,
     unlock_user_account,
     update_user_personal_names,
+    update_user_public_metadata,
 )
 from ...services.adviser_core import reconcile_adviser_program_assignments
 from ...services.helpers import (
@@ -187,6 +189,7 @@ async def list_advisers(
     stmt = (
         select(Adviser, User)
         .join(User, Adviser.user_id == User.id)
+        .where(User.role != UserRole.ADMIN)
         .order_by(Adviser.created_at.desc())
     )
     rows = (await db.execute(stmt)).all()
@@ -425,6 +428,15 @@ async def update_adviser_status(
     try:
         if payload.is_active:
             lock_state = await unlock_user_account(user.clerk_user_id)
+            # Repair a stale role: an adviser whose role was demoted (e.g. to student)
+            # still has an adviser profile, so re-activating also restores the role.
+            if user.role == UserRole.STUDENT:
+                user.role = UserRole.ADVISER
+                await db.execute(delete(Student).where(Student.user_id == user.id))
+                await db.commit()
+                await db.refresh(user)
+                if user.clerk_user_id:
+                    await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADVISER.value})
         else:
             lock_state = await lock_user_account(user.clerk_user_id)
     except RuntimeError as error:

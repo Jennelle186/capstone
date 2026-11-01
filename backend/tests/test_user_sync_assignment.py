@@ -70,7 +70,10 @@ class TestPromoteAndFinalizeAdviserInvitation:
         db.execute = AsyncMock(side_effect=_execute)
         db.get = AsyncMock(return_value=None)
 
-        with patch("app.services.user_sync.update_user_personal_names", new_callable=AsyncMock, return_value=None):
+        with (
+            patch("app.services.user_sync.update_user_personal_names", new_callable=AsyncMock, return_value=None),
+            patch("app.services.user_sync.update_user_public_metadata", new_callable=AsyncMock),
+        ):
             await _promote_and_finalize_adviser_invitation(db, user)
 
         assignment_adds = [
@@ -118,7 +121,10 @@ class TestPromoteAndFinalizeAdviserInvitation:
         db.execute = AsyncMock(side_effect=_execute)
         db.get = AsyncMock(return_value=None)
 
-        with patch("app.services.user_sync.update_user_personal_names", new_callable=AsyncMock, return_value=None):
+        with (
+            patch("app.services.user_sync.update_user_personal_names", new_callable=AsyncMock, return_value=None),
+            patch("app.services.user_sync.update_user_public_metadata", new_callable=AsyncMock),
+        ):
             await _promote_and_finalize_adviser_invitation(db, user)
 
         assignment_adds = [
@@ -154,7 +160,10 @@ class TestPromoteAndFinalizeAdviserInvitation:
         db.execute = AsyncMock(side_effect=_execute)
         db.get = AsyncMock(return_value=None)
 
-        with patch("app.services.user_sync.update_user_personal_names", new_callable=AsyncMock, return_value=None):
+        with (
+            patch("app.services.user_sync.update_user_personal_names", new_callable=AsyncMock, return_value=None),
+            patch("app.services.user_sync.update_user_public_metadata", new_callable=AsyncMock),
+        ):
             await _promote_and_finalize_adviser_invitation(db, user)
 
         assignment_adds = [
@@ -162,3 +171,38 @@ class TestPromoteAndFinalizeAdviserInvitation:
             if isinstance(call.args[0], ProgramAdviserAssignment)
         ]
         assert assignment_adds == []
+
+    @pytest.mark.asyncio
+    async def test_syncs_clerk_role_metadata_to_adviser(self):
+        """Accepting an adviser invitation also syncs Clerk public_metadata.role."""
+        user = _make_user()
+        adviser = SimpleNamespace(id=uuid4(), user_id=user.id)
+        invitation = _make_invitation(None, None)
+
+        async def _execute(stmt):
+            if "adviser_invitations" in str(stmt):
+                result = MagicMock()
+                result.scalars.return_value = MagicMock(first=MagicMock(return_value=invitation))
+                return result
+            if "advisers" in str(stmt):
+                result = MagicMock()
+                result.scalar_one_or_none = MagicMock(return_value=adviser)
+                return result
+            return MagicMock()
+
+        db = MagicMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.rollback = AsyncMock()
+        db.refresh = AsyncMock()
+        db.execute = AsyncMock(side_effect=_execute)
+        db.get = AsyncMock(return_value=None)
+
+        with (
+            patch("app.services.user_sync.update_user_personal_names", new_callable=AsyncMock, return_value=None),
+            patch("app.services.user_sync.update_user_public_metadata", new_callable=AsyncMock) as mock_metadata,
+        ):
+            await _promote_and_finalize_adviser_invitation(db, user)
+
+        mock_metadata.assert_awaited_once_with(user.clerk_user_id, {"role": UserRole.ADVISER.value})

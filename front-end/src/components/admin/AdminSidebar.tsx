@@ -1,14 +1,16 @@
-import { LayoutDashboard, Users, Building2, BarChart3, CalendarDays, ClipboardCheck, FileText, FileJson, Image, LogOut, GraduationCap, TrendingUp, ClipboardList } from "lucide-react";
+import { LayoutDashboard, Users, Building2, BarChart3, CalendarDays, ClipboardCheck, FileText, FileJson, Image, LogOut, GraduationCap, TrendingUp, ClipboardList, ShieldCheck, UserRound } from "lucide-react";
 import CommonAppSidebar from "@/components/common/AppSidebar";
 import LogoutConfirmDialog from "@/components/common/LogoutConfirmDialog";
 import type { SidebarGroupConfig } from "@/components/common/AppSidebar";
 import { useClerk, useUser } from "@clerk/clerk-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 export function AdminSidebar() {
     const { signOut } = useClerk();
     const { user } = useUser();
+    const { isAdviser } = useCurrentUser();
     const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -64,6 +66,7 @@ export function AdminSidebar() {
                 items: [
                     { title: "School Year", icon: CalendarDays, url: "/admin/settings/school-year" },
                     { title: "Branding", icon: Image, url: "/admin/settings/branding" },
+                    { title: "Administrators", icon: ShieldCheck, url: "/admin/admins" },
                     {
                         title: "Logout",
                         icon: LogOut,
@@ -97,6 +100,11 @@ export function AdminSidebar() {
                 portalLabel="Admin Portal"
                 portalTitle="Document Management System"
                 groups={adminGroups}
+                portalLink={
+                    isAdviser
+                        ? { title: "Adviser Portal", icon: UserRound, url: "/adviser/dashboard" }
+                        : undefined
+                }
                 userName={userName}
                 userEmail={userEmail}
                 userFallback={userFallback}

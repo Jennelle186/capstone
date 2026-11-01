@@ -62,7 +62,7 @@ export function RequireStudent() {
 }
 
 export function RequireAdviser() {
-  return <RequireRole allow={["adviser"]} />;
+  return <RequireRole allow={["adviser", "admin"]} />;
 }
 
 export function RequireAdmin() {

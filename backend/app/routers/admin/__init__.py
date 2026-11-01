@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from .access_control import router as access_control_router
+from .admins import router as admins_router
 from .adviser_invitations import router as adviser_invitation_router
 from .adviser_management import router as adviser_management_router
 from .analytics import router as analytics_router
@@ -55,3 +56,5 @@ router.include_router(analytics_dimensions_router)
 router.include_router(branding_router)
 # GCS orphan cleanup.
 router.include_router(gcs_cleanup_router)
+# Administrator management (list / invite / promote / remove admins).
+router.include_router(admins_router)

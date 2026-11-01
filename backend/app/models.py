@@ -670,6 +670,51 @@ class AdviserInvitation(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class AdminInvitation(Base):
+    """Invitation to onboard a new administrator (mirrors ``AdviserInvitation``).
+
+    On acceptance the ``User`` row is created/hydrated by ``ensure_user_row`` with
+    ``role="admin"`` and the name/email pulled from Clerk.
+    """
+
+    __tablename__ = "admin_invitations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    clerk_invitation_id = Column(String(255), unique=True, nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    first_name = Column(String(255), nullable=True)
+    middle_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+    invited_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    accepted_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status = Column(
+        Enum(
+            AdviserInvitationStatus,
+            name="adviser_invitation_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=AdviserInvitationStatus.PENDING,
+        server_default=AdviserInvitationStatus.PENDING.value,
+        index=True,
+    )
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    invited_by = relationship("User", foreign_keys=[invited_by_user_id])
+    accepted_user = relationship("User", foreign_keys=[accepted_user_id])
+
+
 class SubmissionStatus(str, enum.Enum):
     PENDING = "pending"
     UPLOADED = "uploaded"

@@ -1,14 +1,16 @@
-import { BarChart3, FileSearch, History, LayoutDashboard, LogOut, UserCircle2, Users } from "lucide-react";
+import { BarChart3, FileSearch, History, LayoutDashboard, LogOut, ShieldCheck, UserCircle2, Users } from "lucide-react";
 import CommonAppSidebar from "@/components/common/AppSidebar";
 import LogoutConfirmDialog from "@/components/common/LogoutConfirmDialog";
 import type { SidebarGroupConfig } from "@/components/common/AppSidebar";
 import { useClerk, useUser } from "@clerk/clerk-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 export default function AdviserSidebar() {
   const { signOut } = useClerk();
   const { isLoaded, user } = useUser();
+  const { role } = useCurrentUser();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -87,6 +89,11 @@ export default function AdviserSidebar() {
         portalLabel="Adviser Portal"
         portalTitle="Document Management System"
         groups={adviserGroups}
+        portalLink={
+          role === "admin"
+            ? { title: "Admin Portal", icon: ShieldCheck, url: "/admin/dashboard" }
+            : undefined
+        }
         userName={userName}
         userEmail={userEmail}
         userAvatarSrc={user?.imageUrl}

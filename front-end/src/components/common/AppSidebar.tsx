@@ -44,6 +44,11 @@ type AppSidebarProps = {
     portalLabel: string
     portalTitle: string
     groups: SidebarGroupConfig[]
+    portalLink?: {
+        title: string
+        icon: LucideIcon
+        url: string
+    }
     userName: string
     userEmail: string
     userAvatarSrc?: string
@@ -148,6 +153,7 @@ export default function AppSidebar({
     portalLabel,
     portalTitle,
     groups,
+    portalLink,
     userName,
     userEmail,
     userAvatarSrc,
@@ -210,6 +216,25 @@ export default function AppSidebar({
             </SidebarHeader>
 
             <SidebarContent>
+                {portalLink ? (
+                    <SidebarGroup>
+                        <SidebarGroupContent>
+                            <SidebarMenu>
+                                <SidebarMenuItem>
+                                    <SidebarMenuButton asChild tooltip={portalLink.title}>
+                                        <Link
+                                            to={portalLink.url}
+                                            className="group relative flex items-center gap-2 rounded-md px-2 py-2 text-primary hover:bg-sidebar-accent"
+                                        >
+                                            <portalLink.icon className="size-4 shrink-0" />
+                                            <span className="truncate font-medium">{portalLink.title}</span>
+                                        </Link>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                            </SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
+                ) : null}
                 {groups.map((group) => (
                     <SidebarGroup key={group.label}>
                         <SidebarGroupLabel className="text-[11px] uppercase tracking-wide text-slate-500">

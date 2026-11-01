@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
+    AdminInvitation,
     Adviser,
     AdviserInvitation,
     AdviserInvitationStatus,
@@ -21,7 +22,7 @@ from ..models import (
     User,
     UserRole,
 )
-from .clerk import fetch_user_profile, update_user_personal_names
+from .clerk import fetch_user_profile, update_user_personal_names, update_user_public_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,10 @@ async def _promote_and_finalize_adviser_invitation(db: AsyncSession, user: User)
         user.role = UserRole.ADVISER
         changed = True
 
+    # Keep Clerk public_metadata.role aligned so subsequent token re-syncs keep adviser.
+    if user.clerk_user_id:
+        await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADVISER.value})
+
     # Fill missing local profile names from the original invite snapshot.
     if (not user.first_name) and invitation.first_name:
         user.first_name = invitation.first_name
@@ -229,6 +234,85 @@ async def _promote_and_finalize_adviser_invitation(db: AsyncSession, user: User)
     invitation.status = AdviserInvitationStatus.ACCEPTED
     invitation.accepted_user_id = user.id
     invitation.accepted_adviser_id = adviser.id
+    invitation.accepted_at = datetime.now(timezone.utc)
+    changed = True
+
+    if changed:
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+        else:
+            await db.refresh(user)
+
+
+async def _promote_and_finalize_admin_invitation(db: AsyncSession, user: User) -> None:
+    """
+    When a signed-in user matches a pending admin invitation, promote/finalize them:
+    - enforce admin role
+    - fill missing name fields from the invitation snapshot
+    - mark the invitation as accepted
+    """
+    # If token claims missed email on the first pass, try Clerk API once more before giving up.
+    if not user.email:
+        api_email, _api_first_name, _api_middle_name, _api_last_name, _api_metadata, _api_image_url = await fetch_user_profile(user.clerk_user_id)
+        normalized_api_email = _normalize_email(api_email)
+        if normalized_api_email:
+            user.email = normalized_api_email
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+        if not user.email:
+            return
+
+    invite_stmt = (
+        select(AdminInvitation)
+        .where(
+            func.lower(AdminInvitation.email) == user.email.lower(),
+            AdminInvitation.status == AdviserInvitationStatus.PENDING,
+        )
+        .order_by(desc(AdminInvitation.created_at))
+    )
+    invitation = (await db.execute(invite_stmt)).scalars().first()
+    if invitation is None:
+        return
+
+    changed = False
+    if user.role != UserRole.ADMIN:
+        user.role = UserRole.ADMIN
+        changed = True
+
+    # Keep Clerk public_metadata.role aligned so subsequent token re-syncs keep admin.
+    if user.clerk_user_id:
+        await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADMIN.value})
+
+    # Fill missing local profile names from the original invite snapshot.
+    if (not user.first_name) and invitation.first_name:
+        user.first_name = invitation.first_name
+        changed = True
+    if (not user.middle_name) and invitation.middle_name:
+        user.middle_name = invitation.middle_name
+        changed = True
+    if (not user.last_name) and invitation.last_name:
+        user.last_name = invitation.last_name
+        changed = True
+
+    # Keep Clerk personal name fields aligned with invitation-provided names.
+    if invitation.first_name or invitation.last_name:
+        updated_names = await update_user_personal_names(
+            user.clerk_user_id,
+            first_name=invitation.first_name,
+            last_name=invitation.last_name,
+        )
+        if updated_names is None:
+            logger.warning(
+                "Failed to sync Clerk personal names for invited admin clerk_user_id=%s",
+                user.clerk_user_id,
+            )
+
+    invitation.status = AdviserInvitationStatus.ACCEPTED
+    invitation.accepted_user_id = user.id
     invitation.accepted_at = datetime.now(timezone.utc)
     changed = True
 
@@ -317,6 +401,7 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
 
         # Finalize role-specific side effects for first-time sign-ins.
         await _promote_and_finalize_adviser_invitation(db, user)
+        await _promote_and_finalize_admin_invitation(db, user)
         if user.role == UserRole.STUDENT:
             await _ensure_student_profile(db, user)
         return user
@@ -419,6 +504,7 @@ async def ensure_user_row(db: AsyncSession, clerk_claims: dict[str, Any]) -> Use
 
     # Keep role-specific local profile rows in sync on every authenticated call.
     await _promote_and_finalize_adviser_invitation(db, user)
+    await _promote_and_finalize_admin_invitation(db, user)
     if user.role == UserRole.STUDENT:
         await _ensure_student_profile(db, user)
 

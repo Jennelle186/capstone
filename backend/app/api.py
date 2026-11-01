@@ -143,7 +143,7 @@ async def read_me(current_user: CurrentUser, db: SessionDep) -> dict:
     # Protected endpoint: returns claims from Clerk-verified session token.
     # Also upserts the user into our DB on first authenticated call.
     user = await ensure_user_row(db, current_user)
-    await db.refresh(user, ["student"])
+    await db.refresh(user, ["student", "adviser"])
     student_number: str | None = None
     program_id: str | None = None
     program_mismatch_pending: bool = False
@@ -166,6 +166,7 @@ async def read_me(current_user: CurrentUser, db: SessionDep) -> dict:
         "program_mismatch_pending": program_mismatch_pending,
         "program_mismatch_extracted": program_mismatch_extracted,
         "role": getattr(user.role, "value", user.role),
+        "is_adviser": user.adviser is not None,
     }
 
 
