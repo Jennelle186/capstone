@@ -65,6 +65,12 @@ def build_admin_history(
         elif log.action == "admin_promote":
             email = email_by_user_id.get(log.entity_id) or details.get("email")
             event_type = "promoted"
+        elif log.action == "admin_demote" or (
+            # Rows written before admin_demote existed used admin_remove for a restore to adviser.
+            log.action == "admin_remove" and details.get("role") == UserRole.ADVISER.value
+        ):
+            email = details.get("email") or email_by_user_id.get(log.entity_id)
+            event_type = "demoted"
         elif log.action == "admin_remove":
             email = details.get("email") or email_by_user_id.get(log.entity_id)
             event_type = "removed"
@@ -88,6 +94,8 @@ def build_admin_history(
             status = "invited"
         elif events and events[-1].type == "revoked":
             status = "revoked"
+        elif events and events[-1].type == "demoted":
+            status = "demoted"
         else:
             status = "removed"
         result.append(

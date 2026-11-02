@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
+import { readApiErrorMessage } from "@/lib/apiError";
 
 export interface RetentionSettings {
   /** null means logs are kept forever. */
@@ -14,15 +15,9 @@ interface PurgeResponse {
   deleted: number;
 }
 
-async function readError(response: Response): Promise<string> {
-  let message = `Request failed with status ${response.status}.`;
-  try {
-    const payload = (await response.json()) as Record<string, unknown>;
-    message = (payload.detail as string) ?? message;
-  } catch {
-    // Ignore non-JSON payloads.
-  }
-  return message;
+interface OlderThanCountResponse {
+  days: number;
+  count: number;
 }
 
 export function useActivityLogRetention(onPurged?: () => void) {
@@ -38,7 +33,7 @@ export function useActivityLogRetention(onPurged?: () => void) {
       const token = await getTokenRef.current();
       if (!token) throw new Error("Missing admin authentication token.");
       const response = await fetchWithClerkAuth(path, token, init);
-      if (!response.ok) throw new Error(await readError(response));
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
       return response;
     },
     [getTokenRef],
@@ -114,5 +109,15 @@ export function useActivityLogRetention(onPurged?: () => void) {
     [requestWithAdminAuth, onPurged],
   );
 
-  return { settings, isLoading, isSaving, isPurging, saveRetention, purgeOlderThan };
+  /** How many entries a purge of this many days would delete. Read-only, used before any confirmation. */
+  const countOlderThan = useCallback(
+    async (days: number): Promise<number> => {
+      const response = await requestWithAdminAuth(`/api/admin/activity-logs/older-than?days=${days}`);
+      const data = (await response.json()) as OlderThanCountResponse;
+      return data.count;
+    },
+    [requestWithAdminAuth],
+  );
+
+  return { settings, isLoading, isSaving, isPurging, saveRetention, purgeOlderThan, countOlderThan };
 }

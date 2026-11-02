@@ -184,9 +184,8 @@ async def invite_admin(
         expires_at=expires_at,
     )
     db.add(invitation)
-    await db.commit()
-    await db.refresh(invitation)
-
+    # Flush first so invitation.id exists, then queue the audit row in the same transaction.
+    await db.flush()
     await _log_action(
         db,
         "admin_invite",
@@ -196,6 +195,7 @@ async def invite_admin(
         entity_label=email,
     )
     await db.commit()
+    await db.refresh(invitation)
 
     return _to_invitation_response(invitation)
 
@@ -275,12 +275,7 @@ async def promote_adviser(
             await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADVISER.value})
 
     user.role = UserRole.ADMIN
-    await db.commit()
-    await db.refresh(user)
-
-    if user.clerk_user_id:
-        await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADMIN.value})
-
+    # Role change and audit row share one transaction.
     await _log_action(
         db,
         "admin_promote",
@@ -291,6 +286,10 @@ async def promote_adviser(
         entity_label=_full_name(user),
     )
     await db.commit()
+    await db.refresh(user)
+
+    if user.clerk_user_id:
+        await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADMIN.value})
 
     return AdminResponse(
         id=user.id,
@@ -334,17 +333,11 @@ async def remove_admin(db: SessionDep, admin_id: UUID, current_user: dict) -> No
     ).scalar_one_or_none()
 
     if adviser is not None:
-        # Promoted from an adviser → restore their adviser role.
+        # Promoted from an adviser → restore their adviser role. This is a demotion, not a removal.
         user.role = UserRole.ADVISER
-        await db.commit()
-        await db.refresh(user)
-
-        if user.clerk_user_id:
-            await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADVISER.value})
-
         await _log_action(
             db,
-            "admin_remove",
+            "admin_demote",
             user.id,
             current_user,
             previous_values={"role": UserRole.ADMIN.value},
@@ -352,6 +345,10 @@ async def remove_admin(db: SessionDep, admin_id: UUID, current_user: dict) -> No
             entity_label=_full_name(user),
         )
         await db.commit()
+        await db.refresh(user)
+
+        if user.clerk_user_id:
+            await update_user_public_metadata(user.clerk_user_id, {"role": UserRole.ADVISER.value})
         return
 
     # Directly-invited administrator (never an adviser) → remove from the system.

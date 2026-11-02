@@ -262,6 +262,7 @@ class AdminAuditLog(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     actor_clerk_user_id = Column(String(255), nullable=True)
     actor_name = Column(String(200), nullable=True)
@@ -272,7 +273,7 @@ class AdminAuditLog(Base):
     new_values = Column(JSONB, nullable=True)
     audit_metadata = Column(JSONB, nullable=True)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     school_year = relationship("SchoolYear", back_populates="audit_logs")
     actor_user = relationship("User")

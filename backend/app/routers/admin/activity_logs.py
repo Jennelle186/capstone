@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ...database import SessionDep
 from ...rbac import require_admin
 from ...schemas.activity_log_retention import (
+    OlderThanCountResponse,
     PurgeRequest,
     PurgeResponse,
     RetentionSettingsResponse,
@@ -16,6 +17,7 @@ from ...schemas.activity_log_retention import (
 from ...schemas.activity_logs import ActivityLogListResponse
 from ...services.activity_log import (
     RETENTION_OPTIONS_DAYS,
+    count_activity_logs_older_than,
     get_retention_days,
     list_activity_logs,
     purge_logs_manually,
@@ -92,3 +94,19 @@ async def purge_old_activity_logs(
 ):
     deleted = await purge_logs_manually(db, payload.older_than_days, current_user)
     return PurgeResponse(deleted=deleted)
+
+
+@router.get("/older-than", response_model=OlderThanCountResponse)
+async def count_logs_older_than(
+    days: int = Query(..., description="Retention period in days: 30, 90, 180 or 365."),
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    # Read-only. The admin UI shows this count in the confirmation before any deletion.
+    del current_user
+    if days not in RETENTION_OPTIONS_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose 30, 90, 180 or 365 days.",
+        )
+    return OlderThanCountResponse(days=days, count=await count_activity_logs_older_than(db, days))

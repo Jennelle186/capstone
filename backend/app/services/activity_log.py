@@ -20,30 +20,6 @@ from ..database import SessionDep
 from ..models import ActivityLogSettings, AdminAuditLog, User
 from ..schemas.activity_logs import ActivityLogItem
 
-# Entity types recognised by the Activity Logs page. Keep in sync with the
-# frontend filter options in ``front-end/src/types/activityLog.ts``.
-ENTITY_TYPES = frozenset(
-    {
-        "adviser",
-        "adviser_invitation",
-        "admin",
-        "user_role",
-        "department",
-        "school_year",
-        "document_type",
-        "requirement",
-        "requirement_slot",
-        "extraction_schema",
-        "form",
-        "branding",
-        "analytics_dimension",
-        "gcs_cleanup",
-        "activity_log",
-        "activity_log_settings",
-    }
-)
-
-
 def actor_display_name(user: User | None, fallback: str | None = None) -> str | None:
     """Full name, then email, then ``fallback``. Mirrors the school-year display rule."""
     if user is None:
@@ -148,6 +124,12 @@ async def record_activity(
 ACTIVITY_LOG_MAX_PAGE_SIZE = 100
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE wildcards so a search for '%' or '_' matches those characters literally."""
+    escaped = value.replace("\\", "\\\\")
+    return escaped.replace("%", "\\%").replace("_", "\\_")
+
+
 def _apply_filters(
     stmt,
     *,
@@ -169,12 +151,12 @@ def _apply_filters(
     if date_to is not None:
         stmt = stmt.where(AdminAuditLog.created_at <= date_to)
     if search and search.strip():
-        pattern = f"%{search.strip()}%"
+        pattern = f"%{_escape_like(search.strip())}%"
         stmt = stmt.where(
             or_(
-                AdminAuditLog.actor_name.ilike(pattern),
-                AdminAuditLog.actor_email.ilike(pattern),
-                AdminAuditLog.audit_metadata["entity_label"].astext.ilike(pattern),
+                AdminAuditLog.actor_name.ilike(pattern, escape="\\"),
+                AdminAuditLog.actor_email.ilike(pattern, escape="\\"),
+                AdminAuditLog.audit_metadata["entity_label"].astext.ilike(pattern, escape="\\"),
             )
         )
     return stmt
@@ -310,6 +292,13 @@ async def set_retention_days(db: SessionDep, retention_days: int | None, current
     )
     await db.commit()
     return retention_days
+
+
+async def count_activity_logs_older_than(db: SessionDep, days: int) -> int:
+    """How many audit rows a purge of ``days`` would delete. Read-only."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    stmt = select(func.count(AdminAuditLog.id)).where(AdminAuditLog.created_at < cutoff)
+    return int((await db.execute(stmt)).scalar_one())
 
 
 async def purge_activity_logs_older_than(db: SessionDep, days: int) -> int:

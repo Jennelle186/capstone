@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
+import { readApiErrorMessage } from "@/lib/apiError";
 import type { AdminHistoryPerson } from "@/types/adminHistory";
 
 /** Loads the administrator timeline once when mounted. Mount it only when the History tab is open. */
@@ -19,14 +20,7 @@ export function useAdministratorHistory() {
         if (!token) throw new Error("Missing admin authentication token.");
         const response = await fetchWithClerkAuth("/api/admin/admins/history", token);
         if (!response.ok) {
-          let message = `Request failed with status ${response.status}.`;
-          try {
-            const payload = (await response.json()) as Record<string, unknown>;
-            message = (payload.detail as string) ?? message;
-          } catch {
-            // Ignore non-JSON payloads.
-          }
-          throw new Error(message);
+          throw new Error(await readApiErrorMessage(response));
         }
         const data = (await response.json()) as AdminHistoryPerson[];
         if (!cancelled) setPeople(data);

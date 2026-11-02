@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { useStableToken } from "@/hooks/useStableToken";
 import { fetchWithClerkAuth } from "@/lib/api";
+import { readApiErrorMessage } from "@/lib/apiError";
 import {
   ACTIVITY_PAGE_SIZE,
   type ActivityLogListResponse,
@@ -139,14 +140,7 @@ export function useActivityLogsPage() {
 
         const response = await fetchWithClerkAuth(buildActivityLogQuery(filters, page), token);
         if (!response.ok) {
-          let message = `Request failed with status ${response.status}.`;
-          try {
-            const payload = (await response.json()) as Record<string, unknown>;
-            message = (payload.detail as string) ?? message;
-          } catch {
-            // Ignore non-JSON payloads.
-          }
-          throw new Error(message);
+          throw new Error(await readApiErrorMessage(response));
         }
 
         const data = (await response.json()) as ActivityLogListResponse;

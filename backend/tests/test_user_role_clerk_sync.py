@@ -66,13 +66,44 @@ async def test_clerk_failure_returns_502_and_leaves_the_database_unchanged():
         patch.object(users_router, "record_activity", AsyncMock()) as recorded,
     ):
         with pytest.raises(HTTPException) as exc:
-            await update_user_role(str(user.id), UpdateRoleRequest(new_role="admin"), ADMIN, db)
+            await update_user_role(str(user.id), UpdateRoleRequest(new_role="adviser"), ADMIN, db)
 
     assert exc.value.status_code == 502
     assert "Clerk is down" in exc.value.detail
     assert user.role == UserRole.STUDENT  # not changed
     db.commit.assert_not_awaited()
     recorded.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_db_commit_failure_reverts_the_clerk_role():
+    user = _user(role=UserRole.STUDENT)
+    db = _db(user)
+    db.commit = AsyncMock(side_effect=RuntimeError("db is down"))
+    sync = AsyncMock()
+
+    with (
+        patch.object(users_router, "sync_user_role", sync),
+        patch.object(users_router, "record_activity", AsyncMock()),
+    ):
+        with pytest.raises(RuntimeError):
+            await update_user_role(str(user.id), UpdateRoleRequest(new_role="adviser"), ADMIN, db)
+
+    assert sync.await_args_list[0].args == ("user_123", "adviser")
+    assert sync.await_args_list[-1].args == ("user_123", "student")  # Clerk put back
+    db.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_admin_role_is_rejected_before_clerk_is_called():
+    user = _user(role=UserRole.STUDENT)
+    db = _db(user)
+    sync = AsyncMock()
+    with patch.object(users_router, "sync_user_role", sync):
+        with pytest.raises(HTTPException) as exc:
+            await update_user_role(str(user.id), UpdateRoleRequest(new_role="admin"), ADMIN, db)
+    assert exc.value.status_code == 400
+    sync.assert_not_awaited()
 
 
 @pytest.mark.asyncio

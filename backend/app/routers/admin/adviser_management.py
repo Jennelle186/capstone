@@ -466,6 +466,10 @@ async def update_adviser_status(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Adviser has no Clerk user id.",
         )
+    # Read the current Clerk lock state so repeated requests are not logged as changes.
+    previous_role = user.role.value
+    previous_locked = await fetch_user_lock_status(user.clerk_user_id)
+
 # The code below attempts to lock or unlock the user account in Clerk based on the desired active status provided in the request payload.
     try:
         if payload.is_active:
@@ -487,16 +491,28 @@ async def update_adviser_status(
             detail=str(error),
         ) from error
 
-    # Log the status change. This path can change only the Clerk lock, so commit explicitly.
-    await record_activity(
-        db,
-        current_user,
-        action="activate" if payload.is_active else "deactivate",
-        entity_type="adviser",
-        entity_id=adviser.id,
-        entity_label=_build_adviser_name(user),
-        new_values={"is_active": payload.is_active},
-    )
+    # Log only real changes: a lock-state change (or an unknown previous state), or a role repair.
+    state_changed = previous_locked is None or previous_locked == payload.is_active
+    role_changed = user.role.value != previous_role
+    if state_changed or role_changed:
+        previous_values: dict = {}
+        new_values: dict = {}
+        if state_changed:
+            previous_values["is_active"] = None if previous_locked is None else not previous_locked
+            new_values["is_active"] = payload.is_active
+        if role_changed:
+            previous_values["role"] = previous_role
+            new_values["role"] = user.role.value
+        await record_activity(
+            db,
+            current_user,
+            action=("activate" if payload.is_active else "deactivate") if state_changed else "update",
+            entity_type="adviser",
+            entity_id=adviser.id,
+            entity_label=_build_adviser_name(user),
+            previous_values=previous_values,
+            new_values=new_values,
+        )
     await db.commit()
 
     # After updating the lock status in Clerk, the code fetches the active school year information and the adviser’s current department assignment to include in the response.

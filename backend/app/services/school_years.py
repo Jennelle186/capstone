@@ -109,14 +109,6 @@ async def ensure_unique_name(db: SessionDep, name: str, exclude_id: UUID | None 
             detail=f'School year "{name}" already exists.',
         )
 
-# Helper function to find the internal user ID based on the Clerk user ID from the current_user dict
-async def _actor_user_id(db: SessionDep, current_user: dict) -> UUID | None:
-    clerk_user_id = current_user.get("sub")
-    if not isinstance(clerk_user_id, str) or not clerk_user_id:
-        return None
-    stmt = select(User.id).where(User.clerk_user_id == clerk_user_id)
-    return (await db.execute(stmt)).scalar_one_or_none()
-
 # Helper function to log an action performed on a school year
 async def log_school_year_action(
     db: SessionDep,

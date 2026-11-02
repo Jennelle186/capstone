@@ -40,7 +40,7 @@ export const ACTIVITY_ENTITY_OPTIONS: { value: string; label: string }[] = [
   { value: "activity_log_settings", label: "Activity log retention" },
 ];
 
-/** Action verbs the backend records. Keep in sync with the record_activity calls. */
+/** Action verbs the backend records in admin_audit_logs. Keep in sync with the record_activity and _log_action calls. */
 export const ACTIVITY_ACTION_OPTIONS: { value: string; label: string }[] = [
   { value: "create", label: "Created" },
   { value: "update", label: "Updated" },
@@ -49,18 +49,17 @@ export const ACTIVITY_ACTION_OPTIONS: { value: string; label: string }[] = [
   { value: "deactivate", label: "Deactivated" },
   { value: "invite", label: "Invited" },
   { value: "revoke", label: "Revoked" },
-  { value: "promote", label: "Promoted" },
-  { value: "remove", label: "Removed" },
   { value: "assign", label: "Assigned" },
   { value: "sync", label: "Synced" },
   { value: "purge", label: "Purged" },
   { value: "admin_invite", label: "Admin invited" },
   { value: "admin_promote", label: "Admin promoted" },
+  { value: "admin_demote", label: "Admin demoted" },
   { value: "admin_remove", label: "Admin removed" },
+  { value: "auto-close", label: "Auto-closed" },
   { value: "close", label: "Closed" },
   { value: "reopen", label: "Reopened" },
   { value: "rollover", label: "Rolled over" },
-  { value: "reassign_program", label: "Program reassigned" },
 ];
 
 export const ACTIVITY_PAGE_SIZE = 25;

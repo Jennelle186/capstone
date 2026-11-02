@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,6 +12,8 @@ from ...models import User, UserRole
 from ...rbac import require_admin
 from ...services.activity_log import record_activity
 from ...services.clerk import sync_user_role
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users")
 
@@ -93,13 +96,22 @@ async def update_user_role(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Clerk first: the role is re-read from the Clerk token at sign-in, so a DB-only
-    # change would revert. If Clerk fails, nothing is saved.
     if not user.clerk_user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This user has no Clerk account, so their role cannot be changed.",
         )
+
+    # Administrators are created only through the adviser promotion flow (promote_adviser),
+    # which checks the adviser profile, repairs stale roles and unlocks the account.
+    if new_role == UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrators must be promoted from an adviser account on the Administrators page.",
+        )
+
+    # Clerk first: the role is re-read from the Clerk token at sign-in, so a DB-only
+    # change would revert. If Clerk fails, nothing is saved.
 
     # Guards that match remove_admin: the change is now persisted, so it must not
     # lock every administrator out. Checked before anything is written to Clerk.
@@ -118,12 +130,13 @@ async def update_user_role(
                 detail="Cannot remove the last administrator.",
             )
 
+    clerk_user_id = user.clerk_user_id
+    old_role = user.role.value
     try:
-        await sync_user_role(user.clerk_user_id, new_role.value)
+        await sync_user_role(clerk_user_id, new_role.value)
     except RuntimeError as error:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
-    old_role = user.role.value
     user.role = new_role
     await record_activity(
         db,
@@ -135,7 +148,16 @@ async def update_user_role(
         previous_values={"role": old_role},
         new_values={"role": new_role.value},
     )
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        # Clerk already changed, so put it back to keep Clerk and the DB in step.
+        await db.rollback()
+        try:
+            await sync_user_role(clerk_user_id, old_role)
+        except RuntimeError:
+            logger.error("Could not revert Clerk role for %s after a failed DB commit.", clerk_user_id)
+        raise
 
     return {
         "user_id": str(user.id),

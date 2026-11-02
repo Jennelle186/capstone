@@ -361,7 +361,6 @@ async def test_adviser_invitation_revoke_is_logged():
     "old_role,new_role",
     [
         (UserRole.STUDENT, UserRole.ADVISER),
-        (UserRole.ADVISER, UserRole.ADMIN),
         (UserRole.ADMIN, UserRole.STUDENT),
     ],
 )
@@ -382,6 +381,20 @@ async def test_user_role_change_is_logged_for_each_transition(old_role, new_role
     assert row.entity_id == user.id
     assert row.previous_values == {"role": old_role.value}
     assert row.new_values == {"role": new_role.value}
+
+
+@pytest.mark.asyncio
+async def test_role_route_rejects_admin_target_without_writing():
+    user = _user(role=UserRole.ADVISER)
+    db = _db(_result(user))
+    sync = AsyncMock()
+    with patch("app.routers.admin.users.sync_user_role", new=sync):
+        with pytest.raises(HTTPException) as exc:
+            await update_user_role(str(user.id), UpdateRoleRequest(new_role="admin"), {"sub": "clerk_admin"}, db)
+    assert exc.value.status_code == 400
+    sync.assert_not_awaited()
+    db.commit.assert_not_awaited()
+    assert user.role == UserRole.ADVISER
 
 
 # ---------- phase 3: academic setup ----------------------------------------

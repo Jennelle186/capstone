@@ -24,6 +24,7 @@ const STATUS_STYLES: Record<AdminHistoryStatus, string> = {
     admin: "bg-green-500/10 text-green-700",
     invited: "bg-amber-500/10 text-amber-700",
     revoked: "bg-rose-500/10 text-rose-700",
+    demoted: "bg-blue-500/10 text-blue-700",
     removed: "bg-slate-500/10 text-slate-600",
 };
 

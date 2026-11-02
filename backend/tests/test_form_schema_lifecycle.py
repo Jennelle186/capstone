@@ -447,6 +447,7 @@ async def test_update_form_accepts_matching_doc_type_and_schema() -> None:
     refetch = MagicMock()
     refetch.scalar_one.return_value = form
     db = AsyncMock()
+    db.add = MagicMock()
     db.execute = AsyncMock(side_effect=[fetch, refetch])
     db.get = AsyncMock(return_value=_update_form_schema(schema_id, dt))
 

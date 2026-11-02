@@ -322,7 +322,10 @@ async def test_extraction_schema_create_is_logged():
     assert row.entity_type == "extraction_schema"
     assert row.entity_id == schema_id
     assert row.audit_metadata == {"entity_label": "Enrolment Form"}
-    assert [field["key"] for field in row.new_values["fields_json"]] == ["student_name"]
+    # JSON bodies are stored as digests, not copied into the audit row.
+    assert "fields_json" not in row.new_values
+    assert row.new_values["fields_json_bytes"] > 0
+    assert len(row.new_values["fields_json_sha256"]) == 64
 
 
 def _schema(**overrides):
@@ -374,7 +377,7 @@ async def test_extraction_schema_update_is_logged_for_each_field(update_kwargs, 
 
 
 @pytest.mark.asyncio
-async def test_extraction_schema_field_change_logs_full_field_definitions():
+async def test_extraction_schema_field_change_logs_a_digest_of_the_definitions():
     schema = _schema()
     db = _db()
     db.get = AsyncMock(return_value=schema)
@@ -389,8 +392,9 @@ async def test_extraction_schema_field_change_logs_full_field_definitions():
         await es_router.update_extraction_schema(schema.id, payload, ADMIN, db)
 
     row = _single_row(db)
-    assert row.previous_values == {"fields_json": [{"id": "f1", "key": "student_name", "type": "string"}]}
-    assert [f["key"] for f in row.new_values["fields_json"]] == ["student_name", "amount_paid"]
+    assert set(row.previous_values) == {"fields_json_sha256", "fields_json_bytes"}
+    assert row.previous_values["fields_json_sha256"] != row.new_values["fields_json_sha256"]
+    assert row.new_values["fields_json_bytes"] > row.previous_values["fields_json_bytes"]
 
 
 @pytest.mark.asyncio
@@ -407,8 +411,8 @@ async def test_extraction_schema_field_type_change_with_same_key_is_logged():
         await es_router.update_extraction_schema(schema.id, payload, ADMIN, db)
 
     row = _single_row(db)
-    assert row.previous_values == {"fields_json": [{"id": "f1", "key": "student_name", "type": "string"}]}
-    assert [(f["key"], f["type"]) for f in row.new_values["fields_json"]] == [("student_name", "number")]
+    assert row.previous_values["fields_json_sha256"] != row.new_values["fields_json_sha256"]
+    assert set(row.new_values) == {"fields_json_sha256", "fields_json_bytes"}
 
 
 @pytest.mark.asyncio
@@ -427,8 +431,8 @@ async def test_extraction_schema_schema_json_only_change_is_logged():
         )
 
     row = _single_row(db)
-    assert row.previous_values == {"schema_json": {}}
-    assert row.new_values == {"schema_json": {"type": "object"}}
+    assert set(row.previous_values) == {"schema_json_sha256", "schema_json_bytes"}
+    assert row.previous_values["schema_json_sha256"] != row.new_values["schema_json_sha256"]
 
 
 @pytest.mark.asyncio

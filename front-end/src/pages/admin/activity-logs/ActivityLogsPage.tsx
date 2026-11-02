@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import { toast } from "sonner";
 import { ChevronDown, ChevronRight, ScrollText } from "lucide-react";
 
 import AdminEmptyState from "@/components/admin/AdminEmptyState";
@@ -98,6 +99,9 @@ export default function ActivityLogsPage() {
   const [retentionDraft, setRetentionDraft] = useState<string | null>(null);
   const [purgeDays, setPurgeDays] = useState<string>("365");
   const [confirmPurgeOpen, setConfirmPurgeOpen] = useState(false);
+  const [purgeCount, setPurgeCount] = useState<number | null>(null);
+  // Retention change waiting for approval: the period and how many existing entries it would delete.
+  const [retentionConfirm, setRetentionConfirm] = useState<{ days: number; count: number } | null>(null);
 
   const currentRetention = retention.settings
     ? String(retention.settings.retention_days ?? KEEP_FOREVER)
@@ -127,6 +131,25 @@ export default function ActivityLogsPage() {
         description="A record of changes made by administrators, newest first."
       />
 
+      {retention.settings && retention.settings.retention_days === null ? (
+        <div
+          role="status"
+          className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p>
+            Logs are kept forever, including the names and emails of administrators. We recommend
+            keeping them for one year. Choose a period below, or use the recommended setting now.
+          </p>
+          <Button
+            size="sm"
+            disabled={retention.isSaving}
+            onClick={() => retention.saveRetention(365)}
+          >
+            Set to 1 year
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 rounded-lg border bg-white p-4 md:grid-cols-2">
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground">Keep logs for</h3>
@@ -154,9 +177,22 @@ export default function ActivityLogsPage() {
             <Button
               size="sm"
               disabled={!retentionChanged || retention.isSaving}
-              onClick={() => {
+              onClick={async () => {
                 const value = selectedRetention === KEEP_FOREVER ? null : Number(selectedRetention);
-                retention.saveRetention(value).then(() => setRetentionDraft(null));
+                if (value === null) {
+                  // Keeping logs forever deletes nothing, so no confirmation is needed.
+                  await retention.saveRetention(null);
+                  setRetentionDraft(null);
+                  return;
+                }
+                try {
+                  const count = await retention.countOlderThan(value);
+                  setRetentionConfirm({ days: value, count });
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : "Could not check how many logs would be deleted.",
+                  );
+                }
               }}
             >
               {retention.isSaving ? "Saving…" : "Save"}
@@ -186,7 +222,16 @@ export default function ActivityLogsPage() {
               variant="destructive"
               size="sm"
               disabled={retention.isPurging}
-              onClick={() => setConfirmPurgeOpen(true)}
+              onClick={async () => {
+                try {
+                  setPurgeCount(await retention.countOlderThan(Number(purgeDays)));
+                  setConfirmPurgeOpen(true);
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : "Could not check how many logs would be deleted.",
+                  );
+                }
+              }}
             >
               {retention.isPurging ? "Deleting…" : "Delete logs"}
             </Button>
@@ -200,6 +245,7 @@ export default function ActivityLogsPage() {
             <AlertDialogTitle>Delete activity logs?</AlertDialogTitle>
             <AlertDialogDescription>
               This permanently deletes every activity log entry older than {periodLabel(Number(purgeDays))}.
+              {purgeCount !== null ? ` ${purgeCount} ${purgeCount === 1 ? "entry" : "entries"} will be deleted.` : null}
               The deletion itself will be recorded in the log.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -215,11 +261,46 @@ export default function ActivityLogsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog
+        open={retentionConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setRetentionConfirm(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Keep logs for {retentionConfirm ? periodLabel(retentionConfirm.days) : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {retentionConfirm && retentionConfirm.count > 0
+                ? `${retentionConfirm.count} existing ${retentionConfirm.count === 1 ? "entry is" : "entries are"} older than this and will be permanently deleted the next time the server starts.`
+                : "No existing entries are older than this period. Older entries will be removed automatically when the server starts."}
+              {" "}This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (!retentionConfirm) return;
+                retention.saveRetention(retentionConfirm.days).then(() => {
+                  setRetentionDraft(null);
+                  setRetentionConfirm(null);
+                });
+              }}
+            >
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
         <Input
           value={filters.search}
           onChange={(e) => setFilters({ search: e.target.value })}
           placeholder="Search by admin or item name"
+          maxLength={200}
           className="md:w-72"
           aria-label="Search activity logs"
         />
@@ -322,7 +403,16 @@ export default function ActivityLogsPage() {
                   <Fragment key={item.id}>
                     <TableRow
                       className="cursor-pointer"
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isOpen}
                       onClick={() => setExpandedId(isOpen ? null : item.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setExpandedId(isOpen ? null : item.id);
+                        }
+                      }}
                     >
                       <TableCell>
                         {isOpen ? (

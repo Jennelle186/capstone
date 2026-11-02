@@ -88,7 +88,26 @@ def test_reinvited_admin_shows_both_stints_and_is_invited_again():
     assert [e.type for e in person.events] == ["invited", "accepted", "removed", "invited"]
 
 
-def test_promoted_adviser_who_is_demoted_back_to_adviser_is_listed_as_removed():
+def test_promoted_adviser_who_is_demoted_back_to_adviser_is_listed_as_demoted():
+    user_id = uuid4()
+    history = build_admin_history(
+        invitations=[],
+        audit_rows=[
+            _log("admin_promote", days=2, entity_id=user_id, label="Ada Lovelace"),
+            _log("admin_demote", days=4, entity_id=user_id, label="Ada Lovelace",
+                 new_values={"role": "adviser", "email": "ada@example.edu"}),
+        ],
+        users=[_user("ada@example.edu", UserRole.ADVISER, user_id=user_id)],
+    )
+
+    person = _person(history, "ada@example.edu")
+    assert person.status == "demoted"
+    assert [e.type for e in person.events] == ["promoted", "demoted"]
+    assert person.name == "Ada Lovelace"
+
+
+def test_legacy_admin_remove_that_restored_an_adviser_is_still_read_as_demoted():
+    # Rows written before admin_demote existed used admin_remove for this case.
     user_id = uuid4()
     history = build_admin_history(
         invitations=[],
@@ -101,9 +120,22 @@ def test_promoted_adviser_who_is_demoted_back_to_adviser_is_listed_as_removed():
     )
 
     person = _person(history, "ada@example.edu")
+    assert person.status == "demoted"
+    assert [e.type for e in person.events] == ["promoted", "demoted"]
+
+
+def test_deleted_administrator_is_still_listed_as_removed():
+    history = build_admin_history(
+        invitations=[],
+        audit_rows=[
+            _log("admin_remove", days=1, entity_id=uuid4(), label="Gone Admin",
+                 new_values={"removed_from_system": True, "email": "gone@example.edu"}),
+        ],
+        users=[],
+    )
+
+    person = _person(history, "gone@example.edu")
     assert person.status == "removed"
-    assert [e.type for e in person.events] == ["promoted", "removed"]
-    assert person.name == "Ada Lovelace"
 
 
 def test_current_admin_is_marked_admin():

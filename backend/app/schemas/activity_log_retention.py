@@ -20,3 +20,9 @@ class PurgeRequest(BaseModel):
 
 class PurgeResponse(BaseModel):
     deleted: int
+
+
+class OlderThanCountResponse(BaseModel):
+    # Read-only preview: how many entries a purge of this many days would delete.
+    days: int
+    count: int
