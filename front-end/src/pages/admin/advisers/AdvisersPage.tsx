@@ -259,7 +259,7 @@ export default function AdvisersPage() {
                         : "Master list of advisers and their current department assignment."
                 }
                 actions={activeTab === "advisers" ? (
-                    <Button onClick={openAddDialog}>
+                    <Button onClick={openAddDialog} data-tour="advisers-add">
                         <Plus className="mr-2 h-4 w-4" />
                         Add New Adviser
                     </Button>

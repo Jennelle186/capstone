@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from .access_control import router as access_control_router
 from .activity_logs import router as activity_logs_router
+from .setup_status import router as setup_status_router
 from .admins import router as admins_router
 from .adviser_invitations import router as adviser_invitation_router
 from .adviser_management import router as adviser_management_router
@@ -27,6 +28,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 router.include_router(users_router)
 # Admin activity log (read-only listing of admin_audit_logs).
 router.include_router(activity_logs_router)
+# Admin setup checklist status (read-only).
+router.include_router(setup_status_router)
 # School year configuration routes.
 router.include_router(school_years_router)
 # Adviser invitation lifecycle routes.

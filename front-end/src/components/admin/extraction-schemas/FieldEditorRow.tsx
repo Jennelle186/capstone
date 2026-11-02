@@ -231,6 +231,7 @@ export default function FieldEditorRow({
                 <button
                     type="button"
                     disabled={field.readOnly}
+                    data-tour="field-required"
                     onClick={() =>
                         onUpdate(field.id, { required: !field.required })
                     }
@@ -249,6 +250,7 @@ export default function FieldEditorRow({
                 <button
                     type="button"
                     disabled={field.readOnly}
+                    data-tour="field-analytics"
                     onClick={toggleAnalytics}
                     className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
                         field.readOnly
@@ -265,6 +267,7 @@ export default function FieldEditorRow({
                 <button
                     type="button"
                     disabled={field.readOnly}
+                    data-tour="field-computed"
                     onClick={toggleComputed}
                     className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
                         field.readOnly
@@ -280,6 +283,7 @@ export default function FieldEditorRow({
 
                 <button
                     type="button"
+                    data-tour="field-lock"
                     onClick={() =>
                         onUpdate(field.id, { readOnly: !field.readOnly })
                     }
@@ -288,7 +292,7 @@ export default function FieldEditorRow({
                             ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
                             : "bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800"
                     }`}
-                    title={field.readOnly ? "Adviser-only visibility" : "Visible to all roles"}
+                    title={field.readOnly ? "Locked: students can't edit this value" : "Editable by students"}
                 >
                     {field.readOnly ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
                 </button>
@@ -308,7 +312,7 @@ export default function FieldEditorRow({
 
         {showAnalytics && field.is_analytics && (
             <div className="mt-3 grid grid-cols-12 gap-x-3 gap-y-3 rounded-md bg-slate-50 p-3">
-                <div className="col-span-4 space-y-1">
+                <div className="col-span-4 space-y-1" data-tour="field-canonical-key">
                     <p className="text-[11px] font-medium text-muted-foreground">Canonical Key</p>
                     <CanonicalKeyInput
                         value={field.canonical_key ?? null}
@@ -324,6 +328,7 @@ export default function FieldEditorRow({
                     {isUnregistered && !field.readOnly && onRegisterCanonicalKey && !showRegisterForm && (
                         <button
                             type="button"
+                            data-tour="field-register-key"
                             onClick={openRegisterForm}
                             className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
                         >

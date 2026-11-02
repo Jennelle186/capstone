@@ -111,14 +111,15 @@ export default function AnalyticsPage() {
       >
         <div className="flex flex-wrap items-center justify-between gap-4">
           <TabsList>
-            <TabsTrigger value="snapshot">Snapshot</TabsTrigger>
-            <TabsTrigger value="trends">Trends</TabsTrigger>
-            <TabsTrigger value="registry">Registry</TabsTrigger>
+            <TabsTrigger value="snapshot" data-tour="analytics-tab-snapshot">Snapshot</TabsTrigger>
+            <TabsTrigger value="trends" data-tour="analytics-tab-trends">Trends</TabsTrigger>
+            <TabsTrigger value="registry" data-tour="analytics-tab-registry">Registry</TabsTrigger>
           </TabsList>
 
           <div className="flex flex-wrap items-center gap-3">
             <select
               value={selectedDeptId}
+              data-tour="analytics-department"
               onChange={(e) => setSelectedDeptId(e.target.value)}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
             >
@@ -133,6 +134,7 @@ export default function AnalyticsPage() {
             {tab === "snapshot" && schoolYearOptions.length > 0 && (
               <select
                 value={selectedSyId}
+                data-tour="analytics-school-year"
                 onChange={(e) => setSelectedSyId(e.target.value)}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
               >
@@ -146,6 +148,7 @@ export default function AnalyticsPage() {
 
             <button
               onClick={handleDownloadAnalytics}
+              data-tour="analytics-export"
               disabled={exportingAnalytics || !isLoaded || !selectedSyId || tab !== "snapshot"}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >

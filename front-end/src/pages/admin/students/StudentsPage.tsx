@@ -265,7 +265,7 @@ export default function StudentsPage() {
                                 value={selectedSchoolYear?.id ?? "none"}
                                 onValueChange={onSchoolYearChange}
                             >
-                                <SelectTrigger className="h-9 w-56 text-sm">
+                                <SelectTrigger className="h-9 w-56 text-sm" data-tour="students-school-year">
                                     <SelectValue placeholder="Select school year" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -300,7 +300,7 @@ export default function StudentsPage() {
                 <>
                     {/* ── Department overview strip ── */}
                     {(departmentSummaries.length > 1 || departmentSummaries.length > 0) && (
-                        <div className="overflow-x-auto pb-2">
+                        <div className="overflow-x-auto pb-2" data-tour="students-dept-cards">
                             <div className="flex gap-3 min-w-max">
                                 {departmentSummaries.map((dept) => (
                                     <DepartmentCard key={dept.code} dept={dept} />
@@ -317,7 +317,7 @@ export default function StudentsPage() {
 
                     {/* ── Filter bar ── */}
                     <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-muted/30 p-4 sm:flex-row sm:items-center">
-                        <div className="relative flex-1">
+                        <div className="relative flex-1" data-tour="students-search">
                             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                             <Input
                                 placeholder="Search student name, ID, email, or department..."
@@ -330,7 +330,7 @@ export default function StudentsPage() {
                             value={documentStatusFilter}
                             onValueChange={setDocumentStatusFilter}
                         >
-                            <SelectTrigger className="h-9 w-48 text-sm">
+                            <SelectTrigger className="h-9 w-48 text-sm" data-tour="students-status-filter">
                                 <SelectValue placeholder="Filter by status" />
                             </SelectTrigger>
                             <SelectContent>
@@ -345,7 +345,7 @@ export default function StudentsPage() {
                             value={departmentFilter}
                             onValueChange={setDepartmentFilter}
                         >
-                            <SelectTrigger className="h-9 w-56 text-sm">
+                            <SelectTrigger className="h-9 w-56 text-sm" data-tour="students-dept-filter">
                                 <SelectValue placeholder="Filter by department" />
                             </SelectTrigger>
                             <SelectContent>
@@ -371,12 +371,14 @@ export default function StudentsPage() {
                             }
                         />
                     ) : (
-                        <DataTable
-                            data={filteredStudents}
-                            columns={columns}
-                            mobileCard={mobileCard}
-                            pageSize={10}
-                        />
+                        <div data-tour="students-table">
+                            <DataTable
+                                data={filteredStudents}
+                                columns={columns}
+                                mobileCard={mobileCard}
+                                pageSize={10}
+                            />
+                        </div>
                     )}
                 </>
             )}

@@ -96,7 +96,7 @@ export default function DepartmentsPage() {
                             : "Assign advisers to academic programs by school year."
                     }
                     actions={(
-                        <Button onClick={openAddDepartmentDialog}>
+                        <Button onClick={openAddDepartmentDialog} data-tour="programs-add">
                             <Plus className="mr-2 h-4 w-4" />
                             Add Academic Program
                         </Button>

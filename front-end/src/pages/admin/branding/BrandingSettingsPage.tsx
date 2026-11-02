@@ -143,7 +143,7 @@ export default function BrandingSettingsPage() {
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="flex flex-wrap items-center gap-5">
-                    <div className="grid h-24 w-24 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                    <div className="grid h-24 w-24 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50" data-tour="branding-logo">
                         {branding?.logo_url ? (
                             <img src={branding.logo_url} alt="Institution logo" className="h-full w-full object-contain" />
                         ) : (
@@ -169,6 +169,7 @@ export default function BrandingSettingsPage() {
                             size="sm"
                             className="gap-1.5"
                             disabled={isUploading}
+                            data-tour="branding-upload"
                             onClick={() => fileInputRef.current?.click()}
                         >
                             {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageUp className="h-3.5 w-3.5" />}
@@ -183,6 +184,7 @@ export default function BrandingSettingsPage() {
                     <Label htmlFor="branding-name">Institution name</Label>
                     <Input
                         id="branding-name"
+                        data-tour="branding-name"
                         value={institutionName}
                         onChange={(e) => setInstitutionName(e.target.value)}
                         placeholder="College of Computer Studies"
@@ -193,6 +195,7 @@ export default function BrandingSettingsPage() {
                     <Label htmlFor="branding-address">Address lines</Label>
                     <Textarea
                         id="branding-address"
+                        data-tour="branding-address"
                         value={addressLines}
                         onChange={(e) => setAddressLines(e.target.value)}
                         placeholder={"Campus Address\nCity, Province"}
@@ -212,7 +215,7 @@ export default function BrandingSettingsPage() {
                 </div>
 
                 <div className="flex justify-end">
-                    <Button onClick={handleSave} disabled={isSaving} className="gap-1.5">
+                    <Button onClick={handleSave} disabled={isSaving} className="gap-1.5" data-tour="branding-save">
                         {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                         {isSaving ? "Saving…" : "Save branding"}
                     </Button>

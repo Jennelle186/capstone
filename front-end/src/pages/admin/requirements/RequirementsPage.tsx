@@ -347,11 +347,11 @@ export default function RequirementsPage() {
                 subtitle="Manage required enrollment documents per school year."
                 actions={
                     <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={addSoloSlot} disabled={isClosed}>
+                        <Button variant="outline" size="sm" onClick={addSoloSlot} disabled={isClosed} data-tour="requirements-add-solo">
                             <Plus className="mr-2 h-4 w-4" />
                             Add Solo
                         </Button>
-                        <Button variant="outline" size="sm" onClick={addGroupSlot} disabled={isClosed}>
+                        <Button variant="outline" size="sm" onClick={addGroupSlot} disabled={isClosed} data-tour="requirements-add-group">
                             <Layers className="mr-2 h-4 w-4" />
                             Add Group
                         </Button>
@@ -501,7 +501,7 @@ export default function RequirementsPage() {
                                                         }
                                                         disabled={isClosed}
                                                     >
-                                                        <SelectTrigger className="w-48 text-xs">
+                                                        <SelectTrigger className="w-48 text-xs" data-tour="requirement-schema">
                                                             <SelectValue placeholder="No schema" />
                                                         </SelectTrigger>
                                                         <SelectContent>
@@ -556,6 +556,7 @@ export default function RequirementsPage() {
                                                 >
                                                     <SelectTrigger
                                                         className="w-52 text-xs"
+                                                        data-tour="requirement-form"
                                                         aria-label={`Blank form for ${docType?.name ?? "document type"}`}
                                                     >
                                                         <SelectValue placeholder="No form" />
@@ -651,7 +652,7 @@ export default function RequirementsPage() {
                     })}
 
                     <div className="flex items-center gap-3 pt-4">
-                        <Button onClick={() => void handleSave()} disabled={isSaving || isClosed}>
+                        <Button onClick={() => void handleSave()} disabled={isSaving || isClosed} data-tour="requirements-save">
                             {isSaving ? "Saving..." : "Save Requirements"}
                         </Button>
                     </div>

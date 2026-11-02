@@ -162,7 +162,7 @@ export default function ActivityLogsPage() {
               onValueChange={(value) => setRetentionDraft(value)}
               disabled={retention.isLoading || retention.isSaving}
             >
-              <SelectTrigger className="h-9 w-44 text-sm" aria-label="Retention period">
+              <SelectTrigger className="h-9 w-44 text-sm" aria-label="Retention period" data-tour="activity-retention">
                 <SelectValue placeholder={retention.isLoading ? "Loading…" : "Select period"} />
               </SelectTrigger>
               <SelectContent>
@@ -207,7 +207,7 @@ export default function ActivityLogsPage() {
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={purgeDays} onValueChange={setPurgeDays} disabled={retention.isPurging}>
-              <SelectTrigger className="h-9 w-44 text-sm" aria-label="Delete logs older than">
+              <SelectTrigger className="h-9 w-44 text-sm" aria-label="Delete logs older than" data-tour="activity-purge">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -221,6 +221,7 @@ export default function ActivityLogsPage() {
             <Button
               variant="destructive"
               size="sm"
+              data-tour="activity-purge-button"
               disabled={retention.isPurging}
               onClick={async () => {
                 try {
@@ -302,10 +303,10 @@ export default function ActivityLogsPage() {
           placeholder="Search by admin or item name"
           maxLength={200}
           className="md:w-72"
-          aria-label="Search activity logs"
+          aria-label="Search activity logs" data-tour="activity-search"
         />
         <Select value={filters.actorUserId} onValueChange={(value) => setFilters({ actorUserId: value })}>
-          <SelectTrigger className="h-9 md:w-48 text-sm" aria-label="Filter by admin">
+          <SelectTrigger className="h-9 md:w-48 text-sm" aria-label="Filter by admin" data-tour="activity-filter-admin">
             <SelectValue placeholder="All admins" />
           </SelectTrigger>
           <SelectContent>
@@ -318,7 +319,7 @@ export default function ActivityLogsPage() {
           </SelectContent>
         </Select>
         <Select value={filters.entityType} onValueChange={(value) => setFilters({ entityType: value })}>
-          <SelectTrigger className="h-9 md:w-56 text-sm" aria-label="Filter by module">
+          <SelectTrigger className="h-9 md:w-56 text-sm" aria-label="Filter by module" data-tour="activity-filter-module">
             <SelectValue placeholder="All modules" />
           </SelectTrigger>
           <SelectContent>
@@ -331,7 +332,7 @@ export default function ActivityLogsPage() {
           </SelectContent>
         </Select>
         <Select value={filters.action} onValueChange={(value) => setFilters({ action: value })}>
-          <SelectTrigger className="h-9 md:w-44 text-sm" aria-label="Filter by action">
+          <SelectTrigger className="h-9 md:w-44 text-sm" aria-label="Filter by action" data-tour="activity-filter-action">
             <SelectValue placeholder="All actions" />
           </SelectTrigger>
           <SelectContent>
@@ -385,7 +386,7 @@ export default function ActivityLogsPage() {
         />
       ) : (
         <div className="rounded-lg border bg-white">
-          <Table>
+          <Table data-tour="activity-table">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8" />

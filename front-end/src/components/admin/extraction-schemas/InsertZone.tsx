@@ -16,6 +16,7 @@ export default function InsertZone({
 
     return (
         <div
+            data-tour="field-insert-zone"
             className="relative flex items-center justify-center"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}

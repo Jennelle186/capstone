@@ -93,7 +93,7 @@ export default function SchoolYearsPage() {
                             <FileDown className="mr-2 h-4 w-4" />
                             Export CSV
                         </Button>
-                        <Button onClick={openCreateDialog}>
+                        <Button onClick={openCreateDialog} data-tour="school-years-add">
                             <Plus className="mr-2 h-4 w-4" />
                             Add New School Year
                         </Button>

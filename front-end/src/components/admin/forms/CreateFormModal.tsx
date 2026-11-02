@@ -35,9 +35,11 @@ interface CreateFormModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onCreated: (form: FormRecord) => void;
+    /** While the guide runs, a click outside the dialog must not close it. */
+    preventOutsideClose?: boolean;
 }
 
-export default function CreateFormModal({ open, onOpenChange, onCreated }: CreateFormModalProps) {
+export default function CreateFormModal({ open, onOpenChange, onCreated, preventOutsideClose = false }: CreateFormModalProps) {
     const { getToken } = useAuth();
 
     const [name, setName] = useState("");
@@ -155,9 +157,24 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
         }
     };
 
+    // While the guide runs the dialog is non-modal, so the guide panel is not hidden from screen readers and stays clickable.
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+        <Dialog open={open} onOpenChange={onOpenChange} modal={!preventOutsideClose}>
+            <DialogContent
+                // While the guide runs: on wide screens the dialog moves right, away from the guide panel on the left.
+                // On narrow screens it moves to the top, so the guide panel fits at the bottom.
+                className={
+                    preventOutsideClose
+                        ? "sm:max-w-lg lg:start-[calc(50%+200px)] max-lg:top-4 max-lg:translate-y-0 motion-reduce:animate-none"
+                        : "sm:max-w-lg"
+                }
+                onPointerDownOutside={(event) => {
+                    if (preventOutsideClose) event.preventDefault();
+                }}
+                onInteractOutside={(event) => {
+                    if (preventOutsideClose) event.preventDefault();
+                }}
+            >
                 <DialogHeader>
                     <DialogTitle>Create form</DialogTitle>
                     <DialogDescription>Start blank or generate a form structure with AI.</DialogDescription>
@@ -166,7 +183,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                 <div className="grid gap-4 py-2">
                     <div className="space-y-1.5">
                         <Label htmlFor="create-form-name">Form name</Label>
-                        <Input id="create-form-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Admission Form 2026-2027" />
+                        <Input id="create-form-name" data-tour="forms-create-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Admission Form 2026-2027" />
                     </div>
 
                     <div className="space-y-1.5">
@@ -175,7 +192,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                             value={documentTypeId ?? "__none__"}
                             onValueChange={(value) => setDocumentTypeId(value === "__none__" ? null : value)}
                         >
-                            <SelectTrigger aria-label="Document type">
+                            <SelectTrigger aria-label="Document type" data-tour="forms-create-doctype">
                                 <SelectValue placeholder="Select a document type" />
                             </SelectTrigger>
                             <SelectContent>
@@ -193,8 +210,26 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                     </div>
 
                     <div className="flex gap-2">
-                        <ModeButton active={mode === "blank"} onClick={() => setMode("blank")} label="Blank" />
-                        <ModeButton active={mode === "ai"} onClick={() => setMode("ai")} label="Generate with AI" />
+                        <Button
+                            type="button"
+                            variant={mode === "blank" ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setMode("blank")}
+                            className="flex-1"
+                            data-tour="forms-create-blank"
+                        >
+                            Blank
+                        </Button>
+                        <Button
+                            type="button"
+                            variant={mode === "ai" ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setMode("ai")}
+                            className="flex-1"
+                            data-tour="forms-create-ai"
+                        >
+                            Generate with AI
+                        </Button>
                     </div>
 
                     {mode === "ai" && (
@@ -202,7 +237,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                             <div className="space-y-1.5">
                                 <Label>Ground on extraction schema (optional)</Label>
                                 <Select value={schemaId ?? "__none__"} onValueChange={handleSchemaChange}>
-                                    <SelectTrigger aria-label="Ground on extraction schema">
+                                    <SelectTrigger aria-label="Ground on extraction schema" data-tour="forms-create-grounding">
                                         <SelectValue placeholder="No schema" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -232,6 +267,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                                 </Label>
                                 <Textarea
                                     id="create-form-description"
+                                    data-tour="forms-create-description"
                                     value={description}
                                     onChange={(e) => setDescription(e.target.value)}
                                     placeholder={
@@ -250,7 +286,7 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} disabled={isCreating || !name.trim()} className="gap-2">
+                    <Button onClick={handleSubmit} disabled={isCreating || !name.trim()} className="gap-2" data-tour="forms-create-submit">
                         {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                         {isCreating ? "Creating…" : "Create form"}
                     </Button>
@@ -260,10 +296,3 @@ export default function CreateFormModal({ open, onOpenChange, onCreated }: Creat
     );
 }
 
-function ModeButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-    return (
-        <Button type="button" variant={active ? "default" : "outline"} size="sm" onClick={onClick} className="flex-1">
-            {label}
-        </Button>
-    );
-}

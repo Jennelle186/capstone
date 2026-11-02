@@ -397,7 +397,7 @@ export default function DocumentTypesPage() {
                 subtitle="Manage document type templates used across enrollment requirements."
                 actions={(
                     <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                        <Button onClick={openCreateDialog}>
+                        <Button onClick={openCreateDialog} data-tour="document-types-add">
                             <Plus className="mr-2 h-4 w-4" />
                             Add Document Type
                         </Button>
