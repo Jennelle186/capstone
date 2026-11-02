@@ -26,7 +26,7 @@ const fadeInUp = {
 };
 
 const COLORS_PIE = [
-  "var(--chart-2, #10b981)",
+  "var(--chart-2, #3A8A3A)",
   "var(--chart-1, #3b82f6)",
   "oklch(0.577 0.245 27.325)",
   "oklch(0.75 0.15 70.0)",

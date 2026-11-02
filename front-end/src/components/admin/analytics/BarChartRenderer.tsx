@@ -22,7 +22,7 @@ import type { FieldAnalytics } from "@/types/analytics"
 import DistributionTable from "./DistributionTable"
 
 const COLORS = [
-  "#10b981", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
+  "#3A8A3A", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
   "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
 ]
 

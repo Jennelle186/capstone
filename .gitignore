@@ -52,3 +52,5 @@ backend/dump_document_types.py
 # --- Deployment secrets (deploy/ itself is tracked) ---
 deploy/.env
 deploy/gcp-credentials/
+# Playwright MCP session output (logs and snapshots)
+.playwright-mcp/

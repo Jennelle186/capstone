@@ -13,7 +13,7 @@ import {
 } from "recharts"
 import type { DocumentComplianceItem } from "@/types/analytics"
 
-const COLORS = { verified: "#059669", pending: "#d97706", missing: "#dc2626" }
+const COLORS = { verified: "#256F25", pending: "#d97706", missing: "#dc2626" }
 
 interface ComplianceChartProps {
   items: DocumentComplianceItem[]

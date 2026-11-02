@@ -84,7 +84,7 @@ function EnrolmentChart({
           <Line
             type="monotone"
             dataKey="Enrolled"
-            stroke="#10b981"
+            stroke="#3A8A3A"
             strokeWidth={2}
             dot={{ r: 4 }}
           />
@@ -228,7 +228,7 @@ function TrendSeriesChart({
             <Line
               type="monotone"
               dataKey="Mean"
-              stroke="#10b981"
+              stroke="#3A8A3A"
               strokeWidth={2}
               dot={{ r: 4 }}
             />
@@ -267,7 +267,7 @@ function TrendSeriesChart({
     }
     const sortedLabels = Array.from(allLabels).sort()
     const colors = [
-      "#10b981", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
+      "#3A8A3A", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
       "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
       "#475569", "#94a3b8",
     ]

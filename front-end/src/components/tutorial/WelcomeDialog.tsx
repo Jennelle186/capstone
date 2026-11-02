@@ -50,7 +50,7 @@ export default function WelcomeDialog({ open, onClose, status }: WelcomeDialogPr
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-2">
+        <div className="grid max-h-[55vh] gap-2 overflow-y-auto pr-1">
           {openSteps.map((step) => {
             const info = SETUP_STEP_INFO[step.key];
             const locked = !schoolYearDone && step.key !== "school_year";

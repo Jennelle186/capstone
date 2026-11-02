@@ -73,6 +73,8 @@ export default function AdminDashboardPage() {
       {setupStatus && !setupStatus.steps.find((step) => step.key === "school_year")?.done ? (
         <motion.div
           variants={fadeInUp}
+          initial="hidden"
+          animate="visible"
           className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between"
         >
           <div>
@@ -86,7 +88,7 @@ export default function AdminDashboardPage() {
       ) : null}
 
       {showChecklist && setupStatus ? (
-        <motion.div variants={fadeInUp} data-tour="dashboard-checklist">
+        <motion.div variants={fadeInUp} initial="hidden" animate="visible" data-tour="dashboard-checklist">
           <SetupChecklistCard
             status={setupStatus}
             onHide={() => void tutorial.update({ checklistHidden: true })}

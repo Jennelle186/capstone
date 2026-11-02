@@ -24,7 +24,7 @@ export default function BooleanRenderer({ data }: BooleanRendererProps) {
   }
 
   const chartData = [
-    { name: "True", value: t?.count ?? 0, color: "#10b981" },
+    { name: "True", value: t?.count ?? 0, color: "#3A8A3A" },
     { name: "False", value: f?.count ?? 0, color: "#ef4444" },
   ]
 
