@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, desc, select
 
 from ..database import SessionDep
+from .activity_log import diff_values, record_activity
 from ..schemas.document_management import (
     SchemaRegistryEntry,
     SchemaRegistryRequirementInfo,
@@ -143,14 +144,32 @@ def dedupe_requirement_assignments(requirements: list[RequirementAssignmentData]
     return deduped
 
 
+def _requirement_summary(pairs) -> list[str]:
+    """Stable, comparable summary of requirement assignments for the activity log."""
+    return sorted(f"{document_type_id}:{extraction_schema_id or '-'}" for document_type_id, extraction_schema_id in pairs)
+
+
 async def replace_school_year_requirements(
     db: SessionDep,
     school_year_id: UUID,
     requirements: list[RequirementAssignmentData],
+    current_user: dict | None = None,
 ) -> list[RequirementAssignmentData]:
-    await ensure_school_year_requirements_mutable(db, school_year_id)
+    school_year = await ensure_school_year_requirements_mutable(db, school_year_id)
     deduped_requirements = dedupe_requirement_assignments(requirements)
     await validate_requirement_assignments(db, deduped_requirements, school_year_id)
+
+    previous_rows: list[RequirementAssignmentData] = []
+    if current_user is not None:
+        previous_rows = [
+            (row.document_type_id, row.extraction_schema_id)
+            for row in (
+                await db.execute(
+                    select(SchoolYearRequirement.document_type_id, SchoolYearRequirement.extraction_schema_id)
+                    .where(SchoolYearRequirement.school_year_id == school_year_id)
+                )
+            ).all()
+        ]
 
     await db.execute(
         delete(SchoolYearRequirement).where(SchoolYearRequirement.school_year_id == school_year_id)
@@ -170,6 +189,23 @@ async def replace_school_year_requirements(
                 snapshot_fields_json=snapshot,
             )
         )
+
+    if current_user is not None:
+        previous_values, new_values = diff_values(
+            {"requirements": _requirement_summary(previous_rows)},
+            {"requirements": _requirement_summary(deduped_requirements)},
+        )
+        if previous_values:
+            await record_activity(
+                db,
+                current_user,
+                action="update",
+                entity_type="requirement",
+                entity_label=school_year.name,
+                school_year_id=school_year_id,
+                previous_values=previous_values,
+                new_values=new_values,
+            )
 
     await db.commit()
     return deduped_requirements
@@ -224,11 +260,13 @@ async def replace_school_year_requirement_ids(
     db: SessionDep,
     school_year_id: UUID,
     document_type_ids: list[UUID],
+    current_user: dict | None = None,
 ) -> list[UUID]:
     requirements = await replace_school_year_requirements(
         db,
         school_year_id,
         [(document_type_id, None) for document_type_id in document_type_ids],
+        current_user=current_user,
     )
     return [document_type_id for document_type_id, _ in requirements]
 

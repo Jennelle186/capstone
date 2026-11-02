@@ -15,6 +15,7 @@ from .auth import get_current_user
 from .database import AsyncSessionLocal, init_db
 from .database import SessionDep
 from .models import UserRole
+from .services.activity_log import apply_retention_policy
 from .services.job_queue import dispatcher, recover_stuck_jobs
 from .routers.debug import router as debug_router
 from .routers.documents import router as documents_router
@@ -69,6 +70,14 @@ async def lifespan(app: FastAPI):
             logger.info("Crash recovery complete — stuck jobs re-queued.")
     except Exception as exc:
         logger.warning("Crash recovery failed: %s", exc)
+
+    # Activity log retention: remove audit rows past the configured period.
+    # A failure here (e.g. the table is missing before migrations run) must not stop startup.
+    try:
+        async with AsyncSessionLocal() as session:
+            await apply_retention_policy(session)
+    except Exception as exc:
+        logger.warning("Activity log retention cleanup skipped: %s", exc)
 
     # Start the background dispatcher that claims and processes queued jobs.
     worker_task = asyncio.create_task(dispatcher())

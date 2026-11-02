@@ -28,6 +28,7 @@ from ...services.clerk import (
     update_user_personal_names,
     update_user_public_metadata,
 )
+from ...services.activity_log import diff_values, record_activity
 from ...services.adviser_core import reconcile_adviser_program_assignments
 from ...services.helpers import (
     get_active_school_year_id,
@@ -290,7 +291,6 @@ async def update_adviser(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
 
     stmt = (
         select(Adviser, User)
@@ -372,6 +372,18 @@ async def update_adviser(
             detail="Failed to update Clerk personal name fields for adviser.",
         )
 
+    # Snapshot the current values for the activity log before anything is mutated.
+    program_code_map = await get_program_id_to_department_code_map(db)
+    before_values = {
+        "first_name": user.first_name,
+        "middle_name": user.middle_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "departments": sorted(
+            program_code_map[pid] for pid in held_program_ids if pid in program_code_map
+        ),
+    }
+
     # Reconcile diff-based: add missing assignments, remove ones not in the list.
     # An empty list removes every assignment for the adviser in the school year.
     assigned_codes = await reconcile_adviser_program_assignments(
@@ -385,6 +397,27 @@ async def update_adviser(
     user.middle_name = payload.middle_name
     user.last_name = updated_personal_names[1] or payload.last_name
     user.email = payload.email
+
+    after_values = {
+        "first_name": user.first_name,
+        "middle_name": user.middle_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "departments": sorted(assigned_codes),
+    }
+    previous_values, new_values = diff_values(before_values, after_values)
+    if previous_values:
+        await record_activity(
+            db,
+            current_user,
+            action="update",
+            entity_type="adviser",
+            entity_id=adviser.id,
+            entity_label=_build_adviser_name(user),
+            school_year_id=school_year.id,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
 
     await db.commit()
 
@@ -416,7 +449,6 @@ async def update_adviser_status(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
 
     # The query below retrieves the adviser along with their associated user information based on the provided adviser ID.
     stmt = (
@@ -434,6 +466,10 @@ async def update_adviser_status(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Adviser has no Clerk user id.",
         )
+    # Read the current Clerk lock state so repeated requests are not logged as changes.
+    previous_role = user.role.value
+    previous_locked = await fetch_user_lock_status(user.clerk_user_id)
+
 # The code below attempts to lock or unlock the user account in Clerk based on the desired active status provided in the request payload.
     try:
         if payload.is_active:
@@ -454,6 +490,30 @@ async def update_adviser_status(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(error),
         ) from error
+
+    # Log only real changes: a lock-state change (or an unknown previous state), or a role repair.
+    state_changed = previous_locked is None or previous_locked == payload.is_active
+    role_changed = user.role.value != previous_role
+    if state_changed or role_changed:
+        previous_values: dict = {}
+        new_values: dict = {}
+        if state_changed:
+            previous_values["is_active"] = None if previous_locked is None else not previous_locked
+            new_values["is_active"] = payload.is_active
+        if role_changed:
+            previous_values["role"] = previous_role
+            new_values["role"] = user.role.value
+        await record_activity(
+            db,
+            current_user,
+            action=("activate" if payload.is_active else "deactivate") if state_changed else "update",
+            entity_type="adviser",
+            entity_id=adviser.id,
+            entity_label=_build_adviser_name(user),
+            previous_values=previous_values,
+            new_values=new_values,
+        )
+    await db.commit()
 
     # After updating the lock status in Clerk, the code fetches the active school year information and the adviser’s current department assignment to include in the response.
     active_school_year_id = await get_active_school_year_id(db)

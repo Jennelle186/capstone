@@ -158,6 +158,9 @@ def test_scan_prefixes_aggregates_multiple_prefixes(monkeypatch) -> None:
 async def test_cleanup_orphaned_files_endpoint(monkeypatch) -> None:
     from app.routers.admin import gcs_cleanup as router
 
+    db = AsyncMock()
+    db.add = MagicMock()
+
     async def fake_run_cleanup(db, dry_run):
         return {
             "dry_run": dry_run,
@@ -170,10 +173,10 @@ async def test_cleanup_orphaned_files_endpoint(monkeypatch) -> None:
 
     monkeypatch.setattr(router, "run_cleanup", fake_run_cleanup)
 
-    dry = await router.cleanup_orphaned_files(router.GcsCleanupRequest(dry_run=True), {}, AsyncMock())
+    dry = await router.cleanup_orphaned_files(router.GcsCleanupRequest(dry_run=True), {}, db)
     assert dry.dry_run is True
     assert dry.deleted_count == 0
     assert dry.orphaned_keys == ["staging/orphan.pdf"]
 
-    run = await router.cleanup_orphaned_files(router.GcsCleanupRequest(dry_run=False), {}, AsyncMock())
+    run = await router.cleanup_orphaned_files(router.GcsCleanupRequest(dry_run=False), {}, db)
     assert run.deleted_count == 1

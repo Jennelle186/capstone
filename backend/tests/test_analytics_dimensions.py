@@ -186,7 +186,9 @@ def test_update_dimension_success(client):
 
     async def override_db():
         session = AsyncMock()
+        session.add = MagicMock()
         session.get = AsyncMock(return_value=dim)
+        session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
         session.commit = AsyncMock()
         session.refresh = AsyncMock()
         yield session
@@ -239,7 +241,9 @@ def test_deactivate_dimension(client):
 
     async def override_db():
         session = AsyncMock()
+        session.add = MagicMock()
         session.get = AsyncMock(return_value=dim)
+        session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
         session.commit = AsyncMock()
         session.refresh = AsyncMock()
         yield session

@@ -262,6 +262,7 @@ class AdminAuditLog(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     actor_clerk_user_id = Column(String(255), nullable=True)
     actor_name = Column(String(200), nullable=True)
@@ -272,10 +273,27 @@ class AdminAuditLog(Base):
     new_values = Column(JSONB, nullable=True)
     audit_metadata = Column(JSONB, nullable=True)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     school_year = relationship("SchoolYear", back_populates="audit_logs")
     actor_user = relationship("User")
+
+
+class ActivityLogSettings(Base):
+    """Single-row retention policy for admin_audit_logs. Missing row means the default applies.
+
+    ``retention_days`` NULL means keep logs forever.
+    """
+    __tablename__ = "activity_log_settings"
+
+    id = Column(Integer, primary_key=True)
+    retention_days = Column(Integer, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class ProgramAdviserAssignment(Base):

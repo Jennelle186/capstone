@@ -16,6 +16,7 @@ from typing import Any
 
 from ..database import SessionDep
 from ..models import ExtractionSchema, ExtractionSchemaStatus, Form
+from .activity_log import plain, record_activity
 from .form_document import document_to_fields
 
 
@@ -110,9 +111,14 @@ def diff_and_merge_schema_fields(
     }
 
 
-async def create_draft_schema_from_form(db: SessionDep, form: Form) -> ExtractionSchema:
+async def create_draft_schema_from_form(
+    db: SessionDep,
+    form: Form,
+    current_user: dict | None = None,
+) -> ExtractionSchema:
     """Create a draft extraction schema from a form's field blocks and link it
-    back to the form (provenance)."""
+    back to the form (provenance). When ``current_user`` is given, the creation is
+    written to the activity log in the same transaction."""
     fields = document_to_fields(form.document_json or {})
 
     draft_name = f"{form.name} (Draft)"[:120]
@@ -127,6 +133,23 @@ async def create_draft_schema_from_form(db: SessionDep, form: Form) -> Extractio
     db.add(schema)
     await db.flush()
     form.extraction_schema_id = schema.id
+    if current_user is not None:
+        await record_activity(
+            db,
+            current_user,
+            action="create",
+            entity_type="extraction_schema",
+            entity_id=schema.id,
+            entity_label=schema.name,
+            new_values=plain(
+                {
+                    "name": schema.name,
+                    "status": ExtractionSchemaStatus.DRAFT.value,
+                    "source_form_id": form.id,
+                    "document_type_id": schema.document_type_id,
+                }
+            ),
+        )
     await db.commit()
     await db.refresh(schema)
     return schema

@@ -127,6 +127,11 @@ class TestUpdateAdviserDepartmentInactivePrograms:
                 "app.routers.admin.departments.reconcile_adviser_program_assignments",
                 reconcile,
             ),
+            # Activity-log snapshot read; not what these tests cover.
+            patch(
+                "app.routers.admin.departments.get_program_id_to_department_code_map",
+                AsyncMock(return_value={}),
+            ),
         ):
             try:
                 response = await update_adviser_department(

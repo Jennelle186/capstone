@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from ...database import SessionDep
 from ...rbac import require_admin
+from ...services.activity_log import record_activity
 from ...services.gcs_cleanup import run_cleanup
 
 router = APIRouter(prefix="/gcs")
@@ -35,6 +36,23 @@ async def cleanup_orphaned_files(
 
     Defaults to ``dry_run=true`` so nothing is deleted unless explicitly asked.
     """
-    del current_user
     result = await run_cleanup(db, dry_run=body.dry_run)
+
+    # Dry runs only report, so they are not logged. A real run that removed files is.
+    if not body.dry_run and result["deleted_count"] > 0:
+        await record_activity(
+            db,
+            current_user,
+            action="delete",
+            entity_type="gcs_cleanup",
+            entity_label="Orphaned storage files",
+            new_values={
+                "scanned": result["scanned"],
+                "orphaned_count": result["orphaned_count"],
+                "deleted_count": result["deleted_count"],
+                "failed_count": len(result["failed_keys"]),
+            },
+        )
+        await db.commit()
+
     return GcsCleanupResponse(**result)

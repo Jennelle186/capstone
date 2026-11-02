@@ -204,6 +204,7 @@ async def test_revoke_invitation_revokes(monkeypatch) -> None:
         updated_at=_now(),
     )
     db = AsyncMock()
+    db.add = MagicMock()
     db.get = AsyncMock(return_value=invitation)
     db.commit = AsyncMock()
     db.refresh = AsyncMock()

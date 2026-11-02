@@ -51,9 +51,21 @@ def _make_db(held_codes, codes, department_flags):
 
     email_result = _scalar_result(None)
 
+    # Activity-log snapshot: every department code, used to map held program ids back to codes.
+    all_codes = sorted(set(codes) | set(held_codes))
+    program_map_result = MagicMock()
+    program_map_result.scalars.return_value = MagicMock(all=MagicMock(return_value=all_codes))
+
     db = MagicMock()
     db.execute = AsyncMock(
-        side_effect=[adviser_result, _scalar_result(school_year), held_result, *department_results, email_result],
+        side_effect=[
+            adviser_result,
+            _scalar_result(school_year),
+            held_result,
+            *department_results,
+            email_result,
+            program_map_result,
+        ],
     )
     db.commit = AsyncMock()
     return db, adviser, user

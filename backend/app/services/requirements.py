@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import SessionDep
+from .activity_log import diff_values, record_activity
 from ..models import (
     DocumentSubmission,
     DocumentType,
@@ -622,10 +623,19 @@ async def get_bulk_student_slot_statuses(
 # ── Dual-write: admin saves slots to both old and new tables ────────────
 
 
+def _slot_summary(slots: list[tuple[str, str | None, list[str]]]) -> list[str]:
+    """Stable, comparable summary of slots for the activity log: type, group and document types."""
+    return sorted(
+        f"{slot_type}:{group_name or ''}:{','.join(sorted(document_type_ids))}"
+        for slot_type, group_name, document_type_ids in slots
+    )
+
+
 async def replace_requirement_slots(
     db: SessionDep,
     school_year_id: UUID,
     slots_data: list[dict],
+    current_user: dict | None = None,
 ) -> list[RequirementSlot]:
     """
     Dual-write strategy.
@@ -638,7 +648,7 @@ async def replace_requirement_slots(
     Also snapshots ``fields_json`` from assigned schemas for analytics
     stability.
     """
-    await ensure_slots_mutable(db, school_year_id)
+    school_year = await ensure_slots_mutable(db, school_year_id)
 
     # ── Validate document type IDs ──────────────────────────────────
     all_doc_type_ids: set[UUID] = set()
@@ -714,6 +724,28 @@ async def replace_requirement_slots(
                             "do not match the document type."
                         ),
                     )
+
+    # ── Snapshot existing slots for the activity log before they are replaced ──
+    previous_slots: list[tuple[str, str | None, list[str]]] = []
+    if current_user is not None:
+        snapshot_rows = (
+            await db.execute(
+                select(
+                    RequirementSlot.id,
+                    RequirementSlot.slot_type,
+                    RequirementSlot.group_name,
+                    RequirementSlotItem.document_type_id,
+                )
+                .outerjoin(RequirementSlotItem, RequirementSlotItem.requirement_slot_id == RequirementSlot.id)
+                .where(RequirementSlot.school_year_id == school_year_id)
+            )
+        ).all()
+        grouped: dict = {}
+        for slot_id, slot_type, group_name, document_type_id in snapshot_rows:
+            entry = grouped.setdefault(slot_id, (slot_type, group_name, []))
+            if document_type_id is not None:
+                entry[2].append(str(document_type_id))
+        previous_slots = list(grouped.values())
 
     # ── Delete existing slots for this school year ───────────────────
     await db.execute(
@@ -791,6 +823,31 @@ async def replace_requirement_slots(
                     snapshot = schema.fields_json
         slot.snapshot_fields_json = snapshot
         created_slots.append(slot)
+
+    if current_user is not None:
+        new_slots = [
+            (
+                slot_data["slot_type"],
+                slot_data.get("group_name") or None,
+                [str(item_data["document_type_id"]) for item_data in slot_data.get("items", [])],
+            )
+            for slot_data in slots_data
+        ]
+        previous_values, new_values = diff_values(
+            {"slots": _slot_summary(previous_slots)},
+            {"slots": _slot_summary(new_slots)},
+        )
+        if previous_values:
+            await record_activity(
+                db,
+                current_user,
+                action="update",
+                entity_type="requirement_slot",
+                entity_label=school_year.name,
+                school_year_id=school_year_id,
+                previous_values=previous_values,
+                new_values=new_values,
+            )
 
     await db.flush()
     await db.commit()

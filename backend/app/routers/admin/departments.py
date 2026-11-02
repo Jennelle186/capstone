@@ -10,9 +10,11 @@ from sqlalchemy import desc, func, select
 from ...database import SessionDep
 from ...models import Adviser, Department, Program, ProgramAdviserAssignment, SchoolYear, SchoolYearStatus, Student, User, UserRole
 from ...rbac import require_admin
+from ...services.activity_log import diff_values, record_activity
 from ...services.adviser_core import reconcile_adviser_program_assignments
 from ...services.helpers import (
     get_active_school_year_id,
+    get_program_id_to_department_code_map,
     program_uuid_for_department_code,
 )
 from .program_assignment import (
@@ -247,7 +249,6 @@ async def create_department(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
 
     # The code first checks if a department with the same code already exists in the database by calling the helper function _get_department_by_code. If a department with the same code is found, it raises an HTTP 409 Conflict error indicating that the department code already exists. If no existing department is found, it proceeds to create a new Department object with the provided code and name, sets its active status to True, and adds it to the database session. After committing the transaction and refreshing the department instance to get its generated ID and timestamps, it returns a DepartmentResponse object representing the newly created department, including its ID, code, name, active status, counts of advisers and students (both set to 0 for a new department), and timestamps for creation and last update.
     existing = await _get_department_by_code(db, payload.code)
@@ -264,6 +265,16 @@ async def create_department(
         is_active=True,
     )
     db.add(department)
+    await db.flush()
+    await record_activity(
+        db,
+        current_user,
+        action="create",
+        entity_type="department",
+        entity_id=department.id,
+        entity_label=department.code,
+        new_values={"code": department.code, "name": department.name, "is_active": True},
+    )
     await db.commit()
     await db.refresh(department)
     return _serialize_department(department, adviser_count=0, student_count=0)
@@ -276,7 +287,6 @@ async def update_department(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
 
     # The code first checks if at least one of the fields (code, name, is_active) is provided in the request payload. 
     # If none of the fields are provided, it raises an HTTP 400 Bad Request error indicating that at least one field must be provided to update a department.
@@ -296,6 +306,11 @@ async def update_department(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found.")
 
     previous_code = department.code
+    before_values = {
+        "code": department.code,
+        "name": department.name,
+        "is_active": department.is_active,
+    }
 
     # If the department code is being updated, the code checks if the new code already exists for a different department. If it does, it raises an HTTP 409 Conflict error indicating that the department code already exists. If the new code is unique, it updates the department’s code and also updates related program assignments and student records to reflect the new department code.
     if payload.code is not None and payload.code.lower() != department.code.lower():
@@ -336,6 +351,24 @@ async def update_department(
             for assignment in assignments:
                 assignment.program_id = new_program_id
 
+    after_values = {
+        "code": department.code,
+        "name": department.name,
+        "is_active": department.is_active,
+    }
+    previous_values, new_values = diff_values(before_values, after_values)
+    if previous_values:
+        await record_activity(
+            db,
+            current_user,
+            action="update",
+            entity_type="department",
+            entity_id=department.id,
+            entity_label=department.code,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
+
     await db.commit()
     await db.refresh(department)
 
@@ -354,7 +387,6 @@ async def update_adviser_department(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
 
     stmt = (
         select(Adviser, User)
@@ -407,6 +439,12 @@ async def update_adviser_department(
                 detail=f'Department code "{code}" is inactive.',
             )
 
+    # Snapshot the current program codes for the activity log before reconciling.
+    program_code_map = await get_program_id_to_department_code_map(db)
+    previous_codes = sorted(
+        program_code_map[pid] for pid in held_program_ids if pid in program_code_map
+    )
+
     # Reconcile diff-based: add missing assignments, remove ones not in the list.
     assigned_codes = await reconcile_adviser_program_assignments(
         db,
@@ -414,6 +452,24 @@ async def update_adviser_department(
         school_year_id=school_year.id,
         department_codes=payload.department_codes,
     )
+
+    previous_values, new_values = diff_values(
+        {"departments": previous_codes},
+        {"departments": sorted(assigned_codes)},
+    )
+    if previous_values:
+        full_name = " ".join(part for part in (user.first_name, user.last_name) if part).strip()
+        await record_activity(
+            db,
+            current_user,
+            action="assign",
+            entity_type="adviser",
+            entity_id=adviser.id,
+            entity_label=full_name or user.email,
+            school_year_id=school_year.id,
+            previous_values=previous_values,
+            new_values=new_values,
+        )
 
     await db.commit()
     return _serialize_adviser(adviser, user, department_codes=assigned_codes)

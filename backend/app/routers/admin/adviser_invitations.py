@@ -19,6 +19,7 @@ from ...models import (
     User,
 )
 from ...rbac import require_admin
+from ...services.activity_log import record_activity
 from ...services.clerk import create_application_invitation, revoke_application_invitation
 
 # Dedicated namespace for pre-account adviser invitation lifecycle.
@@ -277,6 +278,20 @@ async def create_adviser_invitation(
     db.add(invitation)
 
     try:
+        # Inside the try so an autoflush IntegrityError still maps to the 409 below.
+        await record_activity(
+            db,
+            current_user,
+            action="invite",
+            entity_type="adviser_invitation",
+            entity_label=payload.email,
+            school_year_id=school_year.id,
+            new_values={
+                "email": payload.email,
+                "department_code": department.code,
+                "school_year": school_year.name,
+            },
+        )
         await db.commit()
     except IntegrityError as error:
         await db.rollback()
@@ -299,7 +314,6 @@ async def revoke_adviser_invitation(
     current_user: dict = Depends(require_admin),
     db: SessionDep = None,
 ):
-    del current_user
 
     stmt = (
         select(AdviserInvitation, SchoolYear.name)
@@ -323,6 +337,17 @@ async def revoke_adviser_invitation(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
     invitation.status = AdviserInvitationStatus.REVOKED
+    await record_activity(
+        db,
+        current_user,
+        action="revoke",
+        entity_type="adviser_invitation",
+        entity_id=invitation.id,
+        entity_label=invitation.email,
+        school_year_id=invitation.school_year_id,
+        previous_values={"status": AdviserInvitationStatus.PENDING.value},
+        new_values={"status": AdviserInvitationStatus.REVOKED.value},
+    )
     await db.commit()
     await db.refresh(invitation)
 

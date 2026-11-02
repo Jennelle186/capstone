@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends, status
 
 from ...database import SessionDep
 from ...rbac import require_admin
+from ...schemas.admin_history import AdminHistoryPerson
 from ...schemas.admins import (
     AdminInvitationResponse,
     AdminInviteRequest,
     AdminResponse,
     PromoteRequest,
 )
+from ...services.admin_history import get_admin_history
 from ...services.admin_management import (
     invite_admin,
     list_admins,
@@ -46,6 +48,16 @@ async def create_admin_invitation(
     return await invite_admin(db, payload, current_user)
 
 
+@router.get("/history", response_model=list[AdminHistoryPerson])
+async def get_administrator_history(
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+) -> list[AdminHistoryPerson]:
+    """Timeline of every person who was invited, promoted, revoked or removed as an administrator."""
+    del current_user
+    return await get_admin_history(db)
+
+
 @router.get("/invitations", response_model=list[AdminInvitationResponse])
 async def get_admin_invitations(
     current_user: dict = Depends(require_admin),
@@ -63,8 +75,7 @@ async def revoke_admin_invitation(
     db: SessionDep = None,
 ) -> AdminInvitationResponse:
     """Revoke a pending admin invitation."""
-    del current_user
-    return await revoke_invitation(db, invitation_id)
+    return await revoke_invitation(db, invitation_id, current_user)
 
 
 @router.post("/promote", response_model=AdminResponse)

@@ -40,6 +40,7 @@ import FormsPage from "./pages/admin/forms/FormsPage";
 import BrandingSettingsPage from "./pages/admin/branding/BrandingSettingsPage";
 import AdminAnalyticsPage from "./pages/admin/analytics/AnalyticsPage";
 import AdminsPage from "./pages/admin/admins/AdminsPage";
+import ActivityLogsPage from "./pages/admin/activity-logs/ActivityLogsPage";
 import RequireGuest from "./components/auth/RequireGuest";
 import SsoCallbackPage from "./pages/SsoCallbackPage";
 import { RequireStudent, RequireAdviser, RequireAdmin } from "./components/auth/RequireRole";
@@ -142,6 +143,7 @@ const AppRoutes = createBrowserRouter([
                     { path: "forms", Component: FormsPage },
                     { path: "analytics", Component: AdminAnalyticsPage },
                     { path: "reports", Component: ReportsPage },
+                    { path: "activity-logs", Component: ActivityLogsPage },
                     { path: "settings/school-year", Component: SchoolYearsPage },
                     { path: "settings/branding", Component: BrandingSettingsPage },
                 ],
