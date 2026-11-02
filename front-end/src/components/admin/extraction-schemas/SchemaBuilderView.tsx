@@ -36,6 +36,7 @@ interface SchemaBuilderViewProps {
     documentTypes: DocumentTypeApiRecord[];
     selectedSchemaId: string | null;
     isSaving: boolean;
+    saveLocked?: boolean;
     isGenerating: boolean;
     isActionPending: boolean;
     formError: string;
@@ -59,6 +60,7 @@ export default function SchemaBuilderView({
     formState,
     documentTypes,
     isSaving,
+    saveLocked = false,
     isGenerating,
     formError,
     maximized,
@@ -120,6 +122,7 @@ export default function SchemaBuilderView({
     const content = (
         <div className={maximized ? "flex-1 overflow-y-auto p-6 space-y-6" : "space-y-6"}>
             <div
+                data-tour="schema-drop-zone"
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
                 className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-5 text-center hover:bg-muted/40 transition-colors cursor-pointer"
@@ -165,7 +168,7 @@ export default function SchemaBuilderView({
                                 {maximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                                 {maximized ? "Minimize" : "Maximize"}
                             </Button>
-                            <Button onClick={onSave} disabled={isSaving} variant="default" size="sm" className="rounded-xl px-4 font-bold bg-primary hover:bg-emerald-700 text-white cursor-pointer">
+                            <Button data-tour="schema-save" onClick={onSave} disabled={isSaving || saveLocked} title={saveLocked ? "Saving is turned off during the guide" : undefined} variant="default" size="sm" className="rounded-xl px-4 font-bold bg-primary hover:bg-emerald-700 text-white cursor-pointer">
                                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                 {isSaving ? "Saving..." : "Save Schema"}
                             </Button>
@@ -180,7 +183,7 @@ export default function SchemaBuilderView({
                                 value={formState.document_type_id ?? "__none__"}
                                 onValueChange={(v) => onDocumentTypeChange(v === "__none__" ? null : v)}
                             >
-                                <SelectTrigger><SelectValue placeholder="Select document type" /></SelectTrigger>
+                                <SelectTrigger data-tour="schema-document-type"><SelectValue placeholder="Select document type" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="__none__">None (Legacy)</SelectItem>
                                     {activeDocTypes.map((dt) => (
@@ -191,7 +194,7 @@ export default function SchemaBuilderView({
                         </div>
                         <div className="md:col-span-4 space-y-1.5 text-left">
                             <Label>Schema Display Name</Label>
-                            <Input value={formState.name} onChange={(e) => onFormStatePatch({ name: e.target.value })} />
+                            <Input data-tour="schema-name" value={formState.name} onChange={(e) => onFormStatePatch({ name: e.target.value })} />
                         </div>
                         <div className="md:col-span-2 space-y-1.5 text-left">
                             <Label>Version</Label>
@@ -217,6 +220,7 @@ export default function SchemaBuilderView({
                                 <Sparkles className="h-3.5 w-3.5 text-emerald-600" /> Generation Prompt <span className="text-xs font-normal text-muted-foreground">(optional)</span>
                             </Label>
                             <Textarea
+                                data-tour="schema-generation-prompt"
                                 value={formState.generation_prompt || ""}
                                 onChange={(e) => onFormStatePatch({ generation_prompt: e.target.value })}
                                 placeholder='Defaults to "extract all key-value pairs" if left blank.'
@@ -262,11 +266,11 @@ export default function SchemaBuilderView({
                             <CardDescription className="text-xs text-slate-500 font-medium">Define variables keys, strict schemas, and requirements</CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Button onClick={onGenerate} disabled={isGenerating} variant="outline" size="sm" className="rounded-xl border-emerald-200 font-bold text-emerald-700 hover:bg-emerald-50 text-xs gap-1.5 shadow-sm cursor-pointer">
+                            <Button data-tour="schema-draft-ai" onClick={onGenerate} disabled={isGenerating} variant="outline" size="sm" className="rounded-xl border-emerald-200 font-bold text-emerald-700 hover:bg-emerald-50 text-xs gap-1.5 shadow-sm cursor-pointer">
                                 {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-600" />}
                                 {isGenerating ? "AI Drafting..." : "Draft Fields with AI"}
                             </Button>
-                            <Button onClick={() => onAddField()} variant="outline" size="sm" className="rounded-xl bg-white text-slate-700 border-slate-200 text-xs font-semibold gap-1 shrink-0 cursor-pointer">
+                            <Button data-tour="schema-add-field" onClick={() => onAddField()} variant="outline" size="sm" className="rounded-xl bg-white text-slate-700 border-slate-200 text-xs font-semibold gap-1 shrink-0 cursor-pointer">
                                 <Plus className="h-4 w-4 text-emerald-600" /> Add Field Row
                             </Button>
                         </div>

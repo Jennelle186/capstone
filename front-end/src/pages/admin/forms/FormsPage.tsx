@@ -44,6 +44,20 @@ export default function FormsPage() {
     const [documentTypes, setDocumentTypes] = useState<DocumentTypeApiRecord[]>([]);
     const [printMetrics, setPrintMetrics] = useState<PrintMetrics | null>(null);
 
+    // The guide shows the Create form dialog on its dialog steps, closes it on other steps and when it ends.
+    // While the guide shows the dialog, a click outside it does not close it, so the guide panel stays usable.
+    const [tourDialogOpen, setTourDialogOpen] = useState(false);
+    useEffect(() => {
+        const onStep = (event: Event) => {
+            const detail = (event as CustomEvent<{ dialog: string | null }>).detail;
+            const open = detail?.dialog === "create-form";
+            setTourDialogOpen(open);
+            setCreateOpen(open);
+        };
+        window.addEventListener("admin-tour:step", onStep);
+        return () => window.removeEventListener("admin-tour:step", onStep);
+    }, []);
+
     const request = useCallback(async (path: string, init?: RequestInit): Promise<Response> => {
         const token = await getTokenRef.current();
         if (!token) throw new Error("Missing admin authentication token.");
@@ -311,12 +325,12 @@ export default function FormsPage() {
                                     </span>
                                 )}
                                 {selectedForm.extraction_schema_id ? (
-                                    <Button variant="outline" size="sm" onClick={handleSyncSchema} className="gap-1.5">
+                                    <Button variant="outline" size="sm" onClick={handleSyncSchema} className="gap-1.5" data-tour="forms-sync">
                                         <RefreshCw className="h-3.5 w-3.5" />
                                         Sync fields
                                     </Button>
                                 ) : (
-                                    <Button variant="outline" size="sm" onClick={handleDraftSchema} className="gap-1.5">
+                                    <Button variant="outline" size="sm" onClick={handleDraftSchema} className="gap-1.5" data-tour="forms-draft-schema">
                                         <FilePlus className="h-3.5 w-3.5" />
                                         Draft schema
                                     </Button>
@@ -353,7 +367,12 @@ export default function FormsPage() {
                 <FormPrintRoot doc={doc} onMeasured={handlePrintMeasured} />
             )}
 
-            <CreateFormModal open={createOpen} onOpenChange={setCreateOpen} onCreated={handleCreated} />
+            <CreateFormModal
+                open={createOpen}
+                onOpenChange={setCreateOpen}
+                onCreated={handleCreated}
+                preventOutsideClose={tourDialogOpen}
+            />
         </div>
     );
 }

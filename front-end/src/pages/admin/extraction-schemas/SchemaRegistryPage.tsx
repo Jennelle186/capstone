@@ -231,7 +231,7 @@ export default function SchemaRegistryPage() {
 
             <motion.div variants={fadeInUp}>
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="relative sm:w-72">
+                    <div className="relative sm:w-72" data-tour="registry-search">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                             type="search"
@@ -241,7 +241,7 @@ export default function SchemaRegistryPage() {
                             className="h-9 pl-9 text-sm rounded-lg"
                         />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" data-tour="registry-filters">
                         <ListFilter className="h-4 w-4 text-muted-foreground shrink-0" />
                         <Select
                             value={extractionFilter}
@@ -292,7 +292,7 @@ export default function SchemaRegistryPage() {
                     const displayedSchemas = isExpanded ? allSchemas : allSchemas.slice(0, SHOW_SCHEMA_COUNT);
 
                     return (
-                        <Card key={entry.document_type_id}>
+                        <Card key={entry.document_type_id} data-tour="registry-card">
                             <CardHeader className="pb-3">
                                 <div className="flex flex-wrap items-start justify-between gap-2">
                                     <div className="space-y-1">
@@ -343,6 +343,7 @@ export default function SchemaRegistryPage() {
                                                         key={schema.id}
                                                         type="button"
                                                         onClick={() => void handleSchemaClick(schema.id)}
+                                                        data-tour="registry-schema-row"
                                                         className={`flex w-full flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm text-left cursor-pointer transition-all ${
                                                             isArchived
                                                                 ? "opacity-50 hover:opacity-70 bg-background"

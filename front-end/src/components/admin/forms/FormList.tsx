@@ -32,7 +32,7 @@ export default function FormList({ forms, selectedId, onSelect, onDelete, onCrea
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-700">Forms</h2>
-                <Button size="sm" onClick={onCreate} className="gap-1.5">
+                <Button size="sm" onClick={onCreate} className="gap-1.5" data-tour="forms-create">
                     <Plus className="h-4 w-4" />
                     New
                 </Button>

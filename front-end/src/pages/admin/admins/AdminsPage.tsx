@@ -82,14 +82,14 @@ export default function AdminsPage() {
                 title="Administrators"
                 description="Manage who has administrator access to the system."
                 actions={
-                    <Button onClick={() => setInviteOpen(true)}>
+                    <Button onClick={() => setInviteOpen(true)} data-tour="admins-invite">
                         <UserPlus className="mr-2 h-4 w-4" />
                         Invite Administrator
                     </Button>
                 }
             />
 
-            <div className="inline-flex rounded-lg border bg-muted/30 p-1">
+            <div className="inline-flex rounded-lg border bg-muted/30 p-1" data-tour="admins-tabs">
                 <Button
                     type="button"
                     size="sm"
@@ -110,6 +110,7 @@ export default function AdminsPage() {
                     type="button"
                     size="sm"
                     variant={activeTab === "promote" ? "default" : "ghost"}
+                    data-tour="admins-tab-promote"
                     onClick={() => setActiveTab("promote")}
                 >
                     Promote Adviser
@@ -118,6 +119,7 @@ export default function AdminsPage() {
                     type="button"
                     size="sm"
                     variant={activeTab === "history" ? "default" : "ghost"}
+                    data-tour="admins-tab-history"
                     onClick={() => setActiveTab("history")}
                 >
                     History
@@ -157,6 +159,7 @@ export default function AdminsPage() {
                                                 size="sm"
                                                 className="text-destructive hover:text-destructive"
                                                 disabled={removingId === admin.id}
+                                                data-tour="admins-remove"
                                                 onClick={() => void removeAdmin(admin.id)}
                                             >
                                                 <UserMinus className="mr-1.5 h-3.5 w-3.5" />
@@ -253,6 +256,7 @@ export default function AdminsPage() {
                                                 variant="outline"
                                                 size="sm"
                                                 disabled={promotingId === adviser.id}
+                                                data-tour="admins-promote"
                                                 onClick={() => void promoteAdviser(adviser.id)}
                                             >
                                                 <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />

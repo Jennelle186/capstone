@@ -83,6 +83,7 @@ export default function SchemaSidebar({
                             <CardDescription className="text-xs text-slate-400">Manage rules lists for document parsing</CardDescription>
                         </div>
                         <Button
+                            data-tour="schemas-new"
                             onClick={onNewSchema}
                             variant="outline"
                             size="sm"

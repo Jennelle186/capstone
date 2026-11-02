@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "@/components/ui/sonner";
 import DashboardHeader from "@/components/common/DashboardHeader";
+import HelpMenu from "@/components/tutorial/HelpMenu";
 
 export default function AdminLayout() {
     const location = useLocation();
@@ -17,6 +18,8 @@ export default function AdminLayout() {
         "/admin/extraction-schemas": { section: "Management", page: "Extraction Schemas" },
         "/admin/requirements": { section: "Management", page: "Requirements" },
         "/admin/forms": { section: "Management", page: "Forms" },
+        "/admin/extraction-schemas/registry": { section: "Management", page: "Schema Registry" },
+        "/admin/activity-logs": { section: "Settings", page: "Activity Logs" },
         "/admin/analytics": { section: "Management", page: "Analytics" },
         "/admin/reports": { section: "Management", page: "Reports" },
         "/admin/students": { section: "Management", page: "Students" },
@@ -30,7 +33,9 @@ export default function AdminLayout() {
             <SidebarProvider>
                 <AdminSidebar />
                 <SidebarInset className="bg-slate-50 min-h-screen">
-                    <DashboardHeader sectionLabel={routeMeta.section} pageLabel={routeMeta.page} />
+                    <DashboardHeader sectionLabel={routeMeta.section} pageLabel={routeMeta.page}>
+                        <HelpMenu />
+                    </DashboardHeader>
                     <div className="p-6 md:p-8">
                         <AnimatePresence mode="wait">
                             <motion.div

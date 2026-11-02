@@ -226,6 +226,8 @@ export default function RegistryTab({
             <Button
               variant="ghost"
               size="icon-xs"
+              data-tour="registry-edit"
+              aria-label="Edit entry"
               onClick={() => {
                 setFormError("")
                 setEditEntry(row.original)
@@ -236,6 +238,8 @@ export default function RegistryTab({
             <Button
               variant="ghost"
               size="icon-xs"
+              data-tour="registry-deactivate"
+              aria-label={row.original.is_active ? "Deactivate entry" : "Reactivate entry"}
               onClick={() => handleDeactivate(row.original)}
               disabled={isSubmitting}
             >
@@ -344,7 +348,7 @@ export default function RegistryTab({
           </button>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => { setFormError(""); setShowAddDialog(true); }}>
+          <Button size="sm" data-tour="registry-add" onClick={() => { setFormError(""); setShowAddDialog(true); }}>
             <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Key
           </Button>
           <Tooltip>

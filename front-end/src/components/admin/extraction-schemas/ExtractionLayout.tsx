@@ -22,6 +22,7 @@ interface ExtractionLayoutProps {
     samplePreviewUrls: string[];
     currentPageIndex: number;
     isSaving: boolean;
+    saveLocked?: boolean;
     isGenerating: boolean;
     isActionPending: boolean;
     formError: string;
@@ -63,6 +64,19 @@ export default function ExtractionLayout(props: ExtractionLayoutProps) {
                     <p className="text-muted-foreground">
                         Formulate schemas and test Gemini document models for academic file extractions.
                     </p>
+                    <div className="mt-3 max-w-3xl rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 space-y-1.5">
+                        <p className="font-semibold text-slate-800">What an extraction schema is for</p>
+                        <p>
+                            A schema tells the system which fields to read and save from each uploaded file of one
+                            document type. For example, an admission form needs a name, a student number and a grade
+                            saved, and the schema lists those fields. Each field's Label Name becomes its key.
+                        </p>
+                        <p>
+                            Only one schema is active per document type, and the active one reads new uploads. Fields
+                            marked for analytics feed the Analytics page and reports. Test a schema on a sample file
+                            with Live File Testing before you activate it.
+                        </p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button
@@ -76,6 +90,7 @@ export default function ExtractionLayout(props: ExtractionLayoutProps) {
                     <Button
                         variant={activeTab === "sandbox" ? "default" : "outline"}
                         size="sm"
+                        data-tour="schema-live-test"
                         onClick={() => setActiveTab("sandbox")}
                         className="rounded-xl px-4 cursor-pointer"
                     >
@@ -104,6 +119,7 @@ export default function ExtractionLayout(props: ExtractionLayoutProps) {
                             documentTypes={props.documentTypes}
                             selectedSchemaId={props.selectedSchemaId}
                             isSaving={props.isSaving}
+                            saveLocked={props.saveLocked}
                             isGenerating={props.isGenerating}
                             isActionPending={props.isActionPending}
                             formError={props.formError}

@@ -105,7 +105,7 @@ export default function ReportsPage() {
           const isDownloading = downloading === report.slug;
 
           return (
-            <Card key={report.slug} className="flex flex-col">
+            <Card key={report.slug} className="flex flex-col" data-tour="reports-card">
               <CardHeader>
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50">
@@ -121,6 +121,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent className="mt-auto">
                 <Button
+                  data-tour="reports-generate"
                   onClick={() => handleDownload(report.slug, report.filename)}
                   disabled={isDownloading || !isLoaded}
                   className="w-full"

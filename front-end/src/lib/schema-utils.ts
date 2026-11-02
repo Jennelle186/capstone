@@ -41,6 +41,15 @@ export function normalizeFieldKey(value: string): string {
     return value.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_.]/g, "");
 }
 
+/** Zero-based positions of fields that have no usable label name. The Variable Key is
+ *  derived from the label, so a label that normalises to nothing blocks saving. */
+export function fieldsMissingLabel(fields: { key: string }[]): number[] {
+    return fields.reduce<number[]>((missing, field, index) => {
+        if (!normalizeFieldKey(field.key ?? "")) missing.push(index);
+        return missing;
+    }, []);
+}
+
 export interface SectionGroup {
     sectionId: string | null;
     sectionTitle: string | null;

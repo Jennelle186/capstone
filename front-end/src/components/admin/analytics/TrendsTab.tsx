@@ -72,7 +72,7 @@ function EnrolmentChart({
   }))
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="rounded-xl border border-slate-200 bg-white p-4" data-tour="analytics-enrolment">
       <h4 className="mb-3 text-sm font-semibold text-slate-900">Enrolment Growth</h4>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData}>
@@ -187,7 +187,7 @@ function TrendSeriesChart({
 
   const select = (
     <Select value={chartType} onValueChange={(v) => setChartType(v as ChartType)}>
-      <SelectTrigger className="h-7 w-[130px] text-[11px]">
+      <SelectTrigger className="h-7 w-[130px] text-[11px]" data-tour="analytics-chart-type">
         <SelectValue />
       </SelectTrigger>
       <SelectContent align="end">
@@ -338,7 +338,7 @@ export default function TrendsTab({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end gap-4">
+      <div className="flex flex-wrap items-end gap-4" data-tour="analytics-trend-years">
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
             From Year
@@ -369,7 +369,7 @@ export default function TrendsTab({
         </div>
       </div>
 
-      <div>
+      <div data-tour="analytics-trend-fields">
         <label className="mb-2 block text-xs font-medium text-muted-foreground">
           Available Fields
         </label>
