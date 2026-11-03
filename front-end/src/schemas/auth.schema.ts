@@ -34,9 +34,11 @@ export const passwordMatchSchema = z
   });
 
 
+// Login only checks that a password was entered. Clerk checks it against the account, so the sign-up rules
+// do not apply here (an older password must still be able to sign in).
 export const loginSchema = z.object({
     email: z.email(),
-    password: passwordSchema
+    password: z.string().min(1, "Password is required")
 });
 
 export type LoginFormData = z.infer<typeof loginSchema>;
