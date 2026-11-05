@@ -1,15 +1,18 @@
 <!doctype html>
-<html lang="ar">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image" href="/ccs-logo.jpg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- React owns this page's text. Browser translators rewrite text nodes that React later removes,
+       which crashes the app with "removeChild ... not a child of this node". -->
+  <meta name="google" content="notranslate" />
   <title>Enrolment Document Management System</title>
 </head>
 
 <body>
-  <div id="root"></div>
+  <div id="root" translate="no"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 
