@@ -159,7 +159,9 @@ export default function CreateFormModal({ open, onOpenChange, onCreated, prevent
 
     // While the guide runs the dialog is non-modal, so the guide panel is not hidden from screen readers and stays clickable.
     return (
-        <Dialog open={open} onOpenChange={onOpenChange} modal={!preventOutsideClose}>
+        // Keyed by mode: switching the modal setting on an open dialog in place breaks React's DOM updates
+        // (removeChild errors when the dialog closes). A new key rebuilds the dialog instead.
+        <Dialog key={preventOutsideClose ? "guided" : "normal"} open={open} onOpenChange={onOpenChange} modal={!preventOutsideClose}>
             <DialogContent
                 // While the guide runs: on wide screens the dialog moves right, away from the guide panel on the left.
                 // On narrow screens it moves to the top, so the guide panel fits at the bottom.

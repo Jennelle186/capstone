@@ -233,7 +233,9 @@ export default function FormsPage() {
     };
 
     return (
-        <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+        // minmax(0, ...) lets each column shrink to the screen. Without it, the editor's wide page
+        // sets the column width and pushes the whole page sideways on phones.
+        <div className="grid gap-6 grid-cols-[minmax(0,1fr)] lg:grid-cols-[300px_minmax(0,1fr)]">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 {isLoading ? (
                     <Loader2 className="mx-auto h-5 w-5 animate-spin text-slate-400" />

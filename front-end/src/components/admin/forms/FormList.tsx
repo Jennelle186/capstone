@@ -45,9 +45,9 @@ export default function FormList({ forms, selectedId, onSelect, onDelete, onCrea
             ) : (
                 <ul className="space-y-2">
                     {forms.map((form) => (
-                        <li key={form.id}>
+                        <li key={form.id} className="min-w-0 w-full">
                             <div
-                                className={`group flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
+                                className={`group flex w-full min-w-0 cursor-pointer items-center gap-3 overflow-hidden rounded-xl border p-3 transition-colors ${
                                     selectedId === form.id
                                         ? "border-primary bg-primary/5"
                                         : "border-slate-200 bg-white hover:border-slate-300"
@@ -55,8 +55,8 @@ export default function FormList({ forms, selectedId, onSelect, onDelete, onCrea
                                 onClick={() => onSelect(form)}
                             >
                                 <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-medium text-slate-900">{form.name}</p>
+                                <div className="min-w-0 flex-1 overflow-hidden">
+                                    <p className="truncate text-sm font-medium text-slate-900" title={form.name}>{form.name}</p>
                                     <p className="truncate text-xs text-slate-500">
                                         {form.description || "No description"}
                                     </p>
