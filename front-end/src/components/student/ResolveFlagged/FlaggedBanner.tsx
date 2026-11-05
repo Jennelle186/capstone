@@ -2,15 +2,14 @@
 
 import { AlertTriangle, FileText } from "lucide-react";
 import type { SubmissionDetail } from "@/types/submission";
+import { flagDetails } from "@/lib/flag-details";
 
 interface FlaggedBannerProps {
   submission: SubmissionDetail;
 }
 
 export default function FlaggedBanner({ submission }: FlaggedBannerProps) {
-  // The adviser's comment is stored in rejection_reason. (classification_result.flag is an internal
-  // system code, not a message for the student, so it is not shown.)
-  const adviserComment = submission.rejection_reason?.trim() || null;
+  const { fromAdviser, message } = flagDetails(submission);
   const typeName = submission.document_type_name ?? "the required document";
 
   return (
@@ -26,10 +25,10 @@ export default function FlaggedBanner({ submission }: FlaggedBannerProps) {
           <span className="truncate">Flagged file: {submission.original_filename}</span>
         </div>
         <div className="mt-2 rounded-lg border border-amber-200 bg-white/70 px-3 py-2">
-          <p className="text-xs font-medium text-amber-800">Adviser's comment</p>
-          <p className="mt-0.5 whitespace-pre-line text-sm text-amber-900">
-            {adviserComment ?? "Your adviser flagged this file but did not leave a comment."}
+          <p className="text-xs font-medium text-amber-800">
+            {fromAdviser ? "Adviser's comment" : "Result of the automatic check"}
           </p>
+          <p className="mt-0.5 whitespace-pre-line text-sm text-amber-900">{message}</p>
         </div>
         <p className="mt-2 text-xs font-medium text-amber-800">
           Upload a corrected {typeName} file below.

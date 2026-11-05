@@ -30,9 +30,14 @@ interface SlotGroup {
   title: string;
   hint: string | null;
   rows: DocumentRow[];
+  // How many alternatives the student must cover. Once covered, the other alternatives accept no upload.
+  minRequired: number;
 }
 
 const ACCEPTED_TYPES = ".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg";
+
+// Mirrors the statuses the backend counts toward a group's min_required (services/requirements.py approved_statuses).
+const GROUP_COUNTED_STATUSES = new Set(["classified", "submitted", "in-review", "verified"]);
 
 /** Groups the required documents the way the admin set them up: solo documents and alternative groups. */
 function buildGroups(slots: SlotStatusResponse[], legacy: RequiredDocument[]): SlotGroup[] {
@@ -42,6 +47,7 @@ function buildGroups(slots: SlotStatusResponse[], legacy: RequiredDocument[]): S
       solo: true,
       title: doc.name,
       hint: null,
+      minRequired: 1,
       rows: [{ documentTypeId: doc.id, name: doc.name }],
     }));
   }
@@ -56,10 +62,11 @@ function buildGroups(slots: SlotStatusResponse[], legacy: RequiredDocument[]): S
         solo: false,
         title: slot.group_name ?? slot.description ?? "Choose one of these",
         hint: `Upload at least ${slot.min_required} of the documents below.`,
+        minRequired: slot.min_required ?? 1,
         rows,
       };
     }
-    return { key: slot.id, solo: true, title: rows[0]?.name ?? "Document", hint: null, rows };
+    return { key: slot.id, solo: true, title: rows[0]?.name ?? "Document", hint: null, rows, minRequired: 1 };
   });
 }
 
@@ -104,6 +111,17 @@ export default function ManualUploadSlots({
               const current = currentFileFor(row.documentTypeId, existingSubmissions);
               const locked = current !== undefined && LOCKED_SUBMISSION_STATUSES.has(current.status);
               const uploading = uploadingTypeIds.has(row.documentTypeId);
+              // A group needs only its minimum number of documents. Once the student's files cover that,
+              // the other alternatives accept no upload, so the group never keeps more than it asked for.
+              // Only files the server counts toward the group count here, so a flagged file does not block them.
+              const filledInGroup = group.rows.filter((r) => {
+                if (verifiedIds.has(r.documentTypeId)) return true;
+                const file = currentFileFor(r.documentTypeId, existingSubmissions);
+                return file !== undefined && GROUP_COUNTED_STATUSES.has(file.status);
+              }).length;
+              const groupFull = !group.solo && filledInGroup >= group.minRequired;
+              const hasFile = verified || current !== undefined;
+              const canChoose = !groupFull || hasFile;
               // Changes when a file is added, replaced or removed, so the status line animates.
               const stateKey = verified
                 ? "verified"
@@ -176,6 +194,8 @@ export default function ManualUploadSlots({
                     <span className="inline-flex items-center gap-2 text-xs font-medium text-slate-600">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" /> Uploading…
                     </span>
+                  ) : !canChoose ? (
+                    <span className="text-xs text-slate-500">Not needed: this group is already covered</span>
                   ) : (
                     // One control per document: the label wraps the hidden file input, so the
                     // input's accessible name is the visible label text and it is announced once.

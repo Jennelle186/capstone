@@ -1,4 +1,5 @@
 import * as React from "react";
+import { flagDetails } from "@/lib/flag-details";
 import { useAuth } from "@clerk/clerk-react";
 import { GraduationCap, User, PlusCircle, AlertTriangle, Check, Loader2, IdCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import { toast } from "sonner";
 import StatSummaryCards from "@/components/student/Dashboard/StatSummaryCards";
 import SubmissionsTable from "@/components/student/Dashboard/SubmissionsTable";
 import DocumentDetailModal from "@/components/student/Dashboard/DocumentDetailModal";
+import DeleteFlaggedFile from "@/components/student/ResolveFlagged/DeleteFlaggedFile";
 import {
   placeholderSubmissions,
   type Submission,
@@ -661,7 +663,7 @@ export default function StudentDashboard() {
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="h-5 w-5 text-red-600" />
             <h3 className="text-sm font-semibold text-red-900">
-              {flaggedSubmissions.length} document{flaggedSubmissions.length > 1 ? "s" : ""} flagged by your adviser
+              {flaggedSubmissions.length} document{flaggedSubmissions.length > 1 ? "s" : ""} need{flaggedSubmissions.length > 1 ? "" : "s"} your attention
             </h3>
           </div>
           <div className="space-y-2">
@@ -669,15 +671,25 @@ export default function StudentDashboard() {
               <div key={doc.id} className="flex items-center justify-between rounded-lg border border-red-200 bg-white p-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-900 truncate">{doc.original_filename}</p>
-                  {doc.rejection_reason && (
-                    <p className="text-xs text-red-600 mt-0.5">{doc.rejection_reason}</p>
-                  )}
+                  <p className="text-xs text-red-600 mt-0.5">{flagDetails(doc).message}</p>
                 </div>
-                <Link to={`/student/resolve-flagged/${doc.id}`}>
-                  <Button size="sm" variant="outline" className="ml-3 shrink-0 border-red-300 text-red-700 hover:bg-red-50 rounded-lg">
-                    Resolve
-                  </Button>
-                </Link>
+                {flagDetails(doc).fromAdviser ? (
+                  <Link to={`/student/resolve-flagged/${doc.id}`}>
+                    <Button size="sm" variant="outline" className="ml-3 shrink-0 border-red-300 text-red-700 hover:bg-red-50 rounded-lg">
+                      Resolve
+                    </Button>
+                  </Link>
+                ) : (
+                  // The automatic check flagged this file, not the adviser, so the student removes it instead of resolving it.
+                  <div className="ml-3 shrink-0">
+                    <DeleteFlaggedFile
+                      submissionId={doc.id}
+                      filename={doc.original_filename}
+                      getToken={getToken}
+                      onDeleted={(id) => setFlaggedSubmissions((prev) => prev.filter((item) => item.id !== id))}
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </div>
