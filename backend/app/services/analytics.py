@@ -18,7 +18,7 @@ from ..models import (
 )
 from .adviser_core import get_department_ids_for_adviser
 from .helpers import compute_initials, exclude_replaced_submissions, get_active_school_year_id
-from .requirements import get_bulk_student_slot_statuses, get_student_slot_statuses
+from .requirements import filter_rows_to_required_types, get_bulk_student_slot_statuses, get_student_slot_statuses
 
 
 async def get_analytics(
@@ -74,7 +74,13 @@ async def get_analytics(
     total_students = (await db.execute(student_count_stmt)).scalar() or 0
 
     sub_query = exclude_replaced_submissions(
-        select(DocumentSubmission.id, DocumentSubmission.status, DocumentSubmission.created_at)
+        select(
+            DocumentSubmission.id,
+            DocumentSubmission.status,
+            DocumentSubmission.created_at,
+            DocumentSubmission.document_type_id,
+            Student.classification,
+        )
         .select_from(DocumentSubmission)
         .join(Student, DocumentSubmission.student_id == Student.id)
         .where(
@@ -85,10 +91,13 @@ async def get_analytics(
     )
     all_subs = (await db.execute(sub_query)).all()
 
-    pending_reviews = sum(
-        1 for r in all_subs
+    # Files of a document type the school year no longer requires are hidden from the adviser's queue
+    # and cannot be verified, so they are not pending review either.
+    open_rows = [
+        r for r in all_subs
         if r.status in (SubmissionStatus.SUBMITTED, SubmissionStatus.IN_REVIEW)
-    )
+    ]
+    pending_reviews = len(await filter_rows_to_required_types(db, target_sy_id, open_rows))
     verified_count = sum(1 for r in all_subs if r.status == SubmissionStatus.VERIFIED)
 
     today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)

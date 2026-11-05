@@ -51,7 +51,14 @@ export default function ClassificationStep({
 
         if (!newSub || !newSub.document_type_id) {
           setState("error");
-          onError("Classification did not produce a result. Please try again.");
+          // The file is removed when it matches a document the adviser has already verified, or
+          // when it matches no document this school year requires. The page cannot tell which,
+          // so both reasons are named.
+          onError(
+            "This file was not kept. It may match a document your adviser has already verified, " +
+            "or it may not be the document you are replacing. Check that you chose the right file, " +
+            "then try again.",
+          );
           return;
         }
 
@@ -104,11 +111,46 @@ export default function ClassificationStep({
         job = await createJob(token, "classify", [newSubmissionId]);
       } catch (err: unknown) {
         const error = err as { status?: number; detail?: string };
+        if (error.status === 409) {
+          // The upload has already started classifying this file. Wait for that run to finish
+          // instead of reporting a failure, then check the result as usual.
+          const t = await getTokenRef.current();
+          if (!t) {
+            if (!cancelled) {
+              setState("error");
+              onError("Could not check the classification. Please try again.");
+            }
+            return;
+          }
+          if (!cancelled) {
+            // Set only when the file has reached a final state. If the wait runs out first, the file
+            // is still being classified, so it is not checked yet.
+            let settled = false;
+            for (let attempt = 0; attempt < 60 && !cancelled; attempt++) {
+              const res = await fetchWithClerkAuth("/api/me/documents", t);
+              if (!res.ok) break;
+              const docs = (await res.json()) as SubmissionDetail[];
+              const current = docs.find((d) => d.id === newSubmissionId);
+              if (!current || !["pending", "uploaded", "processing"].includes(current.status)) {
+                settled = true;
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+            if (!cancelled) {
+              if (settled) {
+                await checkTypeMatch(t);
+              } else {
+                setState("error");
+                onError("Classification is still running. Wait a moment, then try again.");
+              }
+            }
+          }
+          return;
+        }
         if (!cancelled) {
           setState("error");
-          onError(error.status === 409
-            ? "A classification is already in progress. Please wait and try again."
-            : (error.detail ?? "Failed to start classification."));
+          onError(error.detail ?? "Failed to start classification.");
         }
         return;
       }

@@ -160,7 +160,7 @@ export default function ResolveFlaggedPage() {
           <AlertTriangle className="h-12 w-12 text-amber-500" />
           <h2 className="text-lg font-bold text-slate-900">Document Not Found</h2>
           <p className="text-sm text-slate-500">
-            This document could not be found. It may have already been resolved or removed.
+            This document could not be found. It may have already been resolved, or it is no longer required for your school year.
           </p>
           <button
             type="button"
@@ -188,7 +188,8 @@ export default function ResolveFlaggedPage() {
       </button>
 
       {/* Flagged banner — visible once past upload */}
-      {step !== "upload" && <div className="mb-6"><FlaggedBanner submission={flaggedDoc} /></div>}
+      {/* Shown on every step, including the upload step: it names the document to upload and the adviser's comment. */}
+      <div className="mb-6"><FlaggedBanner submission={flaggedDoc} /></div>
 
       {/* Error banner */}
       {error && (

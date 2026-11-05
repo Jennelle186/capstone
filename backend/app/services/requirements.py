@@ -169,11 +169,22 @@ async def get_requirement_slots_for_student(
     """
     if student.school_year_id is None:
         return []
+    return await get_requirement_slots_for_school_year(db, student.school_year_id, student.classification)
 
+
+async def get_requirement_slots_for_school_year(
+    db: SessionDep,
+    school_year_id: UUID,
+    classification,
+) -> list[RequirementSlot]:
+    """The resolver above, keyed by school year and classification.
+
+    Used by the student lookup and by the adviser's queue, so both apply exactly the same rules.
+    """
     # ── Try new tables ──────────────────────────────────────────────
     stmt = (
         select(RequirementSlot)
-        .where(RequirementSlot.school_year_id == student.school_year_id)
+        .where(RequirementSlot.school_year_id == school_year_id)
         .order_by(RequirementSlot.display_order)
         .options(
             selectinload(RequirementSlot.items).selectinload(RequirementSlotItem.document_type),
@@ -184,11 +195,56 @@ async def get_requirement_slots_for_student(
     slots = list((await db.execute(stmt)).scalars().all())
 
     if slots:
-        return _filter_slots_by_classification(slots, student.classification)
+        return _filter_slots_by_classification(slots, classification)
 
     # ── Fallback: convert legacy rows to solo slots ─────────────────
-    logger.info("No requirement_slots found for SY %s — falling back to legacy school_year_requirements", student.school_year_id)
-    return await _legacy_syrs_as_slots(db, student)
+    logger.info("No requirement_slots found for SY %s — falling back to legacy school_year_requirements", school_year_id)
+    return await _legacy_syrs_as_slots(db, school_year_id, classification)
+
+
+async def required_type_ids_for_school_year(
+    db: SessionDep,
+    school_year_id: UUID,
+    classification,
+) -> set[UUID] | None:
+    """Document types the school year requires for a student with this classification.
+
+    Returns None when the school year has no requirements at all. Callers treat None as
+    "nothing configured to check against", so nothing is hidden or refused.
+    """
+    all_slots = await get_requirement_slots_for_school_year(db, school_year_id, None)
+    if not all_slots:
+        return None
+    # Slot-level filter, the same rule the student's checklist uses: every item of a kept slot counts.
+    slots = _filter_slots_by_classification(all_slots, classification)
+    return {item.document_type_id for slot in slots for item in slot.items}
+
+
+async def filter_rows_to_required_types(
+    db: SessionDep,
+    school_year_id: UUID,
+    rows: list,
+) -> list:
+    """Keep the rows whose document type the school year still requires for that row's classification.
+
+    Each row needs ``document_type_id`` and ``classification``. Rows with no document type are kept,
+    and so is every row when the school year has no requirements. Used by the adviser queue and
+    the adviser's pending-review count, so both agree.
+    """
+    required_by_classification: dict = {}
+    visible = []
+    for row in rows:
+        if row.document_type_id is None:
+            visible.append(row)
+            continue
+        if row.classification not in required_by_classification:
+            required_by_classification[row.classification] = await required_type_ids_for_school_year(
+                db, school_year_id, row.classification
+            )
+        required = required_by_classification[row.classification]
+        if required is None or row.document_type_id in required:
+            visible.append(row)
+    return visible
 
 
 def _filter_slots_by_classification(
@@ -212,12 +268,12 @@ def _filter_slots_by_classification(
     return filtered
 
 
-async def _legacy_syrs_as_slots(db: SessionDep, student: Student) -> list[RequirementSlot]:
+async def _legacy_syrs_as_slots(db: SessionDep, school_year_id: UUID, classification) -> list[RequirementSlot]:
     """Convert legacy SchoolYearRequirement rows into synthetic RequirementSlot objects."""
     stmt = (
         select(SchoolYearRequirement)
         .options(selectinload(SchoolYearRequirement.document_type))
-        .where(SchoolYearRequirement.school_year_id == student.school_year_id)
+        .where(SchoolYearRequirement.school_year_id == school_year_id)
         .order_by(SchoolYearRequirement.created_at, SchoolYearRequirement.id)
     )
     rows = list((await db.execute(stmt)).scalars().all())
@@ -226,7 +282,7 @@ async def _legacy_syrs_as_slots(db: SessionDep, student: Student) -> list[Requir
     for idx, row in enumerate(rows):
         doc_type = row.document_type
         applicable = doc_type.applicable_classifications or []
-        if student.classification and applicable and student.classification.value not in applicable:
+        if classification and applicable and classification.value not in applicable:
             continue
 
         slot = RequirementSlot(

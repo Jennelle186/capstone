@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 
 import type { SubmissionDetail } from "@/types/submission";
 import { allSlotsVerified, type SlotStatusResponse } from "@/types/requirement";
@@ -91,7 +92,17 @@ vi.mock("@/components/student/ReviewDocumentDetailModal", () => ({
 }));
 
 vi.mock("@/components/student/UploadDocuments/upload/DropZone", () => ({
-  default: () => <div data-testid="drop-zone">DropZone</div>,
+  default: (props: { onFilesAdded?: (files: File[]) => void }) => (
+    <div data-testid="drop-zone">
+      DropZone
+      <button
+        data-testid="add-file"
+        onClick={() => props.onFilesAdded?.([new File(["pdf"], "a.pdf", { type: "application/pdf" })])}
+      >
+        AddFile
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock(
@@ -103,14 +114,16 @@ vi.mock(
 
 vi.mock("@/components/student/UploadDocuments/upload/NewFileList", () => ({
   default: (props: {
+    files?: unknown[];
     onUpload?: (item: unknown) => void;
     onUploadAll?: () => void;
   }) => (
     <div data-testid="new-file-list">
+      <span data-testid="new-file-count">{props.files?.length ?? 0}</span>
       <button
         data-testid="upload-one"
         onClick={() =>
-          props.onUpload?.({
+          props.onUpload?.(props.files?.[0] ?? {
             id: "f1",
             file: new File(["pdf"], "a.pdf", { type: "application/pdf" }),
             previewUrl: undefined,
@@ -267,9 +280,60 @@ describe("StepUpload", () => {
     mockGetToken.mockResolvedValue("mock-token");
   });
 
-  it("renders DropZone when not all verified", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders DropZone when the student chooses AI sorting", async () => {
     render(<StepUpload getToken={mockGetToken} />);
+    await userEvent.setup().click(screen.getByRole("radio", { name: /Let AI sort my files/ }));
     expect(screen.getByTestId("drop-zone")).toBeDefined();
+  });
+
+  it("shows the required documents by default, without the AI drop zone", () => {
+    render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        getToken={mockGetToken}
+      />,
+    );
+    expect(screen.getByText("Report Card")).toBeDefined();
+    expect(screen.queryByTestId("drop-zone")).toBeNull();
+    expect(screen.queryByTestId("previously-uploaded")).toBeNull();
+    expect((screen.getByRole("radio", { name: /I'll choose the document/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("sends a chosen file with its document type and without AI splitting", async () => {
+    const initiateBodies: string[] = [];
+    mockFetchWithClerk.mockImplementation((url: string, _token: string, init?: { body?: string }) => {
+      if (url.includes("initiate")) {
+        initiateBodies.push(init?.body ?? "");
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ url: "https://gcs.example/file", submission_id: "sub-3" }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+    const { container } = render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        getToken={mockGetToken}
+      />,
+    );
+    const input = container.querySelector<HTMLInputElement>("#choose-file-dt-1");
+    expect(input).not.toBeNull();
+    await userEvent.setup().upload(input!, new File(["pdf"], "card.pdf", { type: "application/pdf" }));
+
+    await waitFor(() => expect(initiateBodies.length).toBe(1));
+    const body = JSON.parse(initiateBodies[0]);
+    expect(body.document_type_id).toBe("dt-1");
+    expect(body.classify_manually).toBe(true);
+    expect(body.is_compiled).toBe(false);
   });
 
   it("hides DropZone when all documents are verified", () => {
@@ -278,13 +342,20 @@ describe("StepUpload", () => {
     expect(screen.getByText("All documents verified")).toBeDefined();
   });
 
-  it("renders the previously uploaded section", () => {
+  it("renders the previously uploaded section when the student chooses AI sorting", async () => {
     render(<StepUpload getToken={mockGetToken} />);
+    await userEvent.setup().click(screen.getByRole("radio", { name: /Let AI sort my files/ }));
     expect(screen.getByTestId("previously-uploaded")).toBeDefined();
   });
 
-  it("renders the new file list", () => {
+  it("hides the previously uploaded section when the student chooses the document for each file", () => {
     render(<StepUpload getToken={mockGetToken} />);
+    expect(screen.queryByTestId("previously-uploaded")).toBeNull();
+  });
+
+  it("renders the new file list when the student chooses AI sorting", async () => {
+    render(<StepUpload getToken={mockGetToken} />);
+    await userEvent.setup().click(screen.getByRole("radio", { name: /Let AI sort my files/ }));
     expect(screen.getByTestId("new-file-list")).toBeDefined();
   });
 
@@ -310,6 +381,7 @@ describe("StepUpload", () => {
 
     render(<StepUpload requiredSlots={[]} getToken={mockGetToken} />);
 
+    await userEvent.setup().click(screen.getByRole("radio", { name: /Let AI sort my files/ }));
     const checkbox = screen.getByRole("checkbox", {
       name: /multiple documents/i,
     });
@@ -319,8 +391,185 @@ describe("StepUpload", () => {
     await userEvent.setup().click(screen.getByTestId("upload-one"));
 
     await waitFor(() => expect(checkbox).not.toBeChecked());
+  });
 
-    vi.unstubAllGlobals();
+  it("removes a file from the list below the drop zone once its upload completes", async () => {
+    mockFetchWithClerk.mockImplementation((url: string) => {
+      if (url.includes("initiate")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ url: "https://gcs.example/file", submission_id: "sub-2" }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+    render(<StepUpload requiredSlots={[]} getToken={mockGetToken} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("radio", { name: /Let AI sort my files/ }));
+    await user.click(screen.getByTestId("add-file"));
+    expect(screen.getByTestId("new-file-count").textContent).toBe("1");
+
+    await user.click(screen.getByTestId("upload-one"));
+
+    await waitFor(() => expect(screen.getByTestId("new-file-count").textContent).toBe("0"));
+  });
+
+  it("removes the file it replaces only after the new file is saved", async () => {
+    const calls: string[] = [];
+    mockFetchWithClerk.mockImplementation((url: string, _token: string, init?: { method?: string }) => {
+      if (init?.method === "DELETE") {
+        calls.push(`delete:${url}`);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }
+      if (url.includes("initiate")) {
+        calls.push("initiate");
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ url: "https://gcs.example/file", submission_id: "sub-new" }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal("fetch", vi.fn(() => {
+      calls.push("gcs");
+      return Promise.resolve({ ok: true });
+    }));
+
+    const { container } = render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "old-1", document_type_id: "dt-1", status: "uploaded" })]}
+        getToken={mockGetToken}
+      />,
+    );
+    const input = container.querySelector<HTMLInputElement>("#choose-file-dt-1");
+    await userEvent.setup().upload(input!, new File(["pdf"], "new.pdf", { type: "application/pdf" }));
+
+    await waitFor(() => expect(calls).toContain("delete:/api/me/documents/old-1"));
+    expect(calls.indexOf("delete:/api/me/documents/old-1")).toBeGreaterThan(calls.indexOf("gcs"));
+  });
+
+  it("keeps the file it would replace when the new upload fails", async () => {
+    const calls: string[] = [];
+    mockFetchWithClerk.mockImplementation((url: string, _token: string, init?: { method?: string }) => {
+      if (init?.method === "DELETE") {
+        calls.push("delete");
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }
+      if (url.includes("initiate")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ url: "https://gcs.example/file", submission_id: "sub-new" }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, statusText: "Server Error", text: () => Promise.resolve("boom") }));
+
+    const { container } = render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "old-1", document_type_id: "dt-1", status: "uploaded" })]}
+        getToken={mockGetToken}
+      />,
+    );
+    const input = container.querySelector<HTMLInputElement>("#choose-file-dt-1");
+    await userEvent.setup().upload(input!, new File(["pdf"], "new.pdf", { type: "application/pdf" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(calls).not.toContain("delete");
+  });
+
+  it("lists files that match no required document in choose mode", () => {
+    render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "x", document_type_id: "dt-other", status: "uploaded" })]}
+        getToken={mockGetToken}
+      />,
+    );
+    expect(screen.getByTestId("previously-uploaded")).toBeDefined();
+  });
+
+  it("does not list files that are already on a required-document card in choose mode", () => {
+    render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "x", document_type_id: "dt-1", status: "uploaded" })]}
+        getToken={mockGetToken}
+      />,
+    );
+    expect(screen.queryByTestId("previously-uploaded")).toBeNull();
+  });
+
+  it("reports a failed delete instead of confirming it", async () => {
+    mockFetchWithClerk.mockImplementation((_url: string, _token: string, init?: { method?: string }) =>
+      Promise.resolve({ ok: init?.method !== "DELETE", status: 409, statusText: "Conflict", json: () => Promise.resolve({}) }),
+    );
+
+    render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "old-1", document_type_id: "dt-1", status: "uploaded", original_filename: "card.pdf" })]}
+        getToken={mockGetToken}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Delete card.pdf" }));
+    await user.click(screen.getByRole("button", { name: "Delete file" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("offers no View button for a form filled in online, because it has no file", () => {
+    render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Admission Form", code: "admission_form", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "sub-f", document_type_id: "dt-1", status: "submitted", filled_online: true, original_filename: "form.pdf" })]}
+        getToken={mockGetToken}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /View form\.pdf/ })).toBeNull();
+  });
+
+  it("opens the preview for a file that is being processed", async () => {
+    render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "sub-e", document_type_id: "dt-1", status: "processing", original_filename: "reading.pdf" })]}
+        getToken={mockGetToken}
+      />,
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "View reading.pdf" }));
+    expect(screen.getByTestId("preview-dialog")).toBeDefined();
+  });
+
+  it("opens the preview for a file that is already submitted", async () => {
+    render(
+      <StepUpload
+        requiredSlots={[]}
+        requiredDocuments={[{ id: "dt-1", name: "Report Card", code: "report_card", description: "", is_required: true }]}
+        existingSubmissions={[makeSubmission({ id: "sub-s", document_type_id: "dt-1", status: "submitted", original_filename: "sent.pdf" })]}
+        getToken={mockGetToken}
+      />,
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "View sent.pdf" }));
+    expect(screen.getByTestId("preview-dialog")).toBeDefined();
   });
 });
 
@@ -340,6 +589,7 @@ const makeSubmission = (overrides: Partial<SubmissionDetail> = {}) => ({
   document_type_name: (overrides.document_type_name ?? null) as string | null,
   classification_result: overrides.classification_result ?? null,
   is_compiled: (overrides.is_compiled ?? false) as boolean,
+  filled_online: (overrides.filled_online ?? false) as boolean,
   created_at: new Date().toISOString(),
   extracted_data: null,
   rejection_reason: null,

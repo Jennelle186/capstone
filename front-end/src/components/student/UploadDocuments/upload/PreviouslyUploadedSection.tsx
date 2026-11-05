@@ -21,6 +21,8 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
+import { AnimatePresence, motion } from "framer-motion";
+import { toast } from "sonner";
 import { fetchWithClerkAuth } from "@/lib/api";
 import type { SubmissionDetail } from "@/types/submission";
 import type { PreviewItem } from "./DocumentPreviewDialog";
@@ -34,7 +36,8 @@ interface PreviouslyUploadedSectionProps {
   // Opens the preview dialog at the given index
   onPreview: (index: number) => void;
   // Called after a submission is successfully deleted from the server
-  onDeleteSubmission: (id: string) => void;
+  // Resolves to false when the server refused the delete (the file is still there).
+  onDeleteSubmission: (id: string) => boolean | void | Promise<boolean | void>;
   // Called after a successful deletion so the parent can refetch fresh data
   onDeleted?: () => void;
   // Clerk auth token provider used for the DELETE API call
@@ -106,12 +109,15 @@ export default function PreviouslyUploadedSection({
           body: JSON.stringify({ submission_id: submissionId }),
         });
         if (!confirmRes.ok) {
-          throw new Error(`Confirm failed: ${confirmRes.status}`);
+          // Show the backend's reason (for example, a document that was verified in the meantime).
+          const errBody = (await confirmRes.json().catch(() => null)) as { detail?: string } | null;
+          throw new Error(errBody?.detail ?? `Confirm failed: ${confirmRes.status}`);
         }
 
         onDeleted?.();
       } catch (err) {
         console.error("Retry error:", err);
+        toast.error(err instanceof Error && err.message ? err.message : "Retry failed. Please try again.");
       } finally {
         setRetryingId(null);
       }
@@ -122,7 +128,11 @@ export default function PreviouslyUploadedSection({
   // deletion to the parent handler (StepUpload.handleDeleteSubmission),
   // which performs the actual DELETE API call, then triggers a refetch on success.
   const handleDelete = useCallback(async (submissionId: string) => {
-    await onDeleteSubmission(submissionId);
+    const removed = await onDeleteSubmission(submissionId);
+    if (removed === false) {
+      toast.error("The file could not be removed. Please try again.");
+      return;
+    }
     onDeleted?.();
   }, [onDeleteSubmission, onDeleted]);
 
@@ -135,8 +145,16 @@ export default function PreviouslyUploadedSection({
         Previously Uploaded
       </h4>
       <div className="space-y-1.5">
+        {/* A deleted row collapses out instead of vanishing, so the change is visible. */}
+        <AnimatePresence initial={false}>
         {displaySubmissions.map((sub) => (
-          <div key={sub.id} className="flex items-center gap-3 py-2 px-3 bg-slate-50 rounded-xl">
+          <motion.div
+            key={sub.id}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="overflow-hidden"
+          >
+          <div className="flex items-center gap-3 py-2 px-3 bg-slate-50 rounded-xl">
             <FileText className="size-5 text-slate-400" />
             <div className="flex-1 overflow-hidden">
               <p className="text-sm font-medium text-slate-900 truncate">
@@ -176,6 +194,8 @@ export default function PreviouslyUploadedSection({
             ) : sub.status !== "pending" && (
               <CheckCircle className="size-5 text-emerald-500" />
             )}
+            {/* A pending upload never reached storage, so it has nothing to preview. */}
+            {sub.status !== "pending" && !sub.filled_online && (
             <button
               onClick={() => {
                 const idx = previewItems.findIndex(
@@ -187,6 +207,7 @@ export default function PreviouslyUploadedSection({
             >
               <FileText className="size-4 text-slate-500" />
             </button>
+            )}
             {!isReadOnly && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -215,7 +236,9 @@ export default function PreviouslyUploadedSection({
             </AlertDialog>
             )}
           </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
         <input
           ref={fileInputRef}
           type="file"

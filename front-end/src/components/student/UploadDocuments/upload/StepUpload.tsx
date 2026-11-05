@@ -7,6 +7,7 @@ import { fetchWithClerkAuth } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -21,18 +22,50 @@ import DocumentPreviewDialog, { type PreviewItem } from "./DocumentPreviewDialog
 import DropZone from "./DropZone";
 import PreviouslyUploadedSection from "./PreviouslyUploadedSection";
 import NewFileList from "./NewFileList";
+import ManualUploadSlots from "./ManualUploadSlots";
+import { cn } from "@/lib/utils";
 import UploadSidebar from "./UploadSidebar";
-import { isImageFile, isPreviewable } from "./utils";
+import { currentFileFor, errorDetailText, isImageFile, isPreviewable, previousFilesFor, verifiedDocumentTypeIds, withCompiledSegments } from "./utils";
 import type { FileItem } from "./types";
 
 // Maximum file size in bytes (315 MB)
 const MAX_FILE_SIZE = 315 * 1024 * 1024;
 
+type UploadMode = "choose" | "ai";
+
+// Options for a single upload. documentTypeId is the document the student picked for the file.
+// deferNotify: skip the onUploadComplete call, so the caller can refresh once after its own changes.
+type UploadOptions = { documentTypeId?: string; classifyManually?: boolean; deferNotify?: boolean };
+
+const UPLOAD_MODE_OPTIONS: { value: UploadMode; title: string; description: string }[] = [
+  {
+    value: "choose",
+    title: "I'll choose the document for each file",
+    description: "Upload one file for each required document. Nothing is split or guessed by AI.",
+  },
+  {
+    value: "ai",
+    title: "Let AI sort my files",
+    description: "Upload any files, including one PDF with several documents. AI splits and classifies them in the next step.",
+  },
+];
+
+// Statuses whose file the backend serves for preview (download-url). PENDING is left out on
+// purpose: that file has not reached storage yet, so the backend refuses it.
+const PREVIEWABLE_SUBMISSION_STATUSES = new Set([
+  "uploaded",
+  "flagged",
+  "classified",
+  "processing",
+  "submitted",
+  "in-review",
+]);
+
 interface StepUploadProps {
   requiredDocuments?: RequiredDocument[];
   requiredSlots?: SlotStatusResponse[];
   getToken: () => Promise<string | null>;
-  onUploadComplete?: (result: ConfirmUploadResponse) => void;
+  onUploadComplete?: (result: ConfirmUploadResponse) => void | Promise<void>;
   onDeleteSubmission?: (id: string) => void;
   onDeleted?: () => void;
   existingSubmissions?: SubmissionDetail[];
@@ -68,6 +101,14 @@ export default function StepUpload({
   });
   // Whether the selected PDF is a compiled multi-document file (Feature 3).
   const [isCompiled, setIsCompiled] = useState(false);
+  // "choose": the student labels each file with its required document (no AI split/classify).
+  // "ai": the student uploads any files and AI splits and classifies them in the next step.
+  // A flagged file being replaced (?replace=) starts on the AI upload, as the resolve flow always did.
+  const [uploadMode, setUploadMode] = useState<UploadMode>(replaceSubmissionId ? "ai" : "choose");
+  // Document types with a file being uploaded through the "choose" list.
+  const [manualUploadingIds, setManualUploadingIds] = useState<Set<string>>(new Set());
+  // The file waiting for the student's confirmation before it is deleted.
+  const [pendingDelete, setPendingDelete] = useState<SubmissionDetail | null>(null);
 
   // Adds incoming files to the local selection, filtering out any that exceed the size limit
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -95,14 +136,20 @@ export default function StepUpload({
 
   // Requests a presigned POST URL from the backend for the given file.
   const initiateUpload = useCallback(
-    async (item: FileItem, token: string): Promise<InitiateUploadResponse> => {
+    async (item: FileItem, token: string, options?: UploadOptions): Promise<InitiateUploadResponse> => {
       const body: Record<string, unknown> = {
         name: item.file.name,
         type: item.file.type || "application/octet-stream",
         size: item.file.size,
-        // Splitting only applies to PDFs — ignore the checkbox for images.
-        is_compiled: isCompiled && item.file.type === "application/pdf",
+        // Splitting only applies to PDFs, and never to a file the student labelled.
+        is_compiled: isCompiled && item.file.type === "application/pdf" && !options?.classifyManually,
       };
+      if (options?.documentTypeId) {
+        body.document_type_id = options.documentTypeId;
+      }
+      if (options?.classifyManually) {
+        body.classify_manually = true;
+      }
       if (replaceSubmissionId) {
         body.replace_submission_id = replaceSubmissionId;
       }
@@ -112,7 +159,7 @@ export default function StepUpload({
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        const detail = errBody?.detail ?? `Initiate failed: ${res.status} ${res.statusText}`;
+        const detail = errorDetailText(errBody?.detail) ?? `Initiate failed: ${res.status} ${res.statusText}`;
         if (res.status === 409) {
           const err = new Error(`CONFLICT:${detail}`) as Error & {
             errorCode?: string;
@@ -157,7 +204,9 @@ export default function StepUpload({
         body: JSON.stringify({ submission_id: submissionId }),
       });
       if (!res.ok) {
-        throw new Error(`Confirm failed: ${res.status} ${res.statusText}`);
+        // Show the backend's reason (for example, a document that was verified during the upload).
+        const errBody = (await res.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(errorDetailText(errBody?.detail) ?? `Confirm failed: ${res.status} ${res.statusText}`);
       }
       return res.json() as Promise<ConfirmUploadResponse>;
     },
@@ -165,8 +214,9 @@ export default function StepUpload({
   );
 
   // Uploads a single file end-to-end: initiate → S3 → confirm.
+  // Resolves to the saved submission, or null when the backend refused it with a conflict (already reported to the user).
   const uploadOne = useCallback(
-    async (item: FileItem) => {
+    async (item: FileItem, options?: UploadOptions): Promise<ConfirmUploadResponse | null> => {
       // Fetch a fresh Clerk token for every file so long batches do not expire it.
       const token = await getToken();
       if (!token) {
@@ -175,7 +225,7 @@ export default function StepUpload({
 
       let presigned: InitiateUploadResponse;
       try {
-        presigned = await initiateUpload(item, token);
+        presigned = await initiateUpload(item, token, options);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "";
         const errorCode = (err as { errorCode?: string } | null)?.errorCode;
@@ -184,11 +234,11 @@ export default function StepUpload({
             ? msg.slice("CONFLICT:".length)
             : msg;
           setVerifiedConflict({ open: true, message });
-          return;
+          return null;
         }
         if (msg.startsWith("CONFLICT:")) {
           toast.error(msg.slice("CONFLICT:".length));
-          return;
+          return null;
         }
         if (msg.startsWith("BLOCKED:")) {
           toast.error(msg.slice("BLOCKED:".length));
@@ -212,9 +262,24 @@ export default function StepUpload({
         delete next[item.id];
         return next;
       });
-      onUploadComplete?.(confirmed);
+      // The upload is saved and listed under "Previously uploaded", so drop the local copy
+      // to keep the list below the drop zone short and the Next button in reach.
+      // Files chosen from the per-document list never have a local copy.
+      if (!options?.documentTypeId) {
+        removeFile(item.id);
+      }
+      if (!options?.deferNotify) {
+        // The file is saved at this point. A failed list refresh must not make the upload look failed.
+        try {
+          await onUploadComplete?.(confirmed);
+        } catch (err) {
+          console.error("Could not refresh the upload list:", err);
+          toast.error("Your file was saved, but the list could not refresh. Reload the page to see it.");
+        }
+      }
+      return confirmed;
     },
-    [getToken, initiateUpload, uploadToGcs, confirmUpload, onUploadComplete],
+    [getToken, initiateUpload, uploadToGcs, confirmUpload, onUploadComplete, removeFile],
   );
 
   // Wraps uploadOne with uploading state management.
@@ -288,19 +353,75 @@ export default function StepUpload({
     setIsCompiled(false);
   }, [uploadOne, uploadedIds, files]);
 
-  // Handles the delete of a previously uploaded submission via the backend DELETE endpoint
-  const handleDeleteSubmission = useCallback(async (submissionId: string) => {
+  // Deletes a submission via the backend DELETE endpoint. Resolves to true only when it was removed.
+  const handleDeleteSubmission = useCallback(async (submissionId: string): Promise<boolean> => {
     const token = await getToken();
-    if (!token) return;
+    if (!token) return false;
     const res = await fetchWithClerkAuth(`/api/me/documents/${submissionId}`, token, {
       method: "DELETE",
     });
     if (!res.ok) {
       console.error("Delete failed:", res.status, res.statusText);
-      return;
+      return false;
     }
     onDeleteSubmission?.(submissionId);
+    return true;
   }, [getToken, onDeleteSubmission]);
+
+  // Every file the student has, with compiled segments listed as their own rows. The "choose" mode
+  // works per document type, and a segment of a split PDF carries a document type of its own.
+  const allSubmissions = useMemo(() => withCompiledSegments(existingSubmissions ?? []), [existingSubmissions]);
+
+  // Uploads a file the student assigned to a required document. One file per document:
+  // the new file is saved first, and only then is the file it replaces removed. A failed
+  // upload therefore never costs the student the file they already had.
+  const handleChooseFile = useCallback(
+    async (documentTypeId: string, file: File) => {
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error("This file is larger than 315 MB. Choose a smaller file.");
+        return;
+      }
+      setManualUploadingIds((prev) => new Set(prev).add(documentTypeId));
+      let saved: ConfirmUploadResponse | null = null;
+      try {
+        const previous = previousFilesFor(documentTypeId, allSubmissions);
+        const item: FileItem = { id: `${documentTypeId}-${Date.now()}`, file };
+        saved = await uploadOne(item, { documentTypeId, classifyManually: true, deferNotify: true });
+        if (saved && previous.length > 0) {
+          // Remove every earlier copy for this document, not only the one on the card, so no
+          // stale or flagged file keeps counting toward submission. Each removal is checked on
+          // its own, so one network error does not hide the result of the others.
+          const results = await Promise.allSettled(previous.map((old) => handleDeleteSubmission(old.id)));
+          const failed = results.some((r) => r.status === "rejected" || r.value === false);
+          if (failed) {
+            toast.error("Your new file was saved, but an older file could not be removed. Delete it from the list below.");
+          }
+        }
+      } catch (err) {
+        // uploadOne has already shown the message for a refused upload ("BLOCKED:"), so skip it here.
+        const msg = err instanceof Error ? err.message : "";
+        if (!msg.startsWith("BLOCKED:")) {
+          toast.error(msg || "Upload failed. Please try again.");
+        }
+      } finally {
+        // Refresh once, after the save and any removals, even if a removal failed, so the list
+        // matches the server. A refresh started earlier could otherwise bring removed copies back.
+        if (saved) {
+          try {
+            await onUploadComplete?.(saved);
+          } catch (err) {
+            console.error("Could not refresh the upload list:", err);
+          }
+        }
+        setManualUploadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(documentTypeId);
+          return next;
+        });
+      }
+    },
+    [allSubmissions, handleDeleteSubmission, onUploadComplete, uploadOne],
+  );
 
   // Clears all locally selected files and revokes their object URLs
   const clearAllFiles = useCallback(() => {
@@ -326,29 +447,77 @@ export default function StepUpload({
         });
       }
     }
-    for (const sub of existingSubmissions ?? []) {
-      if (sub.status === "uploaded" || sub.status === "flagged" || sub.status === "pending") {
+    for (const sub of allSubmissions) {
+      // Every file the student can still see on a card or in the list must be previewable,
+      // including ones the adviser has already received or that are being processed.
+      // A form filled in online has no file, so there is nothing to preview.
+      if (PREVIEWABLE_SUBMISSION_STATUSES.has(sub.status) && !sub.filled_online) {
         items.push({ type: "existing", submission: sub });
       }
     }
     return items;
-  }, [files, existingSubmissions]);
+  }, [files, allSubmissions]);
+
+  // Opens the preview for one of the student's files, from its required-document card.
+  const handleViewSubmission = useCallback((submissionId: string) => {
+    const index = previewItems.findIndex(
+      (item) => item.type === "existing" && item.submission.id === submissionId,
+    );
+    if (index !== -1) {
+      setPreviewIndex(index);
+    } else {
+      toast.error("This file cannot be previewed yet. Try again once it has finished uploading.");
+    }
+  }, [previewItems]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    const submissionId = pendingDelete.id;
+    setPendingDelete(null);
+    const removed = await handleDeleteSubmission(submissionId);
+    if (removed) {
+      onDeleted?.();
+      toast.success("File removed. You can upload a new one.");
+    } else {
+      toast.error("The file could not be removed. Please try again.");
+    }
+  }, [pendingDelete, handleDeleteSubmission, onDeleted]);
 
   const verifiedTypes = useMemo(() => {
     if (!existingSubmissions || !requiredDocuments) return [];
-    const verifiedDocIds = new Set(
-      existingSubmissions
-        .filter((s) => s.status === "verified")
-        .map((s) => s.document_type_id)
-        .filter(Boolean),
-    );
+    const verifiedDocIds = verifiedDocumentTypeIds(allSubmissions);
     return requiredDocuments.filter((doc) => verifiedDocIds.has(doc.id));
-  }, [existingSubmissions, requiredDocuments]);
+  }, [allSubmissions, existingSubmissions, requiredDocuments]);
+
+  // Files that match no required document. In "choose" mode these are the only ones listed,
+  // because each required document's card shows its own file.
+  const unmatchedSubmissions = useMemo(() => {
+    const submissions = allSubmissions;
+    const requiredTypeIds = new Set<string>(requiredDocuments.map((d) => d.id));
+    for (const slot of requiredSlots) {
+      for (const item of slot.items) requiredTypeIds.add(item.document_type_id);
+    }
+    // The file each required document's card shows.
+    const cardFileIds = new Set<string>();
+    for (const typeId of requiredTypeIds) {
+      const card = currentFileFor(typeId, submissions);
+      if (card) cardFileIds.add(card.id);
+    }
+    return submissions.filter((s) => {
+      if (!s.document_type_id || !requiredTypeIds.has(s.document_type_id)) return true;
+      // A required type: its card shows one file, and verified rows are not listed. Any other
+      // copy (an extra, flagged, or extra compiled segment) is listed so the student can remove it.
+      if (s.status === "verified") return false;
+      return !cardFileIds.has(s.id);
+    });
+  }, [allSubmissions, requiredDocuments, requiredSlots]);
 
   // When every required slot is already satisfied by a VERIFIED submission,
   // there is nothing left to upload — hide the upload controls entirely.
   const allVerified = !replaceSubmissionId && allSlotsVerified(requiredSlots);
   const canUpload = !isSchoolYearClosed && !allVerified;
+  const isChooseMode = canUpload && uploadMode === "choose";
+  const isAiMode = canUpload && uploadMode === "ai";
 
   return (
     <div className="grid grid-cols-12 gap-4">
@@ -388,16 +557,64 @@ export default function StepUpload({
             </p>
           </div>
         )}
-        <PreviouslyUploadedSection
-          submissions={existingSubmissions ?? []}
-          previewItems={previewItems}
-          onPreview={setPreviewIndex}
-          onDeleteSubmission={handleDeleteSubmission}
-          onDeleted={onDeleted}
-          getToken={getToken}
-          isReadOnly={isSchoolYearClosed}
-        />
+        {/* In "choose" mode this list only shows leftover files that match no required document. */}
+        {(!isChooseMode || unmatchedSubmissions.length > 0) && (
+          <PreviouslyUploadedSection
+            submissions={isChooseMode ? unmatchedSubmissions : (existingSubmissions ?? [])}
+            previewItems={previewItems}
+            onPreview={setPreviewIndex}
+            onDeleteSubmission={handleDeleteSubmission}
+            onDeleted={onDeleted}
+            getToken={getToken}
+            isReadOnly={isSchoolYearClosed}
+          />
+        )}
         {canUpload && (
+          <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
+            <legend className="px-1 text-sm font-semibold text-slate-900">
+              How do you want to add your documents?
+            </legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {UPLOAD_MODE_OPTIONS.map((option) => {
+                const selected = uploadMode === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className={cn(
+                      "flex cursor-pointer flex-col gap-1 rounded-lg border p-3 transition-colors focus-within:outline-2 focus-within:outline-primary",
+                      selected ? "border-primary bg-primary/5" : "border-slate-200 hover:bg-slate-50",
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="upload-mode"
+                        value={option.value}
+                        checked={selected}
+                        onChange={() => setUploadMode(option.value)}
+                        className="h-4 w-4 border-slate-300 text-primary focus:ring-primary"
+                      />
+                      <span className="text-sm font-semibold text-slate-900">{option.title}</span>
+                    </span>
+                    <span className="pl-6 text-xs leading-relaxed text-slate-500">{option.description}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
+        {isChooseMode && (
+          <ManualUploadSlots
+            slots={requiredSlots}
+            legacyDocuments={requiredDocuments}
+            existingSubmissions={allSubmissions}
+            uploadingTypeIds={manualUploadingIds}
+            onChooseFile={handleChooseFile}
+            onView={handleViewSubmission}
+            onDelete={setPendingDelete}
+          />
+        )}
+        {isAiMode && (
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-4">
             <input
               type="checkbox"
@@ -417,10 +634,10 @@ export default function StepUpload({
             </span>
           </label>
         )}
-        {canUpload && (
+        {isAiMode && (
           <DropZone onFilesAdded={addFiles} />
         )}
-        {canUpload && (
+        {isAiMode && (
           <NewFileList
             files={files}
             uploadingIds={uploadingIds}
@@ -450,19 +667,43 @@ export default function StepUpload({
         open={verifiedConflict.open}
         onOpenChange={(open) => !open && setVerifiedConflict((prev) => ({ ...prev, open: false }))}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
           <AlertDialogHeader>
             <AlertDialogMedia className="bg-amber-100">
               <AlertTriangle className="h-5 w-5 text-amber-700" />
             </AlertDialogMedia>
             <AlertDialogTitle>Document already verified</AlertDialogTitle>
-            <AlertDialogDescription>{verifiedConflict.message}</AlertDialogDescription>
+            <AlertDialogDescription className="break-words">{verifiedConflict.message}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction
               onClick={() => setVerifiedConflict((prev) => ({ ...prev, open: false }))}
             >
               Got it
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+      >
+        {/* A single column that can shrink, so a long file name wraps inside the card
+            instead of stretching the card and pushing the buttons off the screen. */}
+        <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this file?</AlertDialogTitle>
+            <AlertDialogDescription className="break-all">
+              {pendingDelete?.original_filename} will be removed. You can upload it again at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep file</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-red-600 text-white hover:bg-red-700"
+            >
+              Delete file
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

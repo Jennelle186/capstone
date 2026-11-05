@@ -30,6 +30,7 @@ async def test_verify_submission_sets_status_to_verified() -> None:
     submission = SimpleNamespace(
         id=uuid4(),
         student_id=student.id,
+        document_type_id=None,
         status=SubmissionStatus.SUBMITTED,
         original_filename="test.pdf",
         rejection_reason=None,
@@ -93,6 +94,7 @@ async def test_verify_submission_does_not_set_application_status() -> None:
     submission = SimpleNamespace(
         id=uuid4(),
         student_id=student.id,
+        document_type_id=None,
         status=SubmissionStatus.SUBMITTED,
         original_filename="test.pdf",
         rejection_reason=None,
@@ -148,6 +150,7 @@ async def test_flag_submission_sets_flagged_status() -> None:
     submission = SimpleNamespace(
         id=uuid4(),
         student_id=student.id,
+        document_type_id=None,
         status=SubmissionStatus.SUBMITTED,
         original_filename="test.pdf",
         rejection_reason=None,
@@ -210,6 +213,7 @@ async def test_flag_submission_downgrades_application_status() -> None:
     submission = SimpleNamespace(
         id=uuid4(),
         student_id=student.id,
+        document_type_id=None,
         status=SubmissionStatus.SUBMITTED,
         original_filename="test.pdf",
         rejection_reason=None,

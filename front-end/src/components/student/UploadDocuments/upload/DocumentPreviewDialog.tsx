@@ -70,10 +70,12 @@ export default function DocumentPreviewDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] !max-w-[95vw] h-[95vh] !max-h-[95vh] p-0 gap-0">
-        <div className="grid grid-rows-[auto_1fr_auto] h-full">
-          <DialogHeader className="border-b px-6 py-4">
-            <div className="flex items-center gap-3">
-              <DialogTitle className="text-base font-semibold text-slate-900 truncate">
+        {/* One column that can shrink to the screen width, so long file names and PDFs
+            scroll or truncate inside the dialog instead of pushing it off the screen. */}
+        <div className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]">
+          <DialogHeader className="min-w-0 border-b px-4 py-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <DialogTitle className="min-w-0 truncate text-base font-semibold text-slate-900">
                 {active?.type === "new"
                   ? active.file.name
                   : active?.type === "existing"
@@ -91,7 +93,7 @@ export default function DocumentPreviewDialog({
             </div>
           </DialogHeader>
 
-          <div className="min-h-0 overflow-hidden">
+          <div className="min-h-0 min-w-0 overflow-hidden">
             <Carousel setApi={setApi} opts={{ startIndex: index }} className="h-full">
               <CarouselContent className="-ms-0 h-full">
                 {items.map((item, i) => (
@@ -141,7 +143,7 @@ export default function DocumentPreviewDialog({
             </Carousel>
           </div>
 
-          <DialogFooter className="mx-0 mb-0 border-t bg-white px-6 py-4 flex-row items-center justify-between sm:justify-between">
+          <DialogFooter className="mx-0 mb-0 min-w-0 border-t bg-white px-4 py-4 sm:px-6 flex-row items-center justify-between sm:justify-between">
             <span className="text-sm font-medium text-slate-600">
               {items.length ? `${index + 1} / ${items.length}` : "0 / 0"}
             </span>

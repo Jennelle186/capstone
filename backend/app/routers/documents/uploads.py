@@ -22,7 +22,12 @@ from ...services.gcp_storage import (
     make_staging_key,
 )
 from ...services.helpers import exclude_replaced_submissions
-from ...services.requirements import get_student_slot_statuses, has_verified_submission, latest_submission_per_type
+from ...services.requirements import (
+    get_student_slot_statuses,
+    has_verified_submission,
+    latest_submission_per_type,
+    required_type_ids_for_school_year,
+)
 from ...services.user_sync import ensure_user_row
 from .schemas import StudentClaims, SubmissionDetailResponse
 
@@ -78,6 +83,21 @@ class InitiateUploadRequest(BaseModel):
     document_type_id: str | None = None
     is_compiled: bool = False
     replace_submission_id: str | None = None
+    # True when the student chose the document type for this file themselves.
+    # Such a file skips AI splitting and classification and is marked CLASSIFIED on confirm.
+    classify_manually: bool = False
+
+
+MANUAL_CLASSIFICATION_METHOD = "manual"
+
+
+def manual_classification_result() -> dict:
+    """classification_result for a file whose type the student chose (no AI involved)."""
+    return {"method": MANUAL_CLASSIFICATION_METHOD, "accepted_by_user": True}
+
+
+def is_manual_classification(classification_result) -> bool:
+    return isinstance(classification_result, dict) and classification_result.get("method") == MANUAL_CLASSIFICATION_METHOD
 
 
 class InitiateUploadResponse(BaseModel):
@@ -136,8 +156,22 @@ async def initiate_upload(
     The browser uploads the file directly to GCS using the returned URL and fields,
     then calls POST /api/me/documents/confirm to mark the submission as UPLOADED.
     """
+    if body.classify_manually and not body.document_type_id:
+        raise HTTPException(status_code=400, detail="Choose the document type for this file before uploading.")
+
     student = await _require_student_onboarded(db, current_user)
     await _ensure_school_year_not_closed(db, student)
+
+    if body.classify_manually:
+        # A student-labelled file skips the AI's "not required" check, so the type must be one the admin requires.
+        try:
+            manual_type_id = UUID(body.document_type_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid document type.")
+        # None (no requirements) and an empty set both refuse: nothing is required, so nothing can be labelled.
+        required = await _required_type_ids(db, student)
+        if not required or manual_type_id not in required:
+            raise HTTPException(status_code=400, detail="This document is not required for your school year.")
 
     # Garbage-collect stale PENDING submissions (orphaned from failed uploads)
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
@@ -204,8 +238,10 @@ async def initiate_upload(
         original_filename=body.name,
         mime_type=body.type,
         file_size=str(body.size),
-        is_compiled=body.is_compiled,
+        # A file the student labelled is one document, so it is never split.
+        is_compiled=body.is_compiled and not body.classify_manually,
         status=SubmissionStatus.PENDING,
+        classification_result=manual_classification_result() if body.classify_manually else None,
     )
     if body.document_type_id:
         try:
@@ -226,7 +262,16 @@ async def initiate_upload(
                 .where(DocumentSubmission.id == replace_uuid)
             )
             old_sub = old_sub_result.scalar_one_or_none()
-            if old_sub is not None and old_sub.student_id == student.id:
+            # A typed upload replaces only a file of the same document type. An upload for a different type is
+            # a separate file, so it must not be linked to the file it was not meant to replace.
+            # Two cases match any type on purpose: an untyped old file (flagged as not matching any type) is the
+            # file being fixed, and an untyped new upload is the AI path, where the type is only known after
+            # classification. The classification step then checks the type against the file it replaces.
+            new_type = getattr(submission, "document_type_id", None)
+            same_type = old_sub is not None and (
+                new_type is None or old_sub.document_type_id is None or new_type == old_sub.document_type_id
+            )
+            if old_sub is not None and old_sub.student_id == student.id and same_type:
                 if old_sub.document_type_id is not None:
                     if await has_verified_submission(
                         db, student.id, old_sub.document_type_id, exclude_submission_id=old_sub.id
@@ -333,9 +378,44 @@ async def confirm_upload(
     if submission.student_id != student.id:
         raise HTTPException(status_code=403, detail="You do not have permission to confirm this document.")
 
+    # A repeated confirm of a file that is already saved changes nothing and succeeds. This keeps a
+    # retry after a lost response from failing, which would skip the caller's cleanup.
+    if submission.status in (SubmissionStatus.UPLOADED, SubmissionStatus.CLASSIFIED):
+        return ConfirmUploadResponse(
+            id=str(submission.id),
+            status=submission.status.value,
+            file_key=submission.file_key,
+            original_filename=submission.original_filename,
+            is_compiled=submission.is_compiled,
+        )
+
+    # Only a PENDING upload can be confirmed. Confirming any other row would move it to
+    # UPLOADED or CLASSIFIED, which can demote a verified or submitted document and let the
+    # student delete it. /retry enforces the same rule.
+    if submission.status != SubmissionStatus.PENDING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm a document with status '{submission.status.value}'. Only PENDING uploads can be confirmed.",
+        )
+
     await asyncio.to_thread(gcs_head_object, submission.file_key)
 
-    submission.status = SubmissionStatus.UPLOADED
+    # Student-labelled files are already classified, so they skip the AI classify step.
+    if is_manual_classification(getattr(submission, "classification_result", None)):
+        # Same guard as the AI path in classification.py: a file must not become CLASSIFIED
+        # for a type the adviser has verified, even if verification happened during the upload.
+        if submission.document_type_id is not None and await has_verified_submission(
+            db, student.id, submission.document_type_id, exclude_submission_id=submission.id
+        ):
+            dt = await db.get(DocumentType, submission.document_type_id)
+            type_name = dt.name if dt else "this document"
+            raise HTTPException(
+                status_code=409,
+                detail=f"'{type_name}' has already been verified by your adviser. This upload cannot be confirmed.",
+            )
+        submission.status = SubmissionStatus.CLASSIFIED
+    else:
+        submission.status = SubmissionStatus.UPLOADED
     await db.commit()
     await db.refresh(submission)
 
@@ -374,6 +454,32 @@ def _serialize_submission(
         page_count=s.page_count,
         children=[_serialize_submission(c) for c in (children or [])],
         created_at=s.created_at.isoformat() if s.created_at else "",
+    )
+
+
+async def _required_type_ids(db: SessionDep, student: Student) -> set[UUID] | None:
+    """Document types the student is required to upload now, after the classification filter.
+
+    None means the school year has no requirements at all, so there is nothing to check against.
+    An empty set means requirements exist but none apply to this student, so nothing is required.
+    """
+    if student.school_year_id is None:
+        return None
+    return await required_type_ids_for_school_year(db, student.school_year_id, student.classification)
+
+
+def _is_flagged_for_removed_type(s, required_type_ids: set[UUID] | None) -> bool:
+    """A flagged file whose document type is no longer required for this student.
+
+    The student cannot usefully fix it, and the adviser's queue and verify already refuse it, so the
+    student's list hides it too. The row itself is kept, so re-adding the requirement brings it back.
+    None (no requirements configured) hides nothing.
+    """
+    return (
+        required_type_ids is not None
+        and s.status == SubmissionStatus.FLAGGED
+        and s.document_type_id is not None
+        and s.document_type_id not in required_type_ids
     )
 
 
@@ -424,12 +530,24 @@ async def list_my_documents(
     for children in children_by_parent.values():
         children.sort(key=lambda c: c.segment_index if c.segment_index is not None else 0)
 
+    # The requirement lookup is only needed when a flagged file (top-level or a split segment) could be hidden.
+    has_flagged = any(s.status == SubmissionStatus.FLAGGED for s in submissions)
+    required_type_ids = await _required_type_ids(db, student) if has_flagged else None
+
+    # Hide flagged segments of a removed type too, and drop a compiled parent left with no visible segments.
+    visible_children = {
+        parent_id: [c for c in children if not _is_flagged_for_removed_type(c, required_type_ids)]
+        for parent_id, children in children_by_parent.items()
+    }
+    visible_children = {parent_id: kids for parent_id, kids in visible_children.items() if kids}
+
     return [
-        _serialize_submission(s, children_by_parent.get(s.id))
+        _serialize_submission(s, visible_children.get(s.id))
         for s in flat
         # Compiled parents with no remaining children are omitted so an
         # orphaned, undeletable parent container never reaches the client.
-        if not (s.is_compiled_parent and s.id not in children_by_parent)
+        if not (s.is_compiled_parent and s.id not in visible_children)
+        and not _is_flagged_for_removed_type(s, required_type_ids)
     ]
 
 

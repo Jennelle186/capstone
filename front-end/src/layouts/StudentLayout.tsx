@@ -27,7 +27,7 @@ export default function StudentLayout() {
                     <DashboardHeader sectionLabel="Dashboards" pageLabel={pageLabel}>
                         <NotificationBell />
                         <div className="h-6 w-px bg-slate-200" />
-                        <span className="text-sm font-semibold text-primary">Document Management</span>
+                        <span className="hidden text-sm font-semibold text-primary md:inline">Document Management</span>
                     </DashboardHeader>
                     <div className="p-6 md:p-8">
                         <AnimatePresence mode="wait">

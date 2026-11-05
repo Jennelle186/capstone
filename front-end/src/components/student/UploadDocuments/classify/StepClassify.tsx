@@ -33,7 +33,9 @@ interface StepClassifyProps {
 function submissionToItem(s: SubmissionDetail): ClassificationItem {
   const result = s.classification_result as Record<string, unknown> | null;
   const confidence = typeof result?.["confidence"] === "number" ? Math.round(result["confidence"] * 100) : null;
-  const acceptedByUser = result?.["accepted_by_user"] === true;
+  // A file the student labelled in the upload step is classified by the student, not an AI override.
+  const labelledByStudent = result?.["method"] === "manual";
+  const acceptedByUser = result?.["accepted_by_user"] === true && !labelledByStudent;
   const isFlagged = s.status === "flagged" && !acceptedByUser;
 
   let status: ClassificationStatus;
