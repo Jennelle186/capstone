@@ -75,12 +75,12 @@ secrets never travel with the repository.
 
    ```bash
    gcloud storage buckets add-iam-policy-binding \
-     gs://enrolment-documents-weighty-rookery-t3bf2-asia-southeast1 \
-     --member=serviceAccount:enrolment-docs-app@weighty-rookery-t3bf2.iam.gserviceaccount.com \
+     gs://<your-bucket-name> \
+     --member=serviceAccount:<service-account-name>@<project-id>.iam.gserviceaccount.com \
      --role=roles/storage.admin
 
-   gcloud projects add-iam-policy-binding weighty-rookery-t3bf2 \
-     --member=serviceAccount:enrolment-docs-app@weighty-rookery-t3bf2.iam.gserviceaccount.com \
+   gcloud projects add-iam-policy-binding <project-id> \
+     --member=serviceAccount:<service-account-name>@<project-id>.iam.gserviceaccount.com \
      --role=roles/aiplatform.user
    ```
 
