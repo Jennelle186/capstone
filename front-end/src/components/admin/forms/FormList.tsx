@@ -62,7 +62,8 @@ export default function FormList({ forms, selectedId, onSelect, onDelete, onCrea
                                     </p>
                                 </div>
                                 {form.extraction_schema_id && (
-                                    <Badge variant="secondary" className="shrink-0">
+                                    // Long schema names shrink and truncate, so the delete button always stays visible.
+                                    <Badge variant="secondary" className="min-w-0 max-w-[45%] truncate" title={form.extraction_schema_name || "schema"}>
                                         {form.extraction_schema_name || "schema"}
                                     </Badge>
                                 )}

@@ -20,10 +20,11 @@ export default function StatSummaryCards({ submissions }: Props) {
 
       switch (doc.status) {
         case "verified":
-        case "submitted":
-        case "classified":
           verified++;
           break;
+        // Submitted and classified documents are waiting on the adviser or the next step, not verified.
+        case "submitted":
+        case "classified":
         case "in-review":
         case "processing":
           inReview++;

@@ -159,11 +159,16 @@ class ExtractionSchemaBase(BaseModel):
 
 
 class ExtractionSchemaCreateRequest(ExtractionSchemaBase):
-    pass
+    # The admin-samples/ key returned by the generate endpoint (file_id). Optional for schemas made by hand.
+    # The content type is derived on the server from the key, never taken from the client.
+    sample_file_key: str | None = Field(default=None, max_length=512)
 
 
 class ExtractionSchemaUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+
+    # The admin-samples/ key of a newly generated sample. Send null to remove the current sample.
+    sample_file_key: str | None = Field(default=None, max_length=512)
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     version_label: str | None = Field(default=None, max_length=80)
@@ -209,8 +214,40 @@ class ExtractionSchemaResponse(BaseModel):
     status: ExtractionSchemaStatus
     source_file_name: str | None
     generation_prompt: str | None
+    has_sample: bool = False
+    sample_content_type: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ExtractionSchemaSampleUrlResponse(BaseModel):
+    url: str
+    expires_in: int
+
+
+class SampleDiscardRequest(BaseModel):
+    file_id: str = Field(min_length=1, max_length=512)
+
+
+class SampleDiscardResponse(BaseModel):
+    deleted: bool
+
+
+class SampleCleanupRequest(BaseModel):
+    dry_run: bool = True
+    # Only samples uploaded at least this long ago are considered, so a sample from a generation still in progress is kept.
+    min_age_minutes: int = Field(default=60, ge=0, le=10080)
+    # The keys the admin confirmed in the dry run. When set, only these are deleted, and only if they are still unused.
+    confirmed_keys: list[str] | None = None
+
+
+class SampleCleanupResponse(BaseModel):
+    dry_run: bool
+    scanned: int
+    orphaned_count: int
+    deleted_count: int
+    failed_keys: list[str]
+    orphaned_keys: list[str]
 
 
 class ExtractionSchemaGenerateResponse(BaseModel):

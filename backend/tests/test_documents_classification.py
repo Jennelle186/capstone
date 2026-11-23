@@ -87,6 +87,7 @@ def test_classify_document_creates_job(client, mock_user, mock_student):
     submission_id = uuid4()
     job_id = uuid4()
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=submission_id,
         student_id=mock_student.id,
         status=SubmissionStatus.UPLOADED,
@@ -139,6 +140,7 @@ def test_classify_document_creates_job(client, mock_user, mock_student):
 def test_classify_document_wrong_status(client, mock_user, mock_student):
     submission_id = uuid4()
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=submission_id,
         student_id=mock_student.id,
         status=SubmissionStatus.PENDING,
@@ -198,6 +200,7 @@ def test_classify_document_not_found(client, mock_user, mock_student):
 def test_classify_document_wrong_student(client, mock_user, mock_student):
     submission_id = uuid4()
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=submission_id,
         student_id=uuid4(),
         status=SubmissionStatus.UPLOADED,
@@ -231,6 +234,7 @@ def test_classify_document_duplicate_job(client, mock_user, mock_student):
     submission_id = uuid4()
     existing_job = SimpleNamespace(id=uuid4())
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=submission_id,
         student_id=mock_student.id,
         status=SubmissionStatus.UPLOADED,
@@ -293,6 +297,7 @@ def test_classify_document_closed_year(client, mock_user, mock_student):
 def test_classify_all_creates_job(client, mock_user, mock_student):
     job_id = uuid4()
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=uuid4(),
         student_id=mock_student.id,
         status=SubmissionStatus.UPLOADED,
@@ -346,11 +351,13 @@ def test_classify_all_custom_ids(client, mock_user, mock_student):
     job_id = uuid4()
     sid1, sid2 = uuid4(), uuid4()
     submission1 = SimpleNamespace(
+        parent_submission_id=None,
         id=sid1,
         student_id=mock_student.id,
         status=SubmissionStatus.UPLOADED,
     )
     submission2 = SimpleNamespace(
+        parent_submission_id=None,
         id=sid2,
         student_id=mock_student.id,
         status=SubmissionStatus.FLAGGED,
@@ -443,6 +450,7 @@ def test_confirm_classification_sets_type(client, mock_user, mock_student):
     doc_type_id = uuid4()
     doc_type = SimpleNamespace(id=doc_type_id, name="Admission Form")
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=submission_id,
         student_id=mock_student.id,
         status=SubmissionStatus.CLASSIFIED,
@@ -495,6 +503,7 @@ def test_confirm_classification_duplicate_verified_returns_409(client, mock_user
     doc_type_id = uuid4()
     doc_type = SimpleNamespace(id=doc_type_id, name="Admission Form")
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=submission_id,
         student_id=mock_student.id,
         status=SubmissionStatus.CLASSIFIED,
@@ -540,6 +549,7 @@ def test_confirm_classification_duplicate_verified_returns_409(client, mock_user
 def test_confirm_classification_invalid_status(client, mock_user, mock_student):
     submission_id = uuid4()
     submission = SimpleNamespace(
+        parent_submission_id=None,
         id=submission_id,
         student_id=mock_student.id,
         status=SubmissionStatus.PENDING,

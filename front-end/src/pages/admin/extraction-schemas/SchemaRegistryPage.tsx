@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchWithClerkAuth } from "@/lib/api";
 import { parseDocumentManagementApiError } from "@/lib/document-management-utils";
-import type { ExtractionSchemaRecord } from "@/types/extractionSchema";
+import type { ExtractionSchemaRecord, SampleCleanupSummary } from "@/types/extractionSchema";
 import type { SchemaRegistryEntry, SchemaRegistryResponse } from "@/types/schemaRegistry";
 
 export default function SchemaRegistryPage() {
@@ -111,6 +111,78 @@ export default function SchemaRegistryPage() {
         },
         [getToken],
     );
+
+    const [samplePreviewing, setSamplePreviewing] = useState(false);
+
+    const openSamplePreview = useCallback(
+        async (schemaId: string) => {
+            setSamplePreviewing(true);
+            // Open the window now, while the click still counts as user action. Browsers block
+            // pop-ups opened after a slow request, so the file is loaded into this window afterwards.
+            const previewWindow = window.open("", "_blank");
+            if (previewWindow) previewWindow.opener = null;
+            try {
+                const payload = (await requestWithAdminAuth(`/api/admin/extraction-schemas/${schemaId}/sample-url`)) as {
+                    url: string;
+                };
+                if (previewWindow) {
+                    previewWindow.location.href = payload.url;
+                } else {
+                    toast.error("Your browser blocked the preview. Allow pop-ups for this site and try again.");
+                }
+            } catch (error) {
+                previewWindow?.close();
+                toast.error(error instanceof Error ? error.message : "Could not open the sample.");
+            } finally {
+                setSamplePreviewing(false);
+            }
+        },
+        [requestWithAdminAuth],
+    );
+
+    const [cleaningSamples, setCleaningSamples] = useState(false);
+
+    // Removes saved-but-unused sample files left by generations that were never saved.
+    // Shows a dry run first and deletes only after the admin confirms.
+    const removeUnusedSamples = useCallback(async () => {
+        setCleaningSamples(true);
+        try {
+            const cleanupPath = "/api/admin/extraction-schemas/samples/cleanup";
+            const jsonInit = (dryRun: boolean, confirmedKeys?: string[]): RequestInit => ({
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ dry_run: dryRun, confirmed_keys: confirmedKeys }),
+            });
+
+            const preview = (await requestWithAdminAuth(cleanupPath, jsonInit(true))) as SampleCleanupSummary;
+            if (preview.orphaned_count === 0) {
+                toast.success("No unused sample files to remove.");
+                return;
+            }
+
+            const confirmed = window.confirm(
+                `Delete ${preview.orphaned_count} sample file(s) that no schema uses? This cannot be undone.`,
+            );
+            if (!confirmed) return;
+
+            // Only the files shown in the confirmation are removed, not whatever is unused at the moment of the second call.
+            const result = (await requestWithAdminAuth(
+                cleanupPath,
+                jsonInit(false, preview.orphaned_keys),
+            )) as SampleCleanupSummary;
+            if (result.failed_keys.length > 0) {
+                toast.error(
+                    `Removed ${result.deleted_count} sample file(s), but ${result.failed_keys.length} could not be removed.`,
+                );
+            } else {
+                toast.success(`Removed ${result.deleted_count} unused sample file(s).`);
+            }
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Could not remove unused sample files.");
+        } finally {
+            setCleaningSamples(false);
+        }
+    }, [requestWithAdminAuth]);
 
     const loadRegistry = useCallback(async () => {
         setIsLoading(true);
@@ -209,6 +281,16 @@ export default function SchemaRegistryPage() {
             <PageHeader
                 title="Schema Registry"
                 subtitle="Overview of document types, their extraction capabilities, and school year assignments."
+                actions={
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={cleaningSamples}
+                        onClick={() => void removeUnusedSamples()}
+                    >
+                        {cleaningSamples ? "Checking…" : "Remove unused samples"}
+                    </Button>
+                }
             />
 
             <motion.div variants={fadeInUp}>
@@ -481,6 +563,24 @@ export default function SchemaRegistryPage() {
                                                             <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                                                             <span className="text-muted-foreground">{dialogSchema.source_file_name}</span>
                                                         </div>
+                                                    ) : null}
+                                                    {dialogSchema.source_file_name ? (
+                                                        dialogSchema.has_sample ? (
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                disabled={samplePreviewing}
+                                                                onClick={() => void openSamplePreview(dialogSchema.id)}
+                                                            >
+                                                                <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                                                                Preview sample
+                                                            </Button>
+                                                        ) : (
+                                                            <p className="text-xs text-muted-foreground">
+                                                                No sample was saved for this schema.
+                                                            </p>
+                                                        )
                                                     ) : null}
                                                     {dialogSchema.generation_prompt ? (
                                                         <div>

@@ -325,7 +325,7 @@ describe("StepUpload", () => {
         getToken={mockGetToken}
       />,
     );
-    const input = container.querySelector<HTMLInputElement>("#choose-file-dt-1");
+    const input = container.querySelector<HTMLInputElement>("input[data-document-type-id='dt-1']");
     expect(input).not.toBeNull();
     await userEvent.setup().upload(input!, new File(["pdf"], "card.pdf", { type: "application/pdf" }));
 
@@ -446,7 +446,7 @@ describe("StepUpload", () => {
         getToken={mockGetToken}
       />,
     );
-    const input = container.querySelector<HTMLInputElement>("#choose-file-dt-1");
+    const input = container.querySelector<HTMLInputElement>("input[data-document-type-id='dt-1']");
     await userEvent.setup().upload(input!, new File(["pdf"], "new.pdf", { type: "application/pdf" }));
 
     await waitFor(() => expect(calls).toContain("delete:/api/me/documents/old-1"));
@@ -478,7 +478,7 @@ describe("StepUpload", () => {
         getToken={mockGetToken}
       />,
     );
-    const input = container.querySelector<HTMLInputElement>("#choose-file-dt-1");
+    const input = container.querySelector<HTMLInputElement>("input[data-document-type-id='dt-1']");
     await userEvent.setup().upload(input!, new File(["pdf"], "new.pdf", { type: "application/pdf" }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());

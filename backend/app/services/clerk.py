@@ -2,11 +2,25 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
 from clerk_backend_api.sdk import Clerk
 
 logger = logging.getLogger(__name__)
+
+# Every API request checks whether the signed-in user's Clerk account is locked. A short
+# cache keeps that from calling Clerk on each request. Lock and unlock clear the entry, so
+# an admin's change applies at once on this server; other servers pick it up within the TTL.
+LOCK_CACHE_TTL_SECONDS = 60
+# An unknown state (Clerk unreachable) is remembered for a shorter time, so an outage does not
+# repeat the failing call on every request, while recovery is still picked up quickly.
+UNKNOWN_LOCK_TTL_SECONDS = 10
+_lock_cache: dict[str, tuple[float, bool]] = {}
+_unknown_lock_until: dict[str, float] = {}
+# The last state Clerk reported for each user, kept even after the cache expires. During an
+# outage an account last seen locked stays blocked; any other account stays allowed (fail open).
+_last_known_locked: dict[str, bool] = {}
 
 
 def _normalize_non_empty_string(value: Any) -> str | None:
@@ -185,6 +199,47 @@ async def fetch_user_lock_status(clerk_user_id: str) -> bool | None:
     return bool(locked) if isinstance(locked, bool) else None
 
 
+async def is_user_locked(clerk_user_id: str) -> bool:
+    """
+    Return True when the user's Clerk account is locked (deactivated).
+    Unknown state (Clerk unreachable) returns False so an outage does not lock everyone out;
+    that case is logged by fetch_user_lock_status and is not cached.
+    """
+    now = time.monotonic()
+    cached = _lock_cache.get(clerk_user_id)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    if _unknown_lock_until.get(clerk_user_id, 0.0) > now:
+        return False
+
+    locked = await fetch_user_lock_status(clerk_user_id)
+    if locked is None:
+        # Fail open on purpose: an outage must not lock out every user. An account last seen
+        # locked is still refused, so a deactivated user cannot return during an outage.
+        logger.warning("Lock state unknown for Clerk user %s; allowing request unless last known locked", clerk_user_id)
+        _prune_expired(now)
+        _unknown_lock_until[clerk_user_id] = now + UNKNOWN_LOCK_TTL_SECONDS
+        return _last_known_locked.get(clerk_user_id, False)
+    _unknown_lock_until.pop(clerk_user_id, None)
+    _last_known_locked[clerk_user_id] = locked
+
+    _prune_expired(now)
+    _lock_cache[clerk_user_id] = (now + LOCK_CACHE_TTL_SECONDS, locked)
+    return locked
+
+
+def _prune_expired(now: float) -> None:
+    for uid in [uid for uid, (expires, _) in _lock_cache.items() if expires <= now]:
+        del _lock_cache[uid]
+    for uid in [uid for uid, expires in _unknown_lock_until.items() if expires <= now]:
+        del _unknown_lock_until[uid]
+
+
+def forget_lock_state(clerk_user_id: str) -> None:
+    _lock_cache.pop(clerk_user_id, None)
+    _unknown_lock_until.pop(clerk_user_id, None)
+
+
 async def fetch_users_lock_status(clerk_user_ids: list[str]) -> dict[str, bool | None]:
     """
     Return a dict mapping clerk_user_id -> locked status for all given user IDs.
@@ -239,6 +294,8 @@ async def lock_user_account(clerk_user_id: str) -> bool:
         logger.exception("Failed to lock Clerk user %s", clerk_user_id)
         raise RuntimeError("Failed to lock Clerk user.") from error
 
+    forget_lock_state(clerk_user_id)
+    _last_known_locked[clerk_user_id] = True
     locked = getattr(user, "locked", None)
     return bool(locked) if isinstance(locked, bool) else True
 
@@ -258,6 +315,8 @@ async def unlock_user_account(clerk_user_id: str) -> bool:
         logger.exception("Failed to unlock Clerk user %s", clerk_user_id)
         raise RuntimeError("Failed to unlock Clerk user.") from error
 
+    forget_lock_state(clerk_user_id)
+    _last_known_locked[clerk_user_id] = False
     locked = getattr(user, "locked", None)
     if isinstance(locked, bool):
         return locked

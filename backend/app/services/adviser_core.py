@@ -2,15 +2,40 @@ from __future__ import annotations
 
 import uuid
 
+from fastapi import HTTPException, status
 from sqlalchemy import desc, func, select
 
 from ..database import SessionDep
 from ..models import Adviser, Department, Program, ProgramAdviserAssignment, User
+from .clerk import fetch_user_lock_status
 from .helpers import (
     get_active_school_year_id,
     get_program_id_to_department_code_map,
     program_uuid_for_department_code,
 )
+
+
+async def ensure_inactive_adviser_gets_no_new_programs(
+    clerk_user_id: str | None,
+    requested_codes: list[str],
+    held_program_ids: set[uuid.UUID],
+) -> None:
+    """Refuse new program assignments for a deactivated (Clerk-locked) adviser.
+
+    Only programs the adviser does not already hold count as new. Removing programs
+    from an inactive adviser stays allowed, so they can be cleaned up. An unknown lock
+    state (Clerk unreachable) is allowed, matching the request check in auth.py.
+    """
+    if not clerk_user_id:
+        return
+    new_program_ids = {program_uuid_for_department_code(code) for code in requested_codes} - held_program_ids
+    if not new_program_ids:
+        return
+    if await fetch_user_lock_status(clerk_user_id) is True:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This adviser is inactive. Activate the adviser before assigning them to an academic program.",
+        )
 
 
 async def resolve_adviser(db: SessionDep, current_user: dict) -> Adviser | None:

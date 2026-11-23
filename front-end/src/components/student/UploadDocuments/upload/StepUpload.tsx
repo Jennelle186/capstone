@@ -516,8 +516,10 @@ export default function StepUpload({
   // there is nothing left to upload — hide the upload controls entirely.
   const allVerified = !replaceSubmissionId && allSlotsVerified(requiredSlots);
   const canUpload = !isSchoolYearClosed && !allVerified;
-  const isChooseMode = canUpload && uploadMode === "choose";
-  const isAiMode = canUpload && uploadMode === "ai";
+  // Replacing a flagged file always goes through AI upload, so the choose-a-document mode is not offered then.
+  const isReplacing = Boolean(replaceSubmissionId);
+  const isChooseMode = canUpload && !isReplacing && uploadMode === "choose";
+  const isAiMode = canUpload && (isReplacing || uploadMode === "ai");
 
   return (
     <div className="grid grid-cols-12 gap-4">
@@ -569,7 +571,7 @@ export default function StepUpload({
             isReadOnly={isSchoolYearClosed}
           />
         )}
-        {canUpload && (
+        {canUpload && !isReplacing && (
           <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
             <legend className="px-1 text-sm font-semibold text-slate-900">
               How do you want to add your documents?

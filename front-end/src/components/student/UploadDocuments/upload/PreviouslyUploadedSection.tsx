@@ -194,8 +194,8 @@ export default function PreviouslyUploadedSection({
             ) : sub.status !== "pending" && (
               <CheckCircle className="size-5 text-emerald-500" />
             )}
-            {/* A pending upload never reached storage, so it has nothing to preview. */}
-            {sub.status !== "pending" && !sub.filled_online && (
+            {/* A pending upload never reached storage, and a verified one is not in the preview list, so neither is previewed. */}
+            {sub.status !== "pending" && !sub.filled_online && previewItems.some((p) => p.type === "existing" && p.submission.id === sub.id) && (
             <button
               onClick={() => {
                 const idx = previewItems.findIndex(
@@ -203,6 +203,7 @@ export default function PreviouslyUploadedSection({
                 );
                 if (idx >= 0) onPreview(idx);
               }}
+              aria-label={`Preview ${sub.original_filename}`}
               className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
             >
               <FileText className="size-4 text-slate-500" />

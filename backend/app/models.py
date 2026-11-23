@@ -562,6 +562,9 @@ class ExtractionSchema(Base):
         index=True,
     )
     source_file_name = Column(String(255), nullable=True)
+    # Storage key of the blank sample form used to generate this schema (admin-samples/...). Null when none was kept.
+    sample_file_key = Column(String(512), nullable=True)
+    sample_content_type = Column(String(100), nullable=True)
     generation_prompt = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

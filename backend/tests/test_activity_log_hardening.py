@@ -164,6 +164,8 @@ def _schema_obj(status):
         status=status,
         source_file_name=None,
         generation_prompt=None,
+        sample_file_key=None,
+        sample_content_type=None,
     )
 
 

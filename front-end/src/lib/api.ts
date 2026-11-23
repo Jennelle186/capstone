@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/config/api";
+import { notifyIfAccountDeactivated } from "@/lib/accountStatus";
 
 // Reusable helper for authenticated backend calls with Clerk bearer tokens.
 export async function fetchWithClerkAuth(
@@ -12,8 +13,10 @@ export async function fetchWithClerkAuth(
     headers.set("Content-Type", "application/json");
   }
 
-  return fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers,
   });
+  notifyIfAccountDeactivated(response);
+  return response;
 }

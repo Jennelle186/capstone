@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 import json
 import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
@@ -27,7 +29,12 @@ from ...schemas.extraction_schemas import (
     ExtractionSchemaField,
     ExtractionSchemaGenerateResponse,
     ExtractionSchemaResponse,
+    ExtractionSchemaSampleUrlResponse,
     ExtractionSchemaUpdateRequest,
+    SampleCleanupRequest,
+    SampleCleanupResponse,
+    SampleDiscardRequest,
+    SampleDiscardResponse,
 )
 from ...schemas.forms import FormResponse
 from ...services.analytics_inheritance import (
@@ -43,8 +50,15 @@ from ...services.gcp_pipeline import (
     generate_schema_blueprint,
 )
 from ...services.gcp_storage import (
-    _admin_temp_prefix,
+    _admin_sample_prefix,
+    admin_sample_key,
+    blob_exists,
     delete_file,
+    delete_file_batch,
+    delete_file_checked,
+    generate_presigned_url,
+    is_admin_sample_key,
+    list_blob_times,
     upload_file_bytes,
 )
 from ...services.schema_generation import blueprint_to_fields
@@ -68,9 +82,38 @@ def serialize_extraction_schema(schema: ExtractionSchema) -> ExtractionSchemaRes
         status=schema.status,
         source_file_name=schema.source_file_name,
         generation_prompt=schema.generation_prompt,
+        has_sample=bool(schema.sample_file_key),
+        sample_content_type=schema.sample_content_type,
         created_at=schema.created_at,
         updated_at=schema.updated_at,
     )
+
+
+# The only file types an admin may keep as a sample. The type comes from the extension, never from the upload's header.
+_SAMPLE_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
+
+
+def _sample_content_type(filename: str | None) -> str | None:
+    """Content type for an allowed sample filename, or None when the type is not allowed."""
+    return _SAMPLE_CONTENT_TYPES.get(Path(filename or "").suffix.lower())
+
+
+async def _sample_in_use(db, key: str, exclude_schema_id: UUID | None = None) -> bool:
+    """True when a saved schema (other than exclude_schema_id) points at this sample key."""
+    stmt = select(ExtractionSchema.id).where(ExtractionSchema.sample_file_key == key)
+    if exclude_schema_id is not None:
+        stmt = stmt.where(ExtractionSchema.id != exclude_schema_id)
+    return (await db.execute(stmt.limit(1))).first() is not None
+
+
+def _content_type_for(key: str) -> str:
+    """Content type of a stored sample, from its key's extension."""
+    return _sample_content_type(key) or "application/pdf"
 
 
 def _json_digest(name: str, value: object) -> dict:
@@ -131,6 +174,105 @@ async def get_extraction_schema(
     return serialize_extraction_schema(schema)
 
 
+SAMPLE_URL_EXPIRES_IN = 900
+
+
+@router.get("/extraction-schemas/{schema_id}/sample-url", response_model=ExtractionSchemaSampleUrlResponse)
+async def get_extraction_schema_sample_url(
+    schema_id: UUID,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    """Short-lived link to the blank sample form this schema was generated from."""
+    del current_user
+
+    schema = await db.get(ExtractionSchema, schema_id)
+    if schema is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction schema not found.")
+    if not is_admin_sample_key(schema.sample_file_key):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No sample is saved for this schema.")
+
+    # The file can be removed by the cleanup, so check it is still there before giving out a link to it.
+    if not await asyncio.to_thread(blob_exists, schema.sample_file_key):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The sample file is no longer stored. Generate the schema again to add a new sample.",
+        )
+
+    url = await asyncio.to_thread(generate_presigned_url, schema.sample_file_key, SAMPLE_URL_EXPIRES_IN)
+    return ExtractionSchemaSampleUrlResponse(url=url, expires_in=SAMPLE_URL_EXPIRES_IN)
+
+
+@router.post("/extraction-schemas/samples/discard", response_model=SampleDiscardResponse)
+async def discard_unsaved_sample(
+    payload: SampleDiscardRequest,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    """Delete a generated sample that no saved schema uses. A sample a schema still points at is never deleted."""
+    del current_user
+
+    if not is_admin_sample_key(payload.file_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a sample upload.")
+
+    if await _sample_in_use(db, payload.file_id):
+        return SampleDiscardResponse(deleted=False)
+
+    try:
+        deleted = await asyncio.to_thread(delete_file_checked, payload.file_id)
+    except Exception:
+        logger.warning("Could not delete unused sample %s", payload.file_id, exc_info=True)
+        return SampleDiscardResponse(deleted=False)
+    return SampleDiscardResponse(deleted=deleted)
+
+
+@router.post("/extraction-schemas/samples/cleanup", response_model=SampleCleanupResponse)
+async def cleanup_unused_samples(
+    payload: SampleCleanupRequest,
+    current_user: dict = Depends(require_admin),
+    db: SessionDep = None,
+):
+    """List, and when dry_run is false delete, sample files that no schema refers to.
+
+    Defaults to a dry run, so nothing is deleted unless the admin asks for it. Samples uploaded more recently
+    than min_age_minutes are left alone, since they may belong to a generation that has not been saved yet.
+    """
+    del current_user
+
+    ages = await asyncio.to_thread(list_blob_times, _admin_sample_prefix())
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=payload.min_age_minutes)
+    stored = [key for key, created in ages.items() if created is not None and created <= cutoff]
+    referenced = set(
+        (
+            await db.execute(
+                select(ExtractionSchema.sample_file_key).where(ExtractionSchema.sample_file_key.isnot(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    orphaned = [key for key in stored if key not in referenced]
+
+    # Delete only what the admin saw and confirmed, so the number in the dialog matches what is removed.
+    to_delete = orphaned
+    if payload.confirmed_keys is not None:
+        confirmed = set(payload.confirmed_keys)
+        to_delete = [key for key in orphaned if key in confirmed]
+
+    failed: list[str] = []
+    if to_delete and not payload.dry_run:
+        failed = await asyncio.to_thread(delete_file_batch, to_delete)
+
+    return SampleCleanupResponse(
+        dry_run=payload.dry_run,
+        scanned=len(ages),
+        orphaned_count=len(orphaned),
+        deleted_count=0 if payload.dry_run else len(to_delete) - len(failed),
+        failed_keys=failed,
+        orphaned_keys=orphaned,
+    )
+
+
 @router.post(
     "/extraction-schemas",
     response_model=ExtractionSchemaResponse,
@@ -149,6 +291,26 @@ async def create_extraction_schema(
                 detail="Analytics validation failed: " + " ".join(validation_errors),
             )
 
+    if payload.sample_file_key and not is_admin_sample_key(payload.sample_file_key):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The sample file is not a valid upload for this schema.",
+        )
+
+    if payload.sample_file_key and await _sample_in_use(db, payload.sample_file_key):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This sample is already used by another schema. Generate a new sample for this schema.",
+        )
+
+    # The cleanup may have removed an unsaved sample while the form was open. Storing a key
+    # with no file behind it would show a sample that cannot be previewed.
+    if payload.sample_file_key and not await asyncio.to_thread(blob_exists, payload.sample_file_key):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The sample file is no longer stored. Generate the sample again before saving.",
+        )
+
     schema = ExtractionSchema(
         name=payload.name,
         version_label=payload.version_label,
@@ -160,6 +322,8 @@ async def create_extraction_schema(
         status=payload.status,
         source_file_name=payload.source_file_name,
         generation_prompt=payload.generation_prompt,
+        sample_file_key=payload.sample_file_key or None,
+        sample_content_type=_content_type_for(payload.sample_file_key) if payload.sample_file_key else None,
     )
 
     if payload.document_type_id:
@@ -195,9 +359,16 @@ async def generate_extraction_schema(
 
     temp_key: str | None = None
     source_file_name: str | None = None
+    keep_sample = False
 
     if files:
         first_file = files[0]
+        sample_type = _sample_content_type(first_file.filename)
+        if sample_type is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A sample must be a PDF, PNG or JPEG file.",
+            )
         content = await first_file.read()
         if not content:
             raise HTTPException(
@@ -205,10 +376,11 @@ async def generate_extraction_schema(
                 detail="Uploaded file is empty.",
             )
 
-        import uuid
-        temp_key = f"{_admin_temp_prefix()}{uuid.uuid4().hex}/{first_file.filename or 'upload.pdf'}"
+        # The sample is kept under admin-samples/ so the registry can preview it later.
+        temp_key = admin_sample_key(first_file.filename or "sample.pdf")
         source_file_name = first_file.filename
-        upload_file_bytes(temp_key, content)
+        # Blocking GCS call: run it in a thread so it doesn't stall the event loop.
+        await asyncio.to_thread(upload_file_bytes, temp_key, content, sample_type)
 
     try:
         # Classify the document to match an exact document type from DB
@@ -238,6 +410,7 @@ async def generate_extraction_schema(
         if matched_document_type_id:
             fields = await inherit_analytics_from_previous(db, matched_document_type_id, fields)
 
+        keep_sample = True
         return ExtractionSchemaGenerateResponse(
             extraction_schema=schema_json,
             fields_json=[ExtractionSchemaField(**f) for f in fields],
@@ -260,7 +433,8 @@ async def generate_extraction_schema(
             detail=f"Schema generation failed: {exc}",
         )
     finally:
-        if temp_key:
+        # Delete the upload only when generation failed. A successful sample is kept for the registry.
+        if temp_key and not keep_sample:
             try:
                 await asyncio.to_thread(delete_file, temp_key)
             except Exception:
@@ -306,6 +480,35 @@ async def update_extraction_schema(
     if "generation_prompt" in payload.model_fields_set:
         schema.generation_prompt = payload.generation_prompt
 
+    old_sample_key = schema.sample_file_key
+    if "sample_file_key" in payload.model_fields_set:
+        new_sample_key = payload.sample_file_key or None
+        if new_sample_key and not is_admin_sample_key(new_sample_key):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The sample file is not a valid upload for this schema.",
+            )
+        if (
+            new_sample_key
+            and new_sample_key != old_sample_key
+            and await _sample_in_use(db, new_sample_key, exclude_schema_id=schema.id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This sample is already used by another schema. Generate a new sample for this schema.",
+            )
+        if (
+            new_sample_key
+            and new_sample_key != old_sample_key
+            and not await asyncio.to_thread(blob_exists, new_sample_key)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The sample file is no longer stored. Generate the sample again before saving.",
+            )
+        schema.sample_file_key = new_sample_key
+        schema.sample_content_type = _content_type_for(new_sample_key) if new_sample_key else None
+
     if schema.status == ExtractionSchemaStatus.ACTIVE:
         validation_errors = validate_analytics_fields(schema.fields_json or [])
         if validation_errors:
@@ -332,6 +535,16 @@ async def update_extraction_schema(
 
     await db.commit()
     await db.refresh(schema)
+
+    # Remove the replaced sample only after the change is saved, so a failed save never loses the file.
+    if old_sample_key and old_sample_key != schema.sample_file_key and is_admin_sample_key(old_sample_key):
+        # Another schema may still point at the old file, so it is deleted only when nothing else uses it.
+        if not await _sample_in_use(db, old_sample_key):
+            try:
+                await asyncio.to_thread(delete_file, old_sample_key)
+            except Exception:
+                logger.warning("Could not delete the replaced sample %s", old_sample_key, exc_info=True)
+
     return serialize_extraction_schema(schema)
 
 

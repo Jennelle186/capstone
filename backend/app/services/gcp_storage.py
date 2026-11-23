@@ -4,11 +4,12 @@ import logging
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import HTTPException, status
+from google.api_core.exceptions import NotFound
 from google.cloud import storage
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -38,6 +39,28 @@ def _bucket() -> storage.Bucket:
 
 def _admin_temp_prefix() -> str:
     return os.getenv("GCS_ADMIN_TEMP_PREFIX", "admin-temp/")
+
+
+def _admin_sample_prefix() -> str:
+    """Blank sample forms an admin uploads to generate a schema. Kept so the registry can preview them.
+
+    Not under staging/ or production/, so the orphan cleanup never scans or deletes them.
+    """
+    # An empty value counts as unset. Otherwise every key would match the prefix.
+    return os.getenv("GCS_ADMIN_SAMPLE_PREFIX") or "admin-samples/"
+
+
+def admin_sample_key(filename: str) -> str:
+    """Key for a new sample: admin-samples/<unique id>/<filename>."""
+    safe_name = Path(filename or "sample.pdf").name or "sample.pdf"
+    return f"{_admin_sample_prefix()}{uuid.uuid4().hex}/{safe_name}"
+
+
+def is_admin_sample_key(key: str | None) -> bool:
+    """True only for keys inside the sample prefix, with no path traversal."""
+    if not key or not key.startswith(_admin_sample_prefix()):
+        return False
+    return ".." not in key.split("/") and not key.endswith("/")
 
 
 def _staging_prefix() -> str:
@@ -222,6 +245,36 @@ def list_blobs(prefix: str | None = None) -> list[str]:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to list GCS objects: {e}",
         ) from e
+
+
+def list_blob_times(prefix: str) -> dict[str, datetime | None]:
+    """Map each object key under ``prefix`` to the time it was created (None when unknown)."""
+    bucket = _bucket()
+    try:
+        return {blob.name: blob.time_created for blob in bucket.list_blobs(prefix=prefix)}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to list GCS objects: {e}",
+        ) from e
+
+
+def blob_exists(key: str) -> bool:
+    """True when an object exists at ``key``."""
+    return _bucket().blob(key).exists()
+
+
+def delete_file_checked(key: str) -> bool:
+    """Delete one object. Returns True when it was removed, False when it was already gone.
+
+    Unlike delete_file, other errors are raised, so a caller can tell a real failure from a missing file.
+    """
+    bucket = _bucket()
+    try:
+        bucket.blob(key).delete()
+        return True
+    except NotFound:
+        return False
 
 
 def delete_file_batch(keys: list[str]) -> list[str]:

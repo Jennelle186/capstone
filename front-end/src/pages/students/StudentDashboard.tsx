@@ -123,6 +123,21 @@ export default function StudentDashboard() {
 
   const [submissions, setSubmissions] = React.useState<Submission[]>(placeholderSubmissions);
   const [flaggedSubmissions, setFlaggedSubmissions] = React.useState<SubmissionDetail[]>([]);
+
+  // Reloads the document list, so the table and the flagged banner both match the server after a change.
+  const refreshDocuments = React.useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetchWithClerkAuth("/api/me/documents", token);
+    if (!res.ok) return;
+    const flattened = flattenCompiled((await res.json()) as SubmissionDetail[]);
+    setFlaggedSubmissions(flattened.filter((d) => d.status === "flagged"));
+    setSubmissions(
+      flattened
+        .filter((d) => !d.is_compiled_parent && d.status !== "flagged")
+        .map(toSubmission),
+    );
+  }, [getToken]);
   const [loadingDocs, setLoadingDocs] = React.useState(true);
   const [currentIndex, setCurrentIndex] = React.useState(-1);
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -686,7 +701,10 @@ export default function StudentDashboard() {
                       submissionId={doc.id}
                       filename={doc.original_filename}
                       getToken={getToken}
-                      onDeleted={(id) => setFlaggedSubmissions((prev) => prev.filter((item) => item.id !== id))}
+                      onDeleted={(id) => {
+                        setFlaggedSubmissions((prev) => prev.filter((item) => item.id !== id));
+                        void refreshDocuments();
+                      }}
                     />
                   </div>
                 )}

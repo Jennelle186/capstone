@@ -24,6 +24,10 @@ interface AssignDepartmentDialogProps {
     selectedAdviserName: string | null;
     selectedDepartments: string[];
     selectedSchoolYearName: string | null;
+    // An inactive (deactivated) adviser can keep or lose programs they already hold, but
+    // cannot be given new ones. The server enforces the same rule.
+    adviserIsActive?: boolean;
+    adviserCurrentDepartments?: string[];
 }
 
 // The dialog is used in the adviser table and the adviser details page. It allows the user to assign an adviser to one or more departments. The user can select departments from a multi-select combobox list. The user can cancel the assignment or confirm it by clicking the "Assign" button.
@@ -38,9 +42,14 @@ export default function AssignDepartmentDialog({
     selectedAdviserName,
     selectedDepartments,
     selectedSchoolYearName,
+    adviserIsActive = true,
+    adviserCurrentDepartments = [],
 }: AssignDepartmentDialogProps) {
-    const activeDepartmentOptions = departments
-        .filter((department) => department.isActive)
+    const heldDepartments = new Set(adviserCurrentDepartments);
+    const departmentOptions = departments
+        .filter((department) =>
+            adviserIsActive ? department.isActive : heldDepartments.has(department.value),
+        )
         .map((department) => ({ value: department.value, label: department.label }));
 
     return (
@@ -57,13 +66,18 @@ export default function AssignDepartmentDialog({
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4">
+                    {!adviserIsActive && (
+                        <p role="note" className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                            This adviser is inactive. You can remove programs, but new programs can only be added after the adviser is activated.
+                        </p>
+                    )}
                     <p className="mb-3 text-xs text-muted-foreground">
                         {selectedSchoolYearName
                             ? `Assignment will be saved for S.Y. ${selectedSchoolYearName}.`
                             : "Select a school year first before assigning."}
                     </p>
                     <MultiSelectCombobox
-                        options={activeDepartmentOptions}
+                        options={departmentOptions}
                         value={selectedDepartments}
                         onValueChange={onDepartmentsChange}
                         placeholder="Select academic programs"

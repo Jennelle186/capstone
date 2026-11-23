@@ -114,32 +114,56 @@ export default function ClassificationStep({
         if (error.status === 409) {
           // The upload has already started classifying this file. Wait for that run to finish
           // instead of reporting a failure, then check the result as usual.
-          const t = await getTokenRef.current();
-          if (!t) {
-            if (!cancelled) {
-              setState("error");
-              onError("Could not check the classification. Please try again.");
-            }
-            return;
-          }
           if (!cancelled) {
             // Set only when the file has reached a final state. If the wait runs out first, the file
             // is still being classified, so it is not checked yet.
+            // Clerk tokens expire, so each poll takes a fresh token. A failed poll is retried, not treated as settled.
             let settled = false;
+            let tokenLost = false;
+            // Repeated server errors are a failure, not a wait. Stop after a few in a row.
+            let failedPolls = 0;
+            let serverFailed = false;
             for (let attempt = 0; attempt < 60 && !cancelled; attempt++) {
-              const res = await fetchWithClerkAuth("/api/me/documents", t);
-              if (!res.ok) break;
-              const docs = (await res.json()) as SubmissionDetail[];
-              const current = docs.find((d) => d.id === newSubmissionId);
-              if (!current || !["pending", "uploaded", "processing"].includes(current.status)) {
-                settled = true;
+              const t = await getTokenRef.current();
+              if (!t) {
+                tokenLost = true;
                 break;
+              }
+              let docs: SubmissionDetail[] | null = null;
+              try {
+                const res = await fetchWithClerkAuth("/api/me/documents", t);
+                if (res.ok) docs = (await res.json()) as SubmissionDetail[];
+              } catch {
+                // A dropped connection is a failed poll, the same as a server error.
+                docs = null;
+              }
+              if (docs) {
+                failedPolls = 0;
+                const current = docs.find((d) => d.id === newSubmissionId);
+                if (!current || !["pending", "uploaded", "processing"].includes(current.status)) {
+                  settled = true;
+                  break;
+                }
+              } else {
+                failedPolls += 1;
+                if (failedPolls >= 3) {
+                  serverFailed = true;
+                  break;
+                }
               }
               await new Promise((resolve) => setTimeout(resolve, 2000));
             }
             if (!cancelled) {
-              if (settled) {
-                await checkTypeMatch(t);
+              const finalToken = tokenLost ? null : await getTokenRef.current();
+              if (tokenLost || !finalToken) {
+                // Without a session token nothing can be checked, so say so instead of reporting a wait or a failure.
+                setState("error");
+                onError("Could not check the classification. Please try again.");
+              } else if (serverFailed) {
+                setState("error");
+                onError("Could not check the classification because the server returned errors. Please try again.");
+              } else if (settled) {
+                await checkTypeMatch(finalToken);
               } else {
                 setState("error");
                 onError("Classification is still running. Wait a moment, then try again.");
@@ -212,7 +236,13 @@ export default function ClassificationStep({
       }
     };
 
-    run();
+    run().catch(() => {
+      // Nothing may escape the wait without leaving the student an error to act on.
+      if (!cancelled) {
+        setState("error");
+        onError("Could not check the classification. Please try again.");
+      }
+    });
     return () => { cancelled = true; };
   }, [newSubmissionId, flaggedDoc.id, flaggedDoc.document_type_id, flaggedDoc.document_type_name, onComplete, onError]);
 

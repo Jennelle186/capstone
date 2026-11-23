@@ -866,9 +866,11 @@ async def replace_requirement_slots(
             )
             db.add(item)
 
+        # A slot can be saved with no items (for example after its document types were removed).
+        slot_items = slot_data.get("items") or []
         primary_item = next(
-            (i for i in slot_data.get("items", []) if i.get("is_primary")),
-            slot_data.get("items", [None])[0],
+            (i for i in slot_items if i.get("is_primary")),
+            slot_items[0] if slot_items else None,
         )
         snapshot = None
         if primary_item:

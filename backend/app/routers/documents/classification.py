@@ -194,6 +194,9 @@ async def confirm_classification(
             detail=f"Cannot confirm a document with status '{submission.status.value}'. Only CLASSIFIED or FLAGGED documents can be confirmed.",
         )
 
+    # Work out the type this confirmation would give the file, without saving it yet. Nothing is written
+    # until every check below has passed, so a refused confirmation leaves the file's type unchanged.
+    new_type_id = submission.document_type_id
     if body.document_type_id:
         try:
             dt_uuid = UUID(body.document_type_id)
@@ -202,22 +205,44 @@ async def confirm_classification(
         dt_exists = await db.get(DocumentType, dt_uuid)
         if dt_exists is None:
             raise HTTPException(status_code=404, detail="Document type not found.")
-        submission.document_type_id = dt_uuid
+        new_type_id = dt_uuid
 
     # A VERIFIED document of this type is final — block confirming a duplicate
     # (e.g. a previous-school-year upload of an already-verified type). This is
     # the last line of defense before the submission becomes CLASSIFIED and
-    # flows into extraction.
-    if submission.document_type_id is not None:
-        if await has_verified_submission(
-            db, student.id, submission.document_type_id, exclude_submission_id=submission.id
-        ):
-            dt = await db.get(DocumentType, submission.document_type_id)
+    # flows into extraction. It runs before anything below is saved.
+    if new_type_id is not None:
+        if await has_verified_submission(db, student.id, new_type_id, exclude_submission_id=submission.id):
+            dt = await db.get(DocumentType, new_type_id)
             type_name = dt.name if dt else "this document"
             raise HTTPException(
                 status_code=409,
                 detail=f"'{type_name}' has already been verified by your adviser. This upload cannot be confirmed.",
             )
+
+    # A replacement must keep the type of the file it replaces. If the confirmed type differs, the replaced file
+    # would be hidden without a new document taking its place, so keep both as separate documents and say so.
+    # Compiled-split children also link to their parent, so only plain replacement parents are checked.
+    if submission.parent_submission_id is not None:
+        replaced = await db.get(DocumentSubmission, submission.parent_submission_id)
+        if (
+            replaced is not None
+            and not replaced.is_compiled_parent
+            and replaced.document_type_id is not None
+            and new_type_id != replaced.document_type_id
+        ):
+            # Only the link is removed. The file keeps its current type and status, and the replaced file stays visible.
+            submission.parent_submission_id = None
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This file is a different document type from the file it was meant to replace, "
+                    "so both files were kept. This file is not a replacement and still needs to be confirmed or corrected."
+                ),
+            )
+
+    submission.document_type_id = new_type_id
 
     if submission.classification_result and isinstance(submission.classification_result, dict):
         submission.classification_result.pop("flag", None)

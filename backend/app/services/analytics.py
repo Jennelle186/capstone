@@ -98,7 +98,9 @@ async def get_analytics(
         if r.status in (SubmissionStatus.SUBMITTED, SubmissionStatus.IN_REVIEW)
     ]
     pending_reviews = len(await filter_rows_to_required_types(db, target_sy_id, open_rows))
-    verified_count = sum(1 for r in all_subs if r.status == SubmissionStatus.VERIFIED)
+    # Verified files of a no-longer-required type are hidden from the queue too, so they are not counted.
+    verified_rows = [r for r in all_subs if r.status == SubmissionStatus.VERIFIED]
+    verified_count = len(await filter_rows_to_required_types(db, target_sy_id, verified_rows))
 
     today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
     submitted_today = sum(

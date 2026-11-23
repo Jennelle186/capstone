@@ -36,13 +36,13 @@ describe("classificationsWithoutRequirement", () => {
   });
 
   it("counts a group as covering a classification when any of its alternatives applies", () => {
-    const documentTypes = [docType("dt-1", ["freshman"]), docType("dt-2", ["transferee"])];
+    const documentTypes = [docType("dt-1", ["freshman"]), docType("dt-2", ["shifter"])];
 
     const uncovered = classificationsWithoutRequirement([slot("dt-1", "dt-2")], documentTypes);
 
     expect(uncovered).not.toContain("freshman");
-    expect(uncovered).not.toContain("transferee");
-    expect(uncovered).toContain("shifter");
+    expect(uncovered).not.toContain("shifter");
+    expect(uncovered).toContain("transferee");
   });
 
   it("does not warn about a document type it cannot find", () => {

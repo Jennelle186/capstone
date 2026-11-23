@@ -65,15 +65,15 @@ describe("ManualUploadSlots group alternatives", () => {
 
     expect(screen.getByText("Not needed: this group is already covered")).toBeDefined();
     // The one empty alternative has no file input, so nothing can be uploaded to it.
-    expect(container.querySelector("#choose-file-dt-ind")).toBeNull();
-    expect(container.querySelector("#choose-file-dt-itr")).toBeNull();
+    expect(container.querySelector("input[data-document-type-id='dt-ind']")).toBeNull();
+    expect(container.querySelector("input[data-document-type-id='dt-itr']")).toBeNull();
   });
 
   it("keeps the upload control on every alternative while the group still needs documents", () => {
     const { container } = renderList(financialGroup(2), [submission({ id: "sub-itr", document_type_id: "dt-itr", status: "verified" })]);
 
     expect(screen.queryByText("Not needed: this group is already covered")).toBeNull();
-    expect(container.querySelector("#choose-file-dt-ind")).not.toBeNull();
+    expect(container.querySelector("input[data-document-type-id='dt-ind']")).not.toBeNull();
   });
 
   it("does not count a flagged file toward the group, so the other alternative stays open", () => {
@@ -83,6 +83,6 @@ describe("ManualUploadSlots group alternatives", () => {
     const { container } = renderList(financialGroup(1), existing);
 
     expect(screen.queryByText("Not needed: this group is already covered")).toBeNull();
-    expect(container.querySelector("#choose-file-dt-ind")).not.toBeNull();
+    expect(container.querySelector("input[data-document-type-id='dt-ind']")).not.toBeNull();
   });
 });

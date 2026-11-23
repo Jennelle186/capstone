@@ -29,7 +29,7 @@ from ...services.clerk import (
     update_user_public_metadata,
 )
 from ...services.activity_log import diff_values, record_activity
-from ...services.adviser_core import reconcile_adviser_program_assignments
+from ...services.adviser_core import ensure_inactive_adviser_gets_no_new_programs, reconcile_adviser_program_assignments
 from ...services.helpers import (
     get_active_school_year_id,
     get_program_id_to_department_code_map,
@@ -130,7 +130,9 @@ def _build_adviser_name(user: User) -> str:
 # The function below determines the active status of an adviser based on their user role and lock status.
 #Lock status is a backend API from Clerk that indicates whether the user's account is locked (inactive) or unlocked (active).
 def _resolve_is_active(user_role: UserRole, is_locked: bool | None) -> bool:
-    if user_role != UserRole.ADVISER:
+    # An admin who also holds an adviser profile is an adviser for this purpose, so only
+    # the lock state decides. Students never have an adviser profile here.
+    if user_role not in (UserRole.ADVISER, UserRole.ADMIN):
         return False
     if is_locked is None:
         return True
@@ -348,6 +350,11 @@ async def update_adviser(
                 detail=f'Department code "{code}" is inactive.',
             )
 
+    # A deactivated adviser cannot be given a new program. Removals are still allowed.
+    await ensure_inactive_adviser_gets_no_new_programs(
+        user.clerk_user_id, payload.department_codes, held_program_ids
+    )
+
 # The query below checks for email conflicts by looking for any other user with the same email address (case-insensitive) but a different user ID.
 # If a conflict is found, a 409 Conflict error is raised to indicate that the email address is already in use by another user.
     existing_email_stmt = select(User.id).where(
@@ -469,6 +476,32 @@ async def update_adviser_status(
     # Read the current Clerk lock state so repeated requests are not logged as changes.
     previous_role = user.role.value
     previous_locked = await fetch_user_lock_status(user.clerk_user_id)
+
+    # An adviser still assigned to programs in any school year that is not closed cannot be
+    # deactivated. Otherwise those programs would be left without a reviewer when that year runs.
+    # The admin reassigns or removes the programs first, then deactivates.
+    if not payload.is_active and previous_locked is not True:
+        open_years = (
+            await db.execute(
+                select(SchoolYear.id, SchoolYear.name).where(SchoolYear.status != SchoolYearStatus.CLOSED)
+            )
+        ).all()
+        blocking: list[str] = []
+        for year_id, year_name in open_years:
+            year_codes = (
+                await get_adviser_departments_map_for_school_year(db, [adviser.id], year_id)
+            ).get(adviser.id, [])
+            if year_codes:
+                blocking.append(f"{', '.join(sorted(year_codes))} ({year_name})")
+        if blocking:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This adviser is still assigned to "
+                    + "; ".join(blocking)
+                    + ". Reassign or remove those programs before deactivating."
+                ),
+            )
 
 # The code below attempts to lock or unlock the user account in Clerk based on the desired active status provided in the request payload.
     try:

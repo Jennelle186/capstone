@@ -6,7 +6,7 @@ import type { SlotStatusResponse } from "@/types/requirement";
 import type { SubmissionDetail } from "@/types/submission";
 import { useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { currentFileFor, LOCKED_SUBMISSION_STATUSES, verifiedDocumentTypeIds } from "./utils";
+import { currentFileFor, LOCKED_SUBMISSION_STATUSES, verifiedDocumentTypeIds } from "@/components/student/UploadDocuments/upload/utils";
 
 interface ManualUploadSlotsProps {
   slots: SlotStatusResponse[];
@@ -51,7 +51,8 @@ function buildGroups(slots: SlotStatusResponse[], legacy: RequiredDocument[]): S
       rows: [{ documentTypeId: doc.id, name: doc.name }],
     }));
   }
-  return slots.map((slot) => {
+  // A slot with no document types cannot be acted on, so it is not shown.
+  return slots.filter((slot) => slot.items.length > 0).map((slot) => {
     const rows = slot.items.map((item) => ({
       documentTypeId: item.document_type_id,
       name: item.document_type_name,
@@ -201,7 +202,7 @@ export default function ManualUploadSlots({
                     // input's accessible name is the visible label text and it is announced once.
                     <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-within:outline-2 focus-within:outline-primary">
                       <input
-                        id={`choose-file-${row.documentTypeId}`}
+                        data-document-type-id={row.documentTypeId}
                         type="file"
                         accept={ACCEPTED_TYPES}
                         className="sr-only"
