@@ -26,7 +26,7 @@ from ..models import (
 )
 from .adviser_core import get_department_ids_for_adviser, get_school_year_id
 from .gcp_storage import generate_presigned_url as gcs_generate_presigned_url
-from .requirements import get_student_slot_statuses
+from .requirements import filter_rows_to_required_types, get_student_slot_statuses, required_type_ids_for_school_year
 from .students import _sync_extracted_to_student, sync_program_from_extraction
 from ..utils.computation import apply_computed_fields
 from .helpers import compute_initials, exclude_replaced_submissions, relative_time
@@ -85,6 +85,8 @@ async def list_submissions(
             DocumentSubmission.status,
             DocumentSubmission.extracted_data,
             DocumentSubmission.filled_online,
+            DocumentSubmission.document_type_id,
+            Student.classification,
             User.first_name,
             User.last_name,
             Student.id.label("student_id"),
@@ -103,6 +105,10 @@ async def list_submissions(
     )
     stmt = exclude_replaced_submissions(stmt).order_by(desc(DocumentSubmission.created_at))
     rows = (await db.execute(stmt)).all()
+
+    # A document type the school year no longer requires is not in the queue. Its files stay on
+    # record; they only leave the adviser's list. A school year with no requirements filters nothing.
+    rows = await filter_rows_to_required_types(db, target_school_year_id, rows)
 
     return [
         {
@@ -437,6 +443,17 @@ async def verify_submission(
             "program_mismatch_pending": bool(student.program_mismatch_pending),
             "program_mismatch_extracted": student.program_mismatch_extracted,
         }
+
+    # A document type the school year no longer requires cannot be verified.
+    if submission.document_type_id is not None:
+        required = await required_type_ids_for_school_year(
+            db, student.school_year_id, student.classification
+        )
+        if required is not None and submission.document_type_id not in required:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This document is no longer required for this school year, so it cannot be verified.",
+            )
 
     if submission.status not in (
         SubmissionStatus.SUBMITTED,

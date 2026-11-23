@@ -339,6 +339,8 @@ def _schema(**overrides):
         status=ExtractionSchemaStatus.DRAFT,
         source_file_name=None,
         generation_prompt=None,
+        sample_file_key=None,
+        sample_content_type=None,
         fields_json=[{"id": "f1", "key": "student_name", "type": "string"}],
         schema_json={},
     )

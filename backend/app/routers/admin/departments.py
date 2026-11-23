@@ -11,12 +11,14 @@ from ...database import SessionDep
 from ...models import Adviser, Department, Program, ProgramAdviserAssignment, SchoolYear, SchoolYearStatus, Student, User, UserRole
 from ...rbac import require_admin
 from ...services.activity_log import diff_values, record_activity
-from ...services.adviser_core import reconcile_adviser_program_assignments
+from ...services.adviser_core import ensure_inactive_adviser_gets_no_new_programs, reconcile_adviser_program_assignments
+from ...services.clerk import fetch_user_lock_status, fetch_users_lock_status
 from ...services.helpers import (
     get_active_school_year_id,
     get_program_id_to_department_code_map,
     program_uuid_for_department_code,
 )
+from .adviser_management import _resolve_is_active
 from .program_assignment import (
     get_adviser_departments_map_for_school_year,
     get_department_adviser_counts_for_school_year,
@@ -148,14 +150,21 @@ def _serialize_department(
 # The function _serialize_adviser takes an Adviser object, the associated User object, and the list of department codes,
 # and returns an AdviserResponse object that can be returned in API responses for adviser information related to department assignment.
 # The first code is surfaced in department for backward compatibility while the full list goes into departments.
-def _serialize_adviser(adviser: Adviser, user: User, department_codes: list[str]) -> AdviserResponse:
+def _serialize_adviser(
+    adviser: Adviser,
+    user: User,
+    department_codes: list[str],
+    is_locked: bool | None,
+) -> AdviserResponse:
+    # is_active follows the Clerk lock state, the same as the Advisers page, so a
+    # deactivated adviser shows as inactive here too.
     return AdviserResponse(
         id=str(adviser.id),
         name=_build_adviser_name(user),
         email=user.email,
         department=department_codes[0] if department_codes else None,
         departments=department_codes,
-        is_active=user.role == UserRole.ADVISER,
+        is_active=_resolve_is_active(user.role, is_locked),
         created_at=adviser.created_at,
     )
 
@@ -232,12 +241,16 @@ async def list_advisers_for_department_assignment(
         [adviser.id for adviser, _ in rows],
         resolved_school_year_id,
     )
+    lock_state_map = await fetch_users_lock_status(
+        [user.clerk_user_id for _, user in rows if user.clerk_user_id]
+    )
 
     return [
         _serialize_adviser(
             adviser,
             user,
             department_codes=adviser_departments_map.get(adviser.id, []),
+            is_locked=lock_state_map.get(user.clerk_user_id),
         )
         for adviser, user in rows
     ]
@@ -439,6 +452,11 @@ async def update_adviser_department(
                 detail=f'Department code "{code}" is inactive.',
             )
 
+    # A deactivated adviser cannot be given a new program. Removals are still allowed.
+    await ensure_inactive_adviser_gets_no_new_programs(
+        user.clerk_user_id, payload.department_codes, held_program_ids
+    )
+
     # Snapshot the current program codes for the activity log before reconciling.
     program_code_map = await get_program_id_to_department_code_map(db)
     previous_codes = sorted(
@@ -472,4 +490,5 @@ async def update_adviser_department(
         )
 
     await db.commit()
-    return _serialize_adviser(adviser, user, department_codes=assigned_codes)
+    is_locked = await fetch_user_lock_status(user.clerk_user_id) if user.clerk_user_id else None
+    return _serialize_adviser(adviser, user, department_codes=assigned_codes, is_locked=is_locked)

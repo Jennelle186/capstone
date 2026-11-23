@@ -179,7 +179,8 @@ export default function DepartmentsPage() {
                                             size="sm"
                                             onClick={() => openAssignDialog(adviser)}
                                             className="gap-2"
-                                            disabled={isSelectedSchoolYearClosed}
+                                            disabled={isSelectedSchoolYearClosed || !adviser.isActive}
+                                            title={adviser.isActive ? undefined : "Activate this adviser before assigning a program"}
                                         >
                                             <Avatar className="w-6 h-6">
                                                 <AvatarFallback className="text-xs bg-primary/10 text-primary">
@@ -399,6 +400,8 @@ export default function DepartmentsPage() {
                 selectedAdviserName={selectedAdviser?.name ?? null}
                 selectedDepartments={selectedDepartments}
                 selectedSchoolYearName={selectedSchoolYearName}
+                adviserIsActive={selectedAdviser?.isActive ?? true}
+                adviserCurrentDepartments={selectedAdviser?.departments ?? []}
                 onDepartmentsChange={setSelectedDepartments}
                 departments={departments}
                 isSubmitting={isUpdatingAssignment}

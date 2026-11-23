@@ -79,6 +79,7 @@ async def test_verify_submission_does_not_promote_application_status() -> None:
     submission = SimpleNamespace(
         id=uuid4(),
         student_id=student.id,
+        document_type_id=None,
         status=SubmissionStatus.SUBMITTED,
         original_filename="test.pdf",
         rejection_reason=None,
@@ -135,6 +136,7 @@ async def test_verify_submission_does_not_promote_null_status() -> None:
     submission = SimpleNamespace(
         id=uuid4(),
         student_id=student.id,
+        document_type_id=None,
         status=SubmissionStatus.SUBMITTED,
         original_filename="test.pdf",
         rejection_reason=None,

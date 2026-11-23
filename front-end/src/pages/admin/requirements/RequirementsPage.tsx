@@ -1,5 +1,6 @@
 import { useAuth } from "@clerk/clerk-react";
 import { motion } from "framer-motion";
+import { classificationsWithoutRequirement, STUDENT_CLASSIFICATION_LABELS } from "@/lib/requirement-coverage";
 import { Layers, Loader2, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -150,6 +151,10 @@ export default function RequirementsPage() {
     const activeDocTypes = useMemo(
         () => documentTypes.filter((d) => !d.isArchived),
         [documentTypes],
+    );
+    const uncoveredClassifications = useMemo(
+        () => classificationsWithoutRequirement(draftSlots, documentTypes),
+        [draftSlots, documentTypes],
     );
 
     const formsForDocumentType = (documentTypeId: string) =>
@@ -385,6 +390,13 @@ export default function RequirementsPage() {
                 </Card>
             ) : (
                 <div className="space-y-4">
+                    {uncoveredClassifications.length > 0 && (
+                        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            No requirement applies to students classified as{" "}
+                            {uncoveredClassifications.map((c) => STUDENT_CLASSIFICATION_LABELS[c]).join(", ")}.
+                            Their documents will have nothing to upload. Add a requirement that applies to them, or change the classifications on the document types.
+                        </div>
+                    )}
                     {draftSlots.map((slot, slotIndex) => {
                         const isSolo = slot.slot_type === "solo";
                         return (

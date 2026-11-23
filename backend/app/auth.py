@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from typing import Any, Annotated
@@ -7,6 +8,8 @@ from clerk_backend_api.security.types import TokenVerificationError, VerifyToken
 from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from .services.clerk import is_user_locked
 
 # Load backend/.env values for local development (e.g., CLERK_SECRET_KEY).
 load_dotenv()
@@ -32,7 +35,12 @@ def _authorized_parties() -> list[str]:
     return sorted(defaults | configured)
 
 
-def get_current_user(
+# HTTP 423 (Locked) tells the frontend the account was deactivated, so it can sign the user out.
+ACCOUNT_DEACTIVATED_STATUS = status.HTTP_423_LOCKED
+ACCOUNT_DEACTIVATED_DETAIL = "Your account has been deactivated. Contact the administrator."
+
+
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
     # Reject missing or malformed bearer tokens.
@@ -61,13 +69,22 @@ def get_current_user(
     )
 
     try:
-        return verify_token(credentials.credentials, options)
+        claims = await asyncio.to_thread(verify_token, credentials.credentials, options)
     except TokenVerificationError as error:
         logger.warning("Clerk token verification failed: %s", error)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid Clerk token: {error}",
         ) from error
+
+    # A token stays valid until it expires, so check the account on every request.
+    clerk_user_id = claims.get("sub")
+    if isinstance(clerk_user_id, str) and await is_user_locked(clerk_user_id):
+        raise HTTPException(
+            status_code=ACCOUNT_DEACTIVATED_STATUS,
+            detail=ACCOUNT_DEACTIVATED_DETAIL,
+        )
+    return claims
     
 
 CurrentUser = Annotated[dict[str, Any], Depends(get_current_user)]

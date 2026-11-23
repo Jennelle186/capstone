@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useParams, useNavigate } from "react-router";
 import { useAuth } from "@clerk/clerk-react";
-import { ArrowLeft, Loader2, AlertTriangle, RefreshCw, Lock } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, RefreshCw, Lock, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchWithClerkAuth } from "@/lib/api";
 import FlaggedBanner from "@/components/student/ResolveFlagged/FlaggedBanner";
@@ -28,6 +28,8 @@ export default function ResolveFlaggedPage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [docTypeVerified, setDocTypeVerified] = React.useState(false);
+  // Set when the document exists but was not flagged, so there is nothing to correct.
+  const [notFlagged, setNotFlagged] = React.useState(false);
 
   // ── Load flagged submission on mount ────────────────────────────
   React.useEffect(() => {
@@ -42,7 +44,9 @@ export default function ResolveFlaggedPage() {
       if (docsRes.ok && !cancelled) {
         const docs = (await docsRes.json()) as SubmissionDetail[];
         const found = docs.find((d) => d.id === documentId);
-        if (found) {
+        if (found && found.status !== "flagged") {
+          setNotFlagged(true);
+        } else if (found) {
           setFlaggedDoc(found);
           const typeAlreadyVerified = found.document_type_id
             ? docs.some(
@@ -153,6 +157,27 @@ export default function ResolveFlaggedPage() {
     );
   }
 
+  if (notFlagged) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-12">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+          <h2 className="text-lg font-bold text-slate-900">Nothing to correct</h2>
+          <p className="text-sm text-slate-500">
+            This document was not flagged, so it does not need to be corrected.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/student/dashboard")}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:opacity-90"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!flaggedDoc) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-12">
@@ -160,7 +185,7 @@ export default function ResolveFlaggedPage() {
           <AlertTriangle className="h-12 w-12 text-amber-500" />
           <h2 className="text-lg font-bold text-slate-900">Document Not Found</h2>
           <p className="text-sm text-slate-500">
-            This document could not be found. It may have already been resolved or removed.
+            This document could not be found. It may have already been resolved, or it is no longer required for your school year.
           </p>
           <button
             type="button"
@@ -188,7 +213,8 @@ export default function ResolveFlaggedPage() {
       </button>
 
       {/* Flagged banner — visible once past upload */}
-      {step !== "upload" && <div className="mb-6"><FlaggedBanner submission={flaggedDoc} /></div>}
+      {/* Shown on every step, including the upload step: it names the document to upload and the adviser's comment. */}
+      <div className="mb-6"><FlaggedBanner submission={flaggedDoc} /></div>
 
       {/* Error banner */}
       {error && (

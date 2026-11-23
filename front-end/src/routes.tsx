@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router";
+import RouteErrorBoundary from "./components/common/RouteErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
@@ -49,6 +50,7 @@ import PostAuthRedirectPage from "./pages/PostAuthRedirectPage";
 const AppRoutes = createBrowserRouter([
     {
         path: "/",
+        errorElement: <RouteErrorBoundary />,
         Component: RootLayout,
         children: [
             { index: true, Component: HomePage },
@@ -74,6 +76,7 @@ const AppRoutes = createBrowserRouter([
     },
     {
         path: "/student",
+        errorElement: <RouteErrorBoundary />,
         Component: RequireStudent,
         children: [
             {
@@ -95,6 +98,7 @@ const AppRoutes = createBrowserRouter([
     },
     {
         path: "/adviser",
+        errorElement: <RouteErrorBoundary />,
         Component: RequireAdviser,
         children: [
             {
@@ -120,6 +124,7 @@ const AppRoutes = createBrowserRouter([
     },
     {
         path: "/admin",
+        errorElement: <RouteErrorBoundary />,
         Component: RequireAdmin,
         children: [
             {
@@ -152,10 +157,12 @@ const AppRoutes = createBrowserRouter([
     },
     {
         path: "/sso-callback",
+        errorElement: <RouteErrorBoundary />,
         Component: SsoCallbackPage,
     },
     {
         path: "*",
+        errorElement: <RouteErrorBoundary />,
         element: <div>Not Found</div>,
     },
 ]);

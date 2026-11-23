@@ -90,6 +90,13 @@ def _scalar_result(value):
     return result
 
 
+def _rows_result(rows):
+    """Return a mocked execute result whose all() returns the given rows."""
+    result = MagicMock()
+    result.all = MagicMock(return_value=rows)
+    return result
+
+
 def _scalars_all_result(values):
     """Return a mocked execute result whose scalars().all() returns values."""
     result = MagicMock()
@@ -159,6 +166,47 @@ def test_confirm_upload_verifies_s3_and_marks_uploaded(client, mock_user, mock_s
     assert data["file_key"] == "staging/student/file.pdf"
 
 
+@pytest.mark.parametrize(
+    "locked_status",
+    [SubmissionStatus.VERIFIED, SubmissionStatus.SUBMITTED, SubmissionStatus.IN_REVIEW],
+)
+def test_confirm_upload_rejects_submission_that_is_not_pending(client, mock_user, mock_student, locked_status):
+    """Confirming a row that is no longer PENDING must not change its status (it could demote a verified document)."""
+    submission_id = uuid4()
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=None,
+        file_key="staging/student/file.pdf",
+        original_filename="file.pdf",
+        mime_type="application/pdf",
+        file_size="1024",
+        is_compiled=False,
+        status=locked_status,
+        classification_result={"method": "manual", "accepted_by_user": True},
+    )
+
+    async def override_get_db_session_confirm():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        session.get = AsyncMock(side_effect=_confirm_session_get(submission))
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_confirm
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_head_object", return_value={"ContentLength": 1024}) as head:
+            response = client.post(
+                "/api/me/documents/confirm",
+                json={"submission_id": str(submission_id)},
+            )
+
+    assert response.status_code == 409
+    assert submission.status == locked_status
+    head.assert_not_called()
+
+
 def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
     doc_type = SimpleNamespace(name="Admission Form", code="ADMISSION_FORM")
     submission = SimpleNamespace(
@@ -194,7 +242,7 @@ def test_list_my_documents_returns_submissions(client, mock_user, mock_student):
 
     app.dependency_overrides[get_db_session] = override_get_db_session_list
 
-    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+    with patch("app.routers.documents.uploads.required_type_ids_for_school_year", new_callable=AsyncMock, return_value=None), patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
         response = client.get("/api/me/documents")
 
     assert response.status_code == 200
@@ -258,7 +306,7 @@ def test_list_my_documents_groups_compiled_children(client, mock_user, mock_stud
 
     app.dependency_overrides[get_db_session] = override_get_db_session_list
 
-    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+    with patch("app.routers.documents.uploads.required_type_ids_for_school_year", new_callable=AsyncMock, return_value=None), patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
         response = client.get("/api/me/documents")
 
     assert response.status_code == 200
@@ -304,7 +352,7 @@ def test_list_my_documents_omits_childless_compiled_parent(client, mock_user, mo
 
     app.dependency_overrides[get_db_session] = override_get_db_session_list
 
-    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+    with patch("app.routers.documents.uploads.required_type_ids_for_school_year", new_callable=AsyncMock, return_value=None), patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
         response = client.get("/api/me/documents")
 
     assert response.status_code == 200
@@ -703,6 +751,79 @@ def test_delete_document_blocks_compiled_parent_with_locked_children(client, moc
         response = client.delete(f"/api/me/documents/{parent_id}")
 
     assert response.status_code == 409
+
+
+def _list_row(doc_type_id, status, name):
+    return SimpleNamespace(
+        id=uuid4(),
+        status=status,
+        file_key=f"staging/student/{name}",
+        original_filename=name,
+        file_size="1024",
+        mime_type="application/pdf",
+        is_compiled=False,
+        is_compiled_parent=False,
+        filled_online=False,
+        document_type_id=doc_type_id,
+        document_type=None,
+        classification_result=None,
+        extracted_data=None,
+        rejection_reason=None,
+        parent_submission_id=None,
+        page_range=None,
+        segment_index=None,
+        page_count=None,
+        created_at=None,
+    )
+
+
+def _requirement_slot_for(doc_type_id):
+    return SimpleNamespace(items=[SimpleNamespace(document_type_id=doc_type_id)])
+
+
+def _list_documents(client, mock_user, mock_student, rows, required_slots):
+    async def override_get_db_session_list():
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[_student_execute_result(mock_student), _scalars_all_result(rows)])
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_list
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        required_ids = {item.document_type_id for slot in required_slots for item in slot.items}
+        with patch(
+            "app.routers.documents.uploads.required_type_ids_for_school_year",
+            new_callable=AsyncMock,
+            return_value=required_ids or None,
+        ):
+            return client.get("/api/me/documents")
+
+
+def test_list_documents_hides_flagged_file_for_removed_requirement(client, mock_user, mock_student):
+    """A flagged file whose type is no longer required is hidden from the student's list."""
+    required_id, removed_id = uuid4(), uuid4()
+    rows = [
+        _list_row(required_id, SubmissionStatus.FLAGGED, "still-needed.pdf"),
+        _list_row(removed_id, SubmissionStatus.FLAGGED, "removed-type.pdf"),
+        _list_row(removed_id, SubmissionStatus.UPLOADED, "removed-but-not-flagged.pdf"),
+    ]
+
+    response = _list_documents(client, mock_user, mock_student, rows, [_requirement_slot_for(required_id)])
+
+    assert response.status_code == 200
+    names = [d["original_filename"] for d in response.json()]
+    assert "still-needed.pdf" in names
+    assert "removed-but-not-flagged.pdf" in names
+    assert "removed-type.pdf" not in names
+
+
+def test_list_documents_keeps_flagged_files_when_no_requirements_are_set(client, mock_user, mock_student):
+    """With nothing configured for the school year, no flagged file is hidden."""
+    rows = [_list_row(uuid4(), SubmissionStatus.FLAGGED, "flagged.pdf")]
+
+    response = _list_documents(client, mock_user, mock_student, rows, [])
+
+    assert response.status_code == 200
+    assert [d["original_filename"] for d in response.json()] == ["flagged.pdf"]
 
 
 def test_get_download_url_allows_verified(client, mock_user, mock_student):
@@ -1687,3 +1808,281 @@ def test_submit_batch_compiled_child_duplicate_not_relinked(client, mock_user, m
         if call.args and getattr(call.args[0], "action", None)
     ]
     assert "REPLACEMENT_OF" not in history_actions
+
+
+def test_manual_classification_helpers():
+    from app.routers.documents.uploads import is_manual_classification, manual_classification_result
+
+    assert is_manual_classification(manual_classification_result()) is True
+    assert is_manual_classification({"confidence": 0.9}) is False
+    assert is_manual_classification(None) is False
+
+
+def test_initiate_upload_manual_requires_document_type(client, mock_user, mock_student):
+    """A student-labelled file must say which document type it is."""
+    response = client.post(
+        "/api/me/documents/initiate",
+        json={"name": "file.pdf", "type": "application/pdf", "size": 1024, "classify_manually": True},
+    )
+
+    assert response.status_code == 400
+    assert "document type" in response.json()["detail"]
+
+
+def _slot_with_items(*items):
+    """A requirement slot. Each item is a (document_type_id, applicable_classifications) pair."""
+    return SimpleNamespace(items=[
+        SimpleNamespace(document_type_id=type_id, document_type=SimpleNamespace(applicable_classifications=applicable))
+        for type_id, applicable in items
+    ])
+
+
+@pytest.mark.asyncio
+async def test_required_type_ids_is_none_without_requirements():
+    from app.services.requirements import required_type_ids_for_school_year
+
+    with patch("app.services.requirements.get_requirement_slots_for_school_year", new_callable=AsyncMock, return_value=[]):
+        assert await required_type_ids_for_school_year(AsyncMock(), uuid4(), None) is None
+
+
+@pytest.mark.asyncio
+async def test_required_type_ids_drops_solo_slot_excluded_for_classification():
+    from app.services.requirements import required_type_ids_for_school_year
+
+    excluded_id = uuid4()
+    slots = [_slot_with_items((excluded_id, ["senior"]))]
+    with patch("app.services.requirements.get_requirement_slots_for_school_year", new_callable=AsyncMock, return_value=slots):
+        required = await required_type_ids_for_school_year(AsyncMock(), uuid4(), SimpleNamespace(value="freshman"))
+
+    assert required == set()
+
+
+@pytest.mark.asyncio
+async def test_required_type_ids_keeps_every_alternative_of_a_kept_group():
+    """Regression: the student's checklist lists every alternative of a group, so each one must be accepted."""
+    from app.services.requirements import required_type_ids_for_school_year
+
+    open_id, transfer_only_id = uuid4(), uuid4()
+    slots = [_slot_with_items((open_id, []), (transfer_only_id, ["transferee"]))]
+    with patch("app.services.requirements.get_requirement_slots_for_school_year", new_callable=AsyncMock, return_value=slots):
+        required = await required_type_ids_for_school_year(AsyncMock(), uuid4(), SimpleNamespace(value="freshman"))
+
+    assert required == {open_id, transfer_only_id}
+
+
+def _confirm_session_get(submission, type_name="Report Card"):
+    """session.get for the confirm endpoint: the submission, an open school year, and the document type."""
+
+    def fake_get(model, _ident):
+        name = getattr(model, "__name__", "")
+        if name == "DocumentSubmission":
+            return submission
+        if name == "SchoolYear":
+            return SimpleNamespace(status=None)  # not CLOSED, so confirm is allowed
+        return SimpleNamespace(name=type_name)
+
+    return fake_get
+
+
+def test_confirm_upload_marks_student_labelled_file_classified(client, mock_user, mock_student):
+    submission_id = uuid4()
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=None,
+        file_key="staging/student/card.pdf",
+        original_filename="card.pdf",
+        mime_type="application/pdf",
+        file_size="1024",
+        is_compiled=False,
+        status=SubmissionStatus.PENDING,
+        classification_result={"method": "manual", "accepted_by_user": True},
+    )
+
+    async def override_get_db_session_confirm():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        session.get = AsyncMock(side_effect=_confirm_session_get(submission))
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_confirm
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_head_object", return_value={"ContentLength": 1024}):
+            response = client.post(
+                "/api/me/documents/confirm",
+                json={"submission_id": str(submission_id)},
+            )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "classified"
+
+
+def test_confirm_upload_rejects_manual_file_once_type_is_verified(client, mock_user, mock_student):
+    submission_id = uuid4()
+    document_type_id = uuid4()
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=document_type_id,
+        file_key="staging/student/card.pdf",
+        original_filename="card.pdf",
+        mime_type="application/pdf",
+        file_size="1024",
+        is_compiled=False,
+        status=SubmissionStatus.PENDING,
+        classification_result={"method": "manual", "accepted_by_user": True},
+    )
+
+    async def override_get_db_session_confirm():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        session.get = AsyncMock(side_effect=_confirm_session_get(submission))
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_confirm
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_head_object", return_value={"ContentLength": 1024}):
+            with patch("app.routers.documents.uploads.has_verified_submission", new_callable=AsyncMock, return_value=True):
+                response = client.post(
+                    "/api/me/documents/confirm",
+                    json={"submission_id": str(submission_id)},
+                )
+
+    assert response.status_code == 409
+    assert "Report Card" in response.json()["detail"]
+    # The file is left as it was, so it cannot flow into extraction.
+    assert submission.status == SubmissionStatus.PENDING
+
+
+def test_initiate_upload_manual_rejects_document_type_not_required(client, mock_user, mock_student):
+    """A student-labelled file must use a document type the admin requires for the school year."""
+    async def override_get_db_session_manual():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_manual
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.required_type_ids_for_school_year", new_callable=AsyncMock, return_value=set()):
+            response = client.post(
+                "/api/me/documents/initiate",
+                json={
+                    "name": "file.pdf",
+                    "type": "application/pdf",
+                    "size": 1024,
+                    "document_type_id": str(uuid4()),
+                    "classify_manually": True,
+                },
+            )
+
+    assert response.status_code == 400
+    assert "not required" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("saved_status", [SubmissionStatus.UPLOADED, SubmissionStatus.CLASSIFIED])
+def test_confirm_upload_is_idempotent_for_a_saved_file(client, mock_user, mock_student, saved_status):
+    """A repeated confirm of a file already saved succeeds, changes nothing, and does not touch storage."""
+    submission_id = uuid4()
+    submission = SimpleNamespace(
+        id=submission_id,
+        student_id=mock_student.id,
+        document_type_id=None,
+        file_key="staging/student/card.pdf",
+        original_filename="card.pdf",
+        mime_type="application/pdf",
+        file_size="1024",
+        is_compiled=False,
+        status=saved_status,
+        classification_result={"method": "manual", "accepted_by_user": True}
+        if saved_status == SubmissionStatus.CLASSIFIED
+        else None,
+    )
+
+    async def override_get_db_session_confirm():
+        session = AsyncMock()
+        session.add = MagicMock()
+        session.execute = AsyncMock(return_value=_student_execute_result(mock_student))
+        session.get = AsyncMock(side_effect=_confirm_session_get(submission))
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_confirm
+
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch("app.routers.documents.uploads.gcs_head_object") as head:
+            response = client.post("/api/me/documents/confirm", json={"submission_id": str(submission_id)})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == saved_status.value
+    assert submission.status == saved_status
+    head.assert_not_called()
+
+
+def _list_with_required_ids(client, mock_user, mock_student, rows, required_ids):
+    async def override_get_db_session_list():
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[_student_execute_result(mock_student), _scalars_all_result(rows)])
+        yield session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session_list
+    with patch("app.routers.documents.uploads.ensure_user_row", new_callable=AsyncMock, return_value=mock_user):
+        with patch(
+            "app.routers.documents.uploads.required_type_ids_for_school_year",
+            new_callable=AsyncMock,
+            return_value=required_ids,
+        ):
+            return client.get("/api/me/documents")
+
+
+def test_list_documents_hides_flagged_file_when_no_requirement_applies_to_student(client, mock_user, mock_student):
+    """Requirements exist, but none apply to this student: nothing is required, so the flagged file is hidden."""
+    rows = [_list_row(uuid4(), SubmissionStatus.FLAGGED, "stranded.pdf")]
+
+    response = _list_with_required_ids(client, mock_user, mock_student, rows, set())
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_documents_keeps_flagged_file_when_school_year_has_no_requirements(client, mock_user, mock_student):
+    rows = [_list_row(uuid4(), SubmissionStatus.FLAGGED, "kept.pdf")]
+
+    response = _list_with_required_ids(client, mock_user, mock_student, rows, None)
+
+    assert [d["original_filename"] for d in response.json()] == ["kept.pdf"]
+
+
+def test_list_documents_hides_flagged_segment_of_removed_type_inside_a_split_pdf(client, mock_user, mock_student):
+    """A flagged split segment of a removed type is hidden; the rest of the split PDF stays."""
+    required_id, removed_id = uuid4(), uuid4()
+    parent = _list_row(None, SubmissionStatus.CLASSIFIED, "compiled.pdf")
+    parent.is_compiled_parent = True
+    kept = _list_row(required_id, SubmissionStatus.FLAGGED, "segment-kept.pdf")
+    kept.parent_submission_id = parent.id
+    hidden = _list_row(removed_id, SubmissionStatus.FLAGGED, "segment-hidden.pdf")
+    hidden.parent_submission_id = parent.id
+
+    response = _list_with_required_ids(client, mock_user, mock_student, [parent, kept, hidden], {required_id})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert [c["original_filename"] for c in body[0]["children"]] == ["segment-kept.pdf"]
+
+
+def test_list_documents_drops_compiled_parent_when_all_its_flagged_segments_are_removed(client, mock_user, mock_student):
+    removed_id = uuid4()
+    parent = _list_row(None, SubmissionStatus.CLASSIFIED, "compiled-gone.pdf")
+    parent.is_compiled_parent = True
+    hidden = _list_row(removed_id, SubmissionStatus.FLAGGED, "only-segment.pdf")
+    hidden.parent_submission_id = parent.id
+
+    response = _list_with_required_ids(client, mock_user, mock_student, [parent, hidden], {uuid4()})
+
+    assert response.status_code == 200
+    assert response.json() == []

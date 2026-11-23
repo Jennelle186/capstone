@@ -51,7 +51,14 @@ export default function ClassificationStep({
 
         if (!newSub || !newSub.document_type_id) {
           setState("error");
-          onError("Classification did not produce a result. Please try again.");
+          // The file is removed when it matches a document the adviser has already verified, or
+          // when it matches no document this school year requires. The page cannot tell which,
+          // so both reasons are named.
+          onError(
+            "This file was not kept. It may match a document your adviser has already verified, " +
+            "or it may not be the document you are replacing. Check that you chose the right file, " +
+            "then try again.",
+          );
           return;
         }
 
@@ -104,11 +111,70 @@ export default function ClassificationStep({
         job = await createJob(token, "classify", [newSubmissionId]);
       } catch (err: unknown) {
         const error = err as { status?: number; detail?: string };
+        if (error.status === 409) {
+          // The upload has already started classifying this file. Wait for that run to finish
+          // instead of reporting a failure, then check the result as usual.
+          if (!cancelled) {
+            // Set only when the file has reached a final state. If the wait runs out first, the file
+            // is still being classified, so it is not checked yet.
+            // Clerk tokens expire, so each poll takes a fresh token. A failed poll is retried, not treated as settled.
+            let settled = false;
+            let tokenLost = false;
+            // Repeated server errors are a failure, not a wait. Stop after a few in a row.
+            let failedPolls = 0;
+            let serverFailed = false;
+            for (let attempt = 0; attempt < 60 && !cancelled; attempt++) {
+              const t = await getTokenRef.current();
+              if (!t) {
+                tokenLost = true;
+                break;
+              }
+              let docs: SubmissionDetail[] | null = null;
+              try {
+                const res = await fetchWithClerkAuth("/api/me/documents", t);
+                if (res.ok) docs = (await res.json()) as SubmissionDetail[];
+              } catch {
+                // A dropped connection is a failed poll, the same as a server error.
+                docs = null;
+              }
+              if (docs) {
+                failedPolls = 0;
+                const current = docs.find((d) => d.id === newSubmissionId);
+                if (!current || !["pending", "uploaded", "processing"].includes(current.status)) {
+                  settled = true;
+                  break;
+                }
+              } else {
+                failedPolls += 1;
+                if (failedPolls >= 3) {
+                  serverFailed = true;
+                  break;
+                }
+              }
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+            if (!cancelled) {
+              const finalToken = tokenLost ? null : await getTokenRef.current();
+              if (tokenLost || !finalToken) {
+                // Without a session token nothing can be checked, so say so instead of reporting a wait or a failure.
+                setState("error");
+                onError("Could not check the classification. Please try again.");
+              } else if (serverFailed) {
+                setState("error");
+                onError("Could not check the classification because the server returned errors. Please try again.");
+              } else if (settled) {
+                await checkTypeMatch(finalToken);
+              } else {
+                setState("error");
+                onError("Classification is still running. Wait a moment, then try again.");
+              }
+            }
+          }
+          return;
+        }
         if (!cancelled) {
           setState("error");
-          onError(error.status === 409
-            ? "A classification is already in progress. Please wait and try again."
-            : (error.detail ?? "Failed to start classification."));
+          onError(error.detail ?? "Failed to start classification.");
         }
         return;
       }
@@ -170,7 +236,13 @@ export default function ClassificationStep({
       }
     };
 
-    run();
+    run().catch(() => {
+      // Nothing may escape the wait without leaving the student an error to act on.
+      if (!cancelled) {
+        setState("error");
+        onError("Could not check the classification. Please try again.");
+      }
+    });
     return () => { cancelled = true; };
   }, [newSubmissionId, flaggedDoc.id, flaggedDoc.document_type_id, flaggedDoc.document_type_name, onComplete, onError]);
 

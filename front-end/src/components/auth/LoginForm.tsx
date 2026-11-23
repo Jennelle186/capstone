@@ -5,17 +5,20 @@ import { Input } from "../ui/input";
 import { toast } from "sonner"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldSeparator } from '../ui/field';
 import { loginSchema, type LoginFormData } from '@/schemas/auth.schema';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useSignIn } from '@clerk/clerk-react';
 import { isClerkAPIResponseError } from '@clerk/shared';
 import { Eye, EyeOff } from 'lucide-react';
 import { useState } from 'react';
+import { ACCOUNT_DEACTIVATED_MESSAGE } from '@/lib/accountStatus';
 
 type PendingSignIn = NonNullable<ReturnType<typeof useSignIn>['signIn']>;
 
 /** The message Clerk gives for a failed request, or the fallback when there isn't one. */
 function errorMessageFrom(error: unknown, fallback: string): string {
     if (isClerkAPIResponseError(error)) {
+        // Clerk refuses sign-in for a locked account; show the deactivation notice instead of its wording.
+        if (error.errors[0]?.code === 'user_locked') return ACCOUNT_DEACTIVATED_MESSAGE;
         return error.errors[0]?.longMessage ?? error.errors[0]?.message ?? fallback;
     }
     if (error instanceof Error && error.message) return error.message;
@@ -25,6 +28,9 @@ function errorMessageFrom(error: unknown, fallback: string): string {
 export default function LoginForm() {
     const { isLoaded, signIn, setActive } = useSignIn();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    // Set when a deactivated user is sent here after being signed out (see DeactivatedAccountWatcher).
+    const wasDeactivated = searchParams.get('reason') === 'deactivated';
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
@@ -201,6 +207,11 @@ export default function LoginForm() {
 
     return (
         <>
+            {wasDeactivated && (
+                <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                    {ACCOUNT_DEACTIVATED_MESSAGE}
+                </div>
+            )}
             <form id="login-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FieldGroup>
                     <Controller

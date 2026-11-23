@@ -1,4 +1,5 @@
 "use client";
+import { toast } from "sonner";
 
 import * as React from "react";
 import { FileText, ImageIcon, AlertTriangle, CheckCircle, Loader2, SearchCheck, Check, Trash2 } from "lucide-react";
@@ -268,6 +269,11 @@ export default function ClassificationCard({
           const updatedItem = submissionToItem(updated as SubmissionDetail);
           onConfirm(item.id, { ...updatedItem, status: "overridden", needsReview: false });
           onOverride(item.id, documentTypeId);
+        } else if (res.status === 409) {
+          // The server may already have saved this file as a separate document (its message says
+          // so), so show that outcome rather than a silent no-op.
+          const body = (await res.json().catch(() => null)) as { detail?: string } | null;
+          toast.error(body?.detail ?? "This file could not be confirmed as that document type.");
         }
       } catch {
         // silently fail

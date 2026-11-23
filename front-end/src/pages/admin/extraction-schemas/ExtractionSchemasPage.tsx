@@ -97,6 +97,24 @@ export default function ExtractionSchemasPage() {
         [],
     );
 
+    // Deletes a generated sample that was never saved. The server refuses to delete a sample a schema still uses.
+    const discardUnsavedSample = useCallback(
+        async (fileId: string | null | undefined) => {
+            if (!fileId) return;
+            try {
+                await requestWithAdminAuth("/api/admin/extraction-schemas/samples/discard", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ file_id: fileId }),
+                });
+            } catch {
+                // The admin's work is not affected. The unused file is removed by the next cleanup.
+                toast.error("Could not remove the replaced sample file. The next cleanup will remove it.");
+            }
+        },
+        [requestWithAdminAuth],
+    );
+
     const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -379,15 +397,24 @@ export default function ExtractionSchemasPage() {
     const handleSampleFilesChange = (files: File[]) => {
         setSampleFiles(files);
         setCurrentPageIndex(0);
+        // A different file means the generated sample no longer matches. It was never saved, so it is removed.
+        // The key is set to undefined, not null: null is sent on save and would clear a saved sample.
+        const previousSample = formState.sample_file_key;
+        // The name stays with the fields it was generated from. Generating again updates it.
         setFormState((prev) => ({
             ...prev,
-            source_file_name: files[0]?.name ?? prev.source_file_name,
+            sample_file_key: undefined,
         }));
+        void discardUnsavedSample(previousSample);
     };
 
     const clearSampleFiles = () => {
         setSampleFiles([]);
         setCurrentPageIndex(0);
+        // Clearing a staged file never removes a saved sample. Only an unsaved one is discarded.
+        const previousSample = formState.sample_file_key;
+        setFormState((prev) => ({ ...prev, sample_file_key: undefined }));
+        void discardUnsavedSample(previousSample);
     };
 
     const removeFileAt = (index: number) => {
@@ -604,6 +631,13 @@ export default function ExtractionSchemasPage() {
     const handleGenerateSchema = async () => {
         if (isGenerating) return;
 
+        // A new generation replaces the sample from the last one, which was never saved, so remove it.
+        const previousSample = formState.sample_file_key;
+        if (previousSample) {
+            setFormState((prev) => ({ ...prev, sample_file_key: undefined }));
+            void discardUnsavedSample(previousSample);
+        }
+
         const formData = new FormData();
         sampleFiles.forEach((file) => formData.append("files", file));
         if (formState.generation_prompt?.trim()) {
@@ -627,6 +661,7 @@ export default function ExtractionSchemasPage() {
                     schema_json: response.schema_json,
                     fields_json: getSchemaFields(response.schema_json, response.fields_json.length > 0 ? response.fields_json : prev.fields_json),
                     source_file_name: response.source_file_name ?? sampleFiles[0]?.name ?? prev.source_file_name,
+                    sample_file_key: response.file_id || undefined,
                     name: prev.name || (blueprint?.form_name as string) || "",
                     version_label: prev.version_label || (blueprint?.form_control_id as string) || "",
                     document_type_id: response.document_type_id ?? prev.document_type_id,
@@ -666,6 +701,7 @@ export default function ExtractionSchemasPage() {
                     schema_json: response.schema_json,
                     fields_json: getSchemaFields(response.schema_json, response.fields_json),
                     source_file_name: response.source_file_name ?? files[0]?.name ?? prev.source_file_name,
+                    sample_file_key: response.file_id || undefined,
                     name: prev.name || (blueprint?.form_name as string) || "",
                     version_label: prev.version_label || (blueprint?.form_control_id as string) || "",
                     document_type_id: response.document_type_id ?? prev.document_type_id,

@@ -141,27 +141,28 @@ export default function SubmissionsTable({ data, onView }: Props) {
         const filledConfig = statusConfig["filled-online"];
         return (
           <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 transition-all hover:shadow-sm active:scale-[0.99]">
-            <div className="flex items-start gap-3">
+            {/* The file name gets the full width and may break anywhere: uploaded names often have no spaces. */}
+            <div className="flex items-start gap-3 min-w-0">
               <div className="p-2 bg-primary/10 text-primary rounded-lg shrink-0 mt-0.5">
                 <FileText className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-900 leading-snug">
+                <p className="text-sm font-semibold text-slate-900 leading-snug break-all">
                   {submission.documentName}
                 </p>
-                <p className="text-xs text-slate-500 mt-0.5">{submission.documentType}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-1 shrink-0">
-                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${config.badge}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
-                  {config.label}
-                </span>
-                {filledOnline && (
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${filledConfig.badge}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${filledConfig.dot}`} />
-                    {filledConfig.label}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-slate-500">{submission.documentType}</span>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${config.badge}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
+                    {config.label}
                   </span>
-                )}
+                  {filledOnline && (
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${filledConfig.badge}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${filledConfig.dot}`} />
+                      {filledConfig.label}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-between">

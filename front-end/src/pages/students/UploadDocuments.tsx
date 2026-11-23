@@ -36,7 +36,7 @@ export default function UploadDocuments() {
     (submission as unknown as { extracted_data?: unknown; extractedData?: unknown }).extractedData;
 
   const hasExtractionData = existingSubmissions.some(
-    (s) => s.document_type_id && getExtractedData(s)
+    (s) => s.document_type_id && s.status !== "flagged" && getExtractedData(s)
   );
 
   const maxAccessibleStep = Math.min(
@@ -71,15 +71,16 @@ export default function UploadDocuments() {
     [maxAccessibleStep, setSearchParams],
   );
 
-  const nextDisabled =
-    (step === 3 && !extractionComplete) ||
-    step === 4;
+  const nextDisabled = step === 3 && !extractionComplete;
 
   const sessionSubmissions = useMemo(() => {
-    let base = existingSubmissions;
+    // Steps 2 to 4 work only with files that are not flagged. A flagged file is replaced on
+    // the upload step, so it is kept out of the classify and submit lists.
+    const notFlagged = existingSubmissions.filter((s) => s.status !== "flagged");
+    let base = notFlagged;
     if (replaceSubmissionId) {
       if (sessionUploadIds.size === 0) return [];
-      base = existingSubmissions.filter((s) => sessionUploadIds.has(s.id));
+      base = notFlagged.filter((s) => sessionUploadIds.has(s.id));
     }
     // Flatten compiled children into top-level rows so every step (classify,
     // submit, previously-uploaded) sees the split segments — they only exist
@@ -144,9 +145,8 @@ export default function UploadDocuments() {
         if (docsRes.ok) {
           const data = (await docsRes.json()) as SubmissionDetail[];
           if (!cancelled) {
-            const activeSubmissions = data.filter((s) => s.status !== "flagged");
-            setExistingSubmissions(activeSubmissions);
-            setClassificationComplete(activeSubmissions.some((s) => s.status === "classified"));
+            setExistingSubmissions(data);
+            setClassificationComplete(data.some((s) => s.status === "classified"));
           }
         }
       } catch {
@@ -192,9 +192,23 @@ export default function UploadDocuments() {
     refetchSlots();
   }, [refetchSlots]);
 
+  // The one place that loads the student's documents. Every refresh goes through it, so the
+  // list (which includes flagged files) is built the same way on every path.
+  const loadSubmissions = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetchWithClerkAuth("/api/me/documents", token);
+    if (res.ok) {
+      const data = (await res.json()) as SubmissionDetail[];
+      setExistingSubmissions(data);
+    }
+  }, [getToken]);
+
   const handleUploadComplete = useCallback(async (result: ConfirmUploadResponse) => {
     setSessionUploadIds((prev) => new Set(prev).add(result.id));
-    if (replaceSubmissionId) {
+    // Only AI uploads still need the classify call. A file the student labelled is already CLASSIFIED,
+    // and the endpoint would refuse it.
+    if (replaceSubmissionId && result.status !== "classified") {
       const token = await getToken();
       if (token) {
         try {
@@ -206,55 +220,25 @@ export default function UploadDocuments() {
         } catch {
           // fallback: goToStep will retry
         }
-        const freshRes = await fetchWithClerkAuth("/api/me/documents", token);
-        if (freshRes.ok) {
-          const data = (await freshRes.json()) as SubmissionDetail[];
-          setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
-        }
-        refetchSlots();
       }
-      return;
     }
-    const token = await getToken();
-    if (token) {
-      const freshRes = await fetchWithClerkAuth("/api/me/documents", token);
-      if (freshRes.ok) {
-        const data = (await freshRes.json()) as SubmissionDetail[];
-        setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
-      }
-      refetchSlots();
-    }
-  }, [getToken, replaceSubmissionId, refetchSlots]);
+    await loadSubmissions();
+    await refetchSlots();
+  }, [getToken, replaceSubmissionId, loadSubmissions, refetchSlots]);
 
   const handleDeleted = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    const res = await fetchWithClerkAuth("/api/me/documents", token);
-    if (res.ok) {
-      const data = (await res.json()) as SubmissionDetail[];
-      setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
-    }
-    refetchSlots();
-  }, [getToken, refetchSlots]);
-
-  const refetchSubmissions = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    const res = await fetchWithClerkAuth("/api/me/documents", token);
-    if (res.ok) {
-      const data = (await res.json()) as SubmissionDetail[];
-      setExistingSubmissions(data.filter((s) => s.status !== "flagged"));
-    }
-  }, [getToken]);
+    await loadSubmissions();
+    await refetchSlots();
+  }, [loadSubmissions, refetchSlots]);
 
   const handleSubmitted = useCallback(async () => {
-    await refetchSubmissions();
+    await loadSubmissions();
     await refetchSlots();
-  }, [refetchSubmissions, refetchSlots]);
+  }, [loadSubmissions, refetchSlots]);
 
   useEffect(() => {
-    if (step === 4) refetchSubmissions();
-  }, [step, refetchSubmissions]);
+    if (step === 4) void loadSubmissions();
+  }, [step, loadSubmissions]);
 
   if (schoolYearClosed) {
     return (

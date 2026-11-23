@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
+import { motion, MotionConfig } from "framer-motion";
 import { ArrowRight, ChevronLeft, Info } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,9 @@ type UploadWizardProps = {
 export default function UploadWizard({ step, onStepChange, nextDisabled, children }: UploadWizardProps) {
   const navigate = useNavigate();
 
+  // reducedMotion="user" turns off these animations for people who ask for less motion in their system settings.
   return (
+    <MotionConfig reducedMotion="user">
     <div className="space-y-6">
       {/* Header + Stepper */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -79,12 +82,15 @@ export default function UploadWizard({ step, onStepChange, nextDisabled, childre
                   </span>
                 </div>
                 {i < STEPS.length - 1 && (
-                  <div
-                    className={cn(
-                      "h-0.5 mx-2 md:w-12",
-                      s.number < step ? "bg-primary" : "bg-slate-200"
-                    )}
-                  />
+                  <div className="relative mx-2 h-0.5 overflow-hidden rounded-full bg-slate-200 md:w-12">
+                    {/* Fills from left to right when the student moves past this step. */}
+                    <motion.div
+                      className="absolute inset-0 origin-left bg-primary"
+                      initial={false}
+                      animate={{ scaleX: s.number < step ? 1 : 0 }}
+                      transition={{ duration: 0.3, ease: "easeOut" }}
+                    />
+                  </div>
                 )}
               </div>
             ))}
@@ -96,16 +102,17 @@ export default function UploadWizard({ step, onStepChange, nextDisabled, childre
       {children}
 
       {/* Sticky footer */}
-      <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-lg">
-        <div className="flex items-center gap-2 px-2">
-          <Info className="h-4 w-4 text-slate-500" />
+      <div className="flex flex-col gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-lg md:flex-row md:items-center md:justify-between">
+        <div className="flex items-start gap-2 px-2 md:items-center">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500 md:mt-0" aria-hidden="true" />
           <p className="text-sm text-slate-500">{FOOTER_HINTS[step]}</p>
         </div>
-        <div className="flex items-center gap-3">
+        {/* On phones the primary action comes first and spans the full width. */}
+        <div className="flex flex-col-reverse gap-2 md:flex-row md:items-center md:gap-3">
           <Button
             variant="ghost"
             onClick={() => navigate("/student/dashboard")}
-            className="text-slate-500 hover:text-slate-700"
+            className="w-full text-slate-500 hover:text-slate-700 md:w-auto"
           >
             Cancel
           </Button>
@@ -113,27 +120,31 @@ export default function UploadWizard({ step, onStepChange, nextDisabled, childre
             <Button
               variant="outline"
               onClick={() => onStepChange(step - 1)}
-              className="rounded-xl gap-2"
+              className="w-full rounded-xl gap-2 md:w-auto"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
               Previous
             </Button>
           )}
+          {/* The last step submits from its own "Submit All Documents" card, so the footer shows no action there. */}
+          {step < 4 && (
           <Button
             disabled={nextDisabled}
-            onClick={() => step < 4 && onStepChange(step + 1)}
+            onClick={() => onStepChange(step + 1)}
             className={cn(
-              "rounded-xl shadow-md gap-2",
+              "w-full rounded-xl shadow-md gap-2 md:w-auto",
               nextDisabled
                 ? "bg-slate-300 text-slate-500 cursor-not-allowed"
                 : "bg-primary text-white hover:bg-primary/90",
             )}
           >
             {NEXT_LABELS[step]}
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
+          )}
         </div>
       </div>
     </div>
+    </MotionConfig>
   );
 }

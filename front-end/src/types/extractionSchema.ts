@@ -53,6 +53,8 @@ export interface ExtractionSchemaRecord {
     status: ExtractionSchemaStatus;
     source_file_name: string | null;
     generation_prompt: string | null;
+    has_sample?: boolean;
+    sample_content_type?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -68,6 +70,16 @@ export interface ExtractionSchemaPayload {
     status: ExtractionSchemaStatus;
     source_file_name: string | null;
     generation_prompt: string | null;
+    sample_file_key?: string | null;
+}
+
+export interface SampleCleanupSummary {
+    dry_run: boolean;
+    scanned: number;
+    orphaned_count: number;
+    deleted_count: number;
+    failed_keys: string[];
+    orphaned_keys: string[];
 }
 
 export interface ExtractionSchemaGenerateResponse {
